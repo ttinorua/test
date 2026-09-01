@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MyCloud</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <h1>MyCloud</h1>
+    <p>Your personal file storage.</p>
+  </header>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <ul class="flashes">
+        {% for message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+
+  <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="upload-form">
+    <input type="file" name="file" required>
+    <button type="submit">Upload</button>
+  </form>
+
+  {% if files %}
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Size</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for f in files %}
+        <tr>
+          <td>{{ f.name }}</td>
+          <td>{{ f.size }}</td>
+          <td class="actions">
+            <a href="{{ url_for('download', filename=f.name) }}">Download</a>
+            <form action="{{ url_for('delete', filename=f.name) }}" method="post" onsubmit="return confirm('Delete {{ f.name }}?');">
+              <button type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty">No files yet. Upload something above.</p>
+  {% endif %}
+</body>
+</html>

@@ -8,12 +8,14 @@ data class TransactionWithDetails(
     val accountName: String,
     val categoryId: Long?,
     val categoryName: String?,
+    val mainCategoryName: String?,
     val categoryColorHex: String?,
     val date: Long,
     val note: String
 )
 
 data class CategorySpend(
+    val mainCategory: String,
     val categoryId: Long?,
     val categoryName: String,
     val colorHex: String,

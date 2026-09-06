@@ -165,14 +165,14 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
                             Column {
                                 Text(row.note.ifBlank { row.categoryName }, style = MaterialTheme.typography.bodyMedium)
                                 Text(
-                                    "${row.categoryName} · ${Formatters.date(row.date)}",
+                                    "${row.mainCategoryName} · ${row.categoryName} · ${Formatters.date(row.date)}",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             val income = row.type == com.financetracker.app.data.db.entity.TransactionType.INCOME
                             Text(
-                                (if (income) "+" else "-") + Formatters.currency(row.amount),
+                                (if (income) "+" else "-") + Formatters.amount(row.amount),
                                 color = if (income) IncomeGreen else ExpenseRed
                             )
                         }

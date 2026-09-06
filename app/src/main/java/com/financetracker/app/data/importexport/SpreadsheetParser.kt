@@ -18,6 +18,7 @@ data class ParsedTransactionRow(
     val rowNumber: Int,
     val date: Long,
     val note: String,
+    val mainCategoryName: String,
     val categoryName: String,
     val type: TransactionType,
     val amount: Double
@@ -37,8 +38,9 @@ object SpreadsheetParser {
 
     private val DATE_ALIASES = listOf("date", "transaction date", "posted date", "trans date", "txn date")
     private val DESC_ALIASES =
-        listOf("description", "note", "notes", "memo", "details", "payee", "merchant", "narrative")
-    private val CATEGORY_ALIASES = listOf("category", "categories")
+        listOf("description", "note", "notes", "memo", "details", "payee", "merchant", "narrative", "text")
+    private val MAIN_CATEGORY_ALIASES = listOf("maincategory", "main category", "group", "category group")
+    private val CATEGORY_ALIASES = listOf("category", "categories", "subcategory", "sub category")
     private val TYPE_ALIASES = listOf("type", "transaction type", "direction")
     private val AMOUNT_ALIASES = listOf("amount", "value", "transaction amount")
     private val DEBIT_ALIASES = listOf("debit", "withdrawal", "money out", "expense")
@@ -151,7 +153,7 @@ object SpreadsheetParser {
         h.trim().lowercase(Locale.US).replace(Regex("\\s+"), " ")
 
     private fun findHeaderRowIndex(rawRows: List<List<String>>): Int {
-        val allAliases = DATE_ALIASES + DESC_ALIASES + CATEGORY_ALIASES + TYPE_ALIASES +
+        val allAliases = DATE_ALIASES + DESC_ALIASES + MAIN_CATEGORY_ALIASES + CATEGORY_ALIASES + TYPE_ALIASES +
             AMOUNT_ALIASES + DEBIT_ALIASES + CREDIT_ALIASES
         for (i in rawRows.indices.take(20)) {
             val normalized = rawRows[i].map { normalizeHeader(it) }
@@ -180,6 +182,7 @@ object SpreadsheetParser {
 
         val dateCol = colIndex(DATE_ALIASES)
         val descCol = colIndex(DESC_ALIASES)
+        val mainCategoryCol = colIndex(MAIN_CATEGORY_ALIASES)
         val categoryCol = colIndex(CATEGORY_ALIASES)
         val typeCol = colIndex(TYPE_ALIASES)
         val amountCol = colIndex(AMOUNT_ALIASES)
@@ -257,6 +260,7 @@ object SpreadsheetParser {
             }
 
             val note = cell(descCol)
+            val mainCategory = cell(mainCategoryCol).ifBlank { "Uncategorized" }
             val category = cell(categoryCol).ifBlank { "Uncategorized" }
 
             rows.add(
@@ -264,6 +268,7 @@ object SpreadsheetParser {
                     rowNumber = displayRowNumber,
                     date = date,
                     note = note,
+                    mainCategoryName = mainCategory,
                     categoryName = category,
                     type = type,
                     amount = amount

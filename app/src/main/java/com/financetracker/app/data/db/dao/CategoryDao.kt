@@ -21,8 +21,8 @@ interface CategoryDao {
     @Query("SELECT * FROM categories WHERE id = :id")
     suspend fun getById(id: Long): Category?
 
-    @Query("SELECT * FROM categories WHERE name = :name AND type = :type LIMIT 1")
-    suspend fun getByNameAndType(name: String, type: TransactionType): Category?
+    @Query("SELECT * FROM categories WHERE mainCategory = :mainCategory AND name = :name AND type = :type LIMIT 1")
+    suspend fun getByMainAndNameAndType(mainCategory: String, name: String, type: TransactionType): Category?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(category: Category): Long

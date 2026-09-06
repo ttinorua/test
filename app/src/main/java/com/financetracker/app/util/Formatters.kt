@@ -1,22 +1,52 @@
 package com.financetracker.app.util
 
-import java.text.NumberFormat
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
 object Formatters {
-    private val currencyFormat: NumberFormat = NumberFormat.getCurrencyInstance(Locale.US)
+    // Plain grouped-decimal style (comma thousands, dot decimal) regardless of the
+    // selected currency, matching the reference bank app's transaction list.
+    private val numberFormat = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.US))
+
     private val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
+    private val fullDateFormat = SimpleDateFormat("EEEE d. MMMM yyyy", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
     private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
+    private val monthOnlyFormat = SimpleDateFormat("MMMM", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
 
-    fun currency(amount: Double): String = currencyFormat.format(amount)
+    private val CURRENCY_SYMBOLS = mapOf(
+        "DKK" to "kr.",
+        "NOK" to "kr.",
+        "SEK" to "kr.",
+        "USD" to "$",
+        "EUR" to "€",
+        "GBP" to "£"
+    )
+
+    /** Plain formatted number, no currency unit — used where the amount already implies context. */
+    fun amount(value: Double): String = numberFormat.format(value)
+
+    /** Formatted number with the given currency's unit appended. */
+    fun currency(value: Double, currencyCode: String): String {
+        return "${numberFormat.format(value)} ${currencySymbol(currencyCode)}"
+    }
+
+    fun currencySymbol(currencyCode: String): String = CURRENCY_SYMBOLS[currencyCode] ?: currencyCode
+
     fun date(epochMillis: Long): String = dateFormat.format(epochMillis)
+    fun fullDate(epochMillis: Long): String = fullDateFormat.format(epochMillis)
+    fun month(epochMillis: Long): String = monthOnlyFormat.format(epochMillis)
     fun currentMonthLabel(): String = monthFormat.format(System.currentTimeMillis())
 }
 

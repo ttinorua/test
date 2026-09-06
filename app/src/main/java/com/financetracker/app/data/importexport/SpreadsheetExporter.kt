@@ -23,10 +23,11 @@ object SpreadsheetExporter {
 
     fun exportCsv(transactions: List<TransactionWithDetails>, output: OutputStream) {
         OutputStreamWriter(output, Charsets.UTF_8).use { writer ->
-            writer.append("Date,Description,Category,Account,Type,Amount\n")
+            writer.append("Date,Description,MainCategory,Category,Account,Type,Amount\n")
             transactions.forEach { t ->
                 writer.append(DATE_FORMAT.format(t.date)).append(',')
                 writer.append(csvEscape(t.note)).append(',')
+                writer.append(csvEscape(t.mainCategoryName ?: "Uncategorized")).append(',')
                 writer.append(csvEscape(t.categoryName ?: "Uncategorized")).append(',')
                 writer.append(csvEscape(t.accountName)).append(',')
                 writer.append(t.type.name).append(',')
@@ -46,25 +47,27 @@ object SpreadsheetExporter {
             }
 
             val headerRow = sheet.createRow(0)
-            listOf("Date", "Description", "Category", "Account", "Type", "Amount").forEachIndexed { i, title ->
-                val cell = headerRow.createCell(i)
-                cell.setCellValue(title)
-                cell.cellStyle = headerStyle
-            }
+            listOf("Date", "Description", "MainCategory", "Category", "Account", "Type", "Amount")
+                .forEachIndexed { i, title ->
+                    val cell = headerRow.createCell(i)
+                    cell.setCellValue(title)
+                    cell.cellStyle = headerStyle
+                }
 
             transactions.forEachIndexed { rowIdx, t ->
                 val row = sheet.createRow(rowIdx + 1)
                 row.createCell(0).setCellValue(DATE_FORMAT.format(t.date))
                 row.createCell(1).setCellValue(t.note)
-                row.createCell(2).setCellValue(t.categoryName ?: "Uncategorized")
-                row.createCell(3).setCellValue(t.accountName)
-                row.createCell(4).setCellValue(t.type.name)
-                row.createCell(5).setCellValue(t.amount)
+                row.createCell(2).setCellValue(t.mainCategoryName ?: "Uncategorized")
+                row.createCell(3).setCellValue(t.categoryName ?: "Uncategorized")
+                row.createCell(4).setCellValue(t.accountName)
+                row.createCell(5).setCellValue(t.type.name)
+                row.createCell(6).setCellValue(t.amount)
             }
 
             // Fixed column widths (in 1/256 of a character) instead of autoSizeColumn:
             // POI's auto-sizing needs java.awt font metrics, which aren't available on Android.
-            val widths = intArrayOf(12, 40, 20, 20, 12, 14)
+            val widths = intArrayOf(12, 40, 20, 20, 20, 12, 14)
             widths.forEachIndexed { i, w -> sheet.setColumnWidth(i, w * 256) }
 
             workbook.write(output)

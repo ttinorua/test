@@ -24,6 +24,8 @@ import com.financetracker.app.ui.screens.dashboard.DashboardScreen
 import com.financetracker.app.ui.screens.dashboard.DashboardViewModel
 import com.financetracker.app.ui.screens.importexport.ImportExportScreen
 import com.financetracker.app.ui.screens.importexport.ImportExportViewModel
+import com.financetracker.app.ui.screens.overview.CategoryOverviewScreen
+import com.financetracker.app.ui.screens.overview.CategoryOverviewViewModel
 import com.financetracker.app.ui.screens.settings.SettingsScreen
 import com.financetracker.app.ui.screens.settings.SettingsViewModel
 import com.financetracker.app.ui.screens.transactions.TransactionsScreen
@@ -84,6 +86,12 @@ class MainActivity : ComponentActivity() {
                                 factory = ViewModelFactory { TransactionsViewModel(repository) }
                             )
                             TransactionsScreen(vm)
+                        }
+                        composable(Screen.Overview.route) {
+                            val vm: CategoryOverviewViewModel = viewModel(
+                                factory = ViewModelFactory { CategoryOverviewViewModel(repository) }
+                            )
+                            CategoryOverviewScreen(vm)
                         }
                         composable(Screen.ImportExport.route) {
                             val vm: ImportExportViewModel = viewModel(

@@ -87,11 +87,11 @@ class ImportExportViewModel(
 
         _uiState.update { it.copy(isImporting = true) }
         viewModelScope.launch {
-            val categoryCache = mutableMapOf<Pair<String, TransactionType>, Long>()
+            val categoryCache = mutableMapOf<Triple<String, String, TransactionType>, Long>()
             val transactions = state.parsedRows.map { row ->
-                val key = row.categoryName to row.type
+                val key = Triple(row.mainCategoryName, row.categoryName, row.type)
                 val categoryId = categoryCache.getOrPut(key) {
-                    repository.getOrCreateCategory(row.categoryName, row.type).id
+                    repository.getOrCreateCategory(row.mainCategoryName, row.categoryName, row.type).id
                 }
                 Transaction(
                     amount = row.amount,

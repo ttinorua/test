@@ -46,8 +46,10 @@ class SettingsViewModel(private val repository: FinanceRepository) : ViewModel()
         viewModelScope.launch { repository.deleteAccount(account) }
     }
 
-    fun addCategory(name: String, type: TransactionType) {
-        viewModelScope.launch { repository.upsertCategory(Category(name = name, type = type)) }
+    fun addCategory(mainCategory: String, name: String, type: TransactionType) {
+        viewModelScope.launch {
+            repository.upsertCategory(Category(name = name, mainCategory = mainCategory, type = type))
+        }
     }
 
     fun updateCategory(category: Category) {

@@ -39,6 +39,7 @@ interface TransactionDao {
             a.name AS accountName,
             t.categoryId AS categoryId,
             c.name AS categoryName,
+            c.mainCategory AS mainCategoryName,
             c.colorHex AS categoryColorHex,
             t.date AS date,
             t.note AS note
@@ -60,6 +61,7 @@ interface TransactionDao {
             a.name AS accountName,
             t.categoryId AS categoryId,
             c.name AS categoryName,
+            c.mainCategory AS mainCategoryName,
             c.colorHex AS categoryColorHex,
             t.date AS date,
             t.note AS note
@@ -93,6 +95,7 @@ interface TransactionDao {
     @Query(
         """
         SELECT
+            COALESCE(c.mainCategory, 'Uncategorized') AS mainCategory,
             c.id AS categoryId,
             COALESCE(c.name, 'Uncategorized') AS categoryName,
             COALESCE(c.colorHex, '#9E9E9E') AS colorHex,
@@ -100,7 +103,7 @@ interface TransactionDao {
         FROM transactions t
         LEFT JOIN categories c ON c.id = t.categoryId
         WHERE t.type = 'EXPENSE' AND t.date BETWEEN :from AND :to
-        GROUP BY t.categoryId
+        GROUP BY mainCategory, t.categoryId
         ORDER BY total DESC
         """
     )

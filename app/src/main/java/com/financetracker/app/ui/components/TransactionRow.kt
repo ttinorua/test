@@ -16,8 +16,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
-import com.financetracker.app.ui.theme.ExpenseRed
-import com.financetracker.app.ui.theme.IncomeGreen
 import com.financetracker.app.util.Formatters
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -26,7 +24,8 @@ fun TransactionRow(
     transaction: TransactionWithDetails,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    runningBalance: Double? = null
 ) {
     Row(
         modifier = modifier
@@ -47,19 +46,26 @@ fun TransactionRow(
                     style = MaterialTheme.typography.bodyLarge
                 )
                 Text(
-                    text = "${transaction.categoryName ?: "Uncategorized"} · ${transaction.accountName} · " +
-                        Formatters.date(transaction.date),
+                    text = transaction.categoryName ?: "Uncategorized",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
         val isIncome = transaction.type == TransactionType.INCOME
-        Text(
-            text = (if (isIncome) "+" else "-") + Formatters.currency(transaction.amount),
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = if (isIncome) IncomeGreen else ExpenseRed
-        )
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = (if (isIncome) "" else "-") + Formatters.amount(transaction.amount),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (runningBalance != null) {
+                Text(
+                    text = Formatters.amount(runningBalance),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }

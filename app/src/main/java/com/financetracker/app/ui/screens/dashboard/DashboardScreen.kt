@@ -20,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.ui.components.CategoryBreakdownList
 import com.financetracker.app.ui.components.EmptyState
 import com.financetracker.app.ui.components.SummaryCard
@@ -32,6 +33,7 @@ import com.financetracker.app.util.Formatters
 @Composable
 fun DashboardScreen(viewModel: DashboardViewModel) {
     val state by viewModel.uiState.collectAsState()
+    val currencyCode by CurrencySettings.currencyCode.collectAsState()
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Finance Tracker") }) }
@@ -47,7 +49,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                 SummaryCard(
                     modifier = Modifier.fillMaxWidth(),
                     title = "Net Balance",
-                    amount = Formatters.currency(state.netBalance)
+                    amount = Formatters.currency(state.netBalance, currencyCode)
                 )
             }
             item {
@@ -58,13 +60,13 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                     SummaryCard(
                         modifier = Modifier.weight(1f),
                         title = "${Formatters.currentMonthLabel()} Income",
-                        amount = Formatters.currency(state.monthlyIncome),
+                        amount = Formatters.currency(state.monthlyIncome, currencyCode),
                         valueColor = IncomeGreen
                     )
                     SummaryCard(
                         modifier = Modifier.weight(1f),
                         title = "${Formatters.currentMonthLabel()} Expenses",
-                        amount = Formatters.currency(state.monthlyExpense),
+                        amount = Formatters.currency(state.monthlyExpense, currencyCode),
                         valueColor = ExpenseRed
                     )
                 }
@@ -79,6 +81,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                     Card {
                         CategoryBreakdownList(
                             categories = state.categoryBreakdown,
+                            currencyCode = currencyCode,
                             modifier = Modifier.padding(16.dp)
                         )
                     }

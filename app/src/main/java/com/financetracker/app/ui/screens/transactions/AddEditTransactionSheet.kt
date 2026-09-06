@@ -25,6 +25,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +37,7 @@ import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.util.Formatters
 import com.financetracker.app.util.todayUtcMidnight
 
@@ -49,6 +51,7 @@ fun AddEditTransactionSheet(
     onSave: (amount: Double, type: TransactionType, accountId: Long, categoryId: Long?, date: Long, note: String) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val currencyCode by CurrencySettings.currencyCode.collectAsState()
 
     var type by remember { mutableStateOf(existing?.type ?: TransactionType.EXPENSE) }
     var amountText by remember { mutableStateOf(existing?.amount?.toString() ?: "") }
@@ -101,7 +104,7 @@ fun AddEditTransactionSheet(
                     amountError = null
                 },
                 label = { Text("Amount") },
-                leadingIcon = { Text("$") },
+                leadingIcon = { Text(Formatters.currencySymbol(currencyCode)) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 isError = amountError != null,
                 supportingText = amountError?.let { { Text(it) } },
@@ -209,11 +212,13 @@ private fun AccountDropdown(accounts: List<Account>, selectedId: Long?, onSelect
 @Composable
 private fun CategoryDropdown(categories: List<Category>, selectedId: Long?, onSelected: (Long?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = categories.firstOrNull { it.id == selectedId }?.name ?: "Uncategorized"
+    val selected = categories.firstOrNull { it.id == selectedId }
+    val selectedLabel = selected?.let { "${it.mainCategory} • ${it.name}" } ?: "Uncategorized"
+    val sorted = categories.sortedWith(compareBy({ it.mainCategory }, { it.name }))
 
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
-            value = selectedName,
+            value = selectedLabel,
             onValueChange = {},
             readOnly = true,
             label = { Text("Category") },
@@ -230,9 +235,9 @@ private fun CategoryDropdown(categories: List<Category>, selectedId: Long?, onSe
                     expanded = false
                 }
             )
-            categories.forEach { category ->
+            sorted.forEach { category ->
                 DropdownMenuItem(
-                    text = { Text(category.name) },
+                    text = { Text("${category.mainCategory} • ${category.name}") },
                     onClick = {
                         onSelected(category.id)
                         expanded = false

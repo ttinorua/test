@@ -40,11 +40,12 @@ class FinanceRepository(private val db: AppDatabase) {
     suspend fun updateCategory(category: Category) = categoryDao.update(category)
     suspend fun deleteCategory(category: Category) = categoryDao.delete(category)
 
-    suspend fun getOrCreateCategory(name: String, type: TransactionType): Category {
-        val trimmed = name.ifBlank { "Uncategorized" }
-        return categoryDao.getByNameAndType(trimmed, type) ?: run {
-            val id = categoryDao.insert(Category(name = trimmed, type = type))
-            Category(id = id, name = trimmed, type = type)
+    suspend fun getOrCreateCategory(mainCategory: String, name: String, type: TransactionType): Category {
+        val trimmedMain = mainCategory.ifBlank { "Uncategorized" }
+        val trimmedName = name.ifBlank { "Uncategorized" }
+        return categoryDao.getByMainAndNameAndType(trimmedMain, trimmedName, type) ?: run {
+            val id = categoryDao.insert(Category(name = trimmedName, mainCategory = trimmedMain, type = type))
+            Category(id = id, name = trimmedName, mainCategory = trimmedMain, type = type)
         }
     }
 

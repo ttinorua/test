@@ -104,6 +104,37 @@ class SpreadsheetParserTest {
     }
 
     @Test
+    fun `parses bank export with Text, MainCategory and Category columns`() {
+        // Mirrors the real Danske-Bank-style export: Date, Text, Amount, Balance, Reconciled,
+        // AccountNumber, AccountName, MainCategory, Category, Comment — minus sign for expenses.
+        val csv = """
+            Date,Text,Amount,Balance,Reconciled,AccountNumber,AccountName,MainCategory,Category,Comment
+            2026-09-04,MCD SpotifySE,-199,34563.81,,6820 1609846,Privatkonto,Media,"Phone, internet, streaming and TV",
+            2026-09-03,MobilePay REMA 1000 Solrød Str,-172.23,34762.81,,6820 1609846,Privatkonto,Food,Groceries,
+            2026-09-01,BS SOLRØD KOMMUNE,-3055,36462.21,,6820 1609846,Privatkonto,Education and institution,Education and institution (Other),
+            2026-08-31,Salary,26017.79,10000,,6820 1609846,Privatkonto,Income,Pay,
+        """.trimIndent()
+
+        val result = SpreadsheetParser.parseCsv(csv.byteInputStream())
+
+        assertTrue(result.errors.toString(), result.errors.isEmpty())
+        assertEquals(4, result.rows.size)
+
+        val spotify = result.rows[0]
+        assertEquals(TransactionType.EXPENSE, spotify.type)
+        assertEquals(199.0, spotify.amount, 0.001)
+        assertEquals("Media", spotify.mainCategoryName)
+        assertEquals("Phone, internet, streaming and TV", spotify.categoryName)
+        assertEquals("MCD SpotifySE", spotify.note)
+
+        val salary = result.rows[3]
+        assertEquals(TransactionType.INCOME, salary.type)
+        assertEquals(26017.79, salary.amount, 0.001)
+        assertEquals("Income", salary.mainCategoryName)
+        assertEquals("Pay", salary.categoryName)
+    }
+
+    @Test
     fun `reports error when no recognizable header is found`() {
         val csv = """
             foo,bar,baz

@@ -56,7 +56,7 @@ fun CategoryColorDot(colorHex: String, modifier: Modifier = Modifier.size(12.dp)
 }
 
 @Composable
-fun CategoryBreakdownList(categories: List<CategorySpend>, modifier: Modifier = Modifier) {
+fun CategoryBreakdownList(categories: List<CategorySpend>, currencyCode: String, modifier: Modifier = Modifier) {
     val total = categories.sumOf { it.total }.takeIf { it > 0 } ?: 1.0
     Column(modifier = modifier) {
         categories.forEach { spend ->
@@ -71,7 +71,11 @@ fun CategoryBreakdownList(categories: List<CategorySpend>, modifier: Modifier = 
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(text = spend.categoryName, style = MaterialTheme.typography.bodyMedium)
                     }
-                    Text(text = Formatters.currency(spend.total), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = Formatters.currency(spend.total, currencyCode),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 val barColor = runCatching { Color(android.graphics.Color.parseColor(spend.colorHex)) }.getOrDefault(Color.Gray)

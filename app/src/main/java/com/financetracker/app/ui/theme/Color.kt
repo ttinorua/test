@@ -12,3 +12,10 @@ val LightBackground = Color(0xFFFAFAF7)
 val LightSurface = Color(0xFFFFFFFF)
 val DarkBackground = Color(0xFF121412)
 val DarkSurface = Color(0xFF1B1F1B)
+
+// Validated colorblind-safe pair for the income/expense dual bar chart
+// (CVD delta-E and normal-vision delta-E both clear the safety floor).
+val ChartIncomeLight = Color(0xFF2A78D6)
+val ChartIncomeDark = Color(0xFF3987E5)
+val ChartExpenseLight = Color(0xFFEB6834)
+val ChartExpenseDark = Color(0xFFD95926)

@@ -9,8 +9,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -23,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.ui.components.CategoryBreakdownList
 import com.financetracker.app.ui.components.EmptyState
+import com.financetracker.app.ui.components.PeriodSelectorChip
 import com.financetracker.app.ui.components.SummaryCard
 import com.financetracker.app.ui.components.TransactionRow
 import com.financetracker.app.ui.theme.ExpenseRed
@@ -34,6 +39,7 @@ import com.financetracker.app.util.Formatters
 fun DashboardScreen(viewModel: DashboardViewModel) {
     val state by viewModel.uiState.collectAsState()
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
+    val isFiltered = state.selection.type != null || state.selection.categoryId != null
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Finance Tracker") }) }
@@ -49,7 +55,17 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                 SummaryCard(
                     modifier = Modifier.fillMaxWidth(),
                     title = "Net Balance",
-                    amount = Formatters.currency(state.netBalance, currencyCode)
+                    amount = Formatters.currency(state.netBalance, currencyCode),
+                    selected = !isFiltered,
+                    onClick = viewModel::clearSelection
+                )
+            }
+            item {
+                PeriodSelectorChip(
+                    option = state.periodOption,
+                    customRange = state.customRange,
+                    onOptionSelected = viewModel::selectPeriod,
+                    onCustomRangeSelected = viewModel::selectCustomRange
                 )
             }
             item {
@@ -59,15 +75,20 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                 ) {
                     SummaryCard(
                         modifier = Modifier.weight(1f),
-                        title = "${Formatters.currentMonthLabel()} Income",
-                        amount = Formatters.currency(state.monthlyIncome, currencyCode),
-                        valueColor = IncomeGreen
+                        title = "Income",
+                        amount = Formatters.currency(state.periodIncome, currencyCode),
+                        valueColor = IncomeGreen,
+                        selected = state.selection.type == com.financetracker.app.data.db.entity.TransactionType.INCOME,
+                        onClick = viewModel::selectIncome
                     )
                     SummaryCard(
                         modifier = Modifier.weight(1f),
-                        title = "${Formatters.currentMonthLabel()} Expenses",
-                        amount = Formatters.currency(state.monthlyExpense, currencyCode),
-                        valueColor = ExpenseRed
+                        title = "Expenses",
+                        amount = Formatters.currency(state.periodExpense, currencyCode),
+                        valueColor = ExpenseRed,
+                        selected = state.selection.type == com.financetracker.app.data.db.entity.TransactionType.EXPENSE &&
+                            state.selection.categoryId == null,
+                        onClick = viewModel::selectExpense
                     )
                 }
             }
@@ -76,24 +97,43 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             }
             item {
                 if (state.categoryBreakdown.isEmpty()) {
-                    EmptyState(message = "No expenses recorded this month yet.")
+                    EmptyState(message = "No expenses recorded for this period.")
                 } else {
                     Card {
                         CategoryBreakdownList(
                             categories = state.categoryBreakdown,
                             currencyCode = currencyCode,
+                            selectedCategoryId = state.selection.categoryId,
+                            onCategoryClick = { spend ->
+                                viewModel.selectCategory(spend.categoryId, spend.categoryName)
+                            },
                             modifier = Modifier.padding(16.dp)
                         )
                     }
                 }
             }
             item {
-                Text(text = "Recent transactions", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = state.selection.label?.let { "Transactions · $it" } ?: "Transactions",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    if (isFiltered) {
+                        AssistChip(
+                            onClick = viewModel::clearSelection,
+                            label = { Text("Clear") },
+                            leadingIcon = { Icon(Icons.Filled.Close, contentDescription = null) }
+                        )
+                    }
+                }
             }
-            if (state.recentTransactions.isEmpty()) {
+            if (state.transactions.isEmpty()) {
                 item { EmptyState(message = "No transactions yet. Add one or import a spreadsheet.") }
             } else {
-                items(state.recentTransactions, key = { it.id }) { tx ->
+                items(state.transactions, key = { it.id }) { tx ->
                     Card { TransactionRow(transaction = tx, onClick = {}, onLongClick = {}, modifier = Modifier.padding(horizontal = 12.dp)) }
                 }
             }

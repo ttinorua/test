@@ -18,9 +18,6 @@ object Formatters {
     private val fullDateFormat = SimpleDateFormat("EEEE d. MMMM yyyy", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
-    private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.US).apply {
-        timeZone = TimeZone.getTimeZone("UTC")
-    }
     private val monthOnlyFormat = SimpleDateFormat("MMMM", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
@@ -47,21 +44,6 @@ object Formatters {
     fun date(epochMillis: Long): String = dateFormat.format(epochMillis)
     fun fullDate(epochMillis: Long): String = fullDateFormat.format(epochMillis)
     fun month(epochMillis: Long): String = monthOnlyFormat.format(epochMillis)
-    fun currentMonthLabel(): String = monthFormat.format(System.currentTimeMillis())
-}
-
-/** Start (inclusive) / end (exclusive) epoch-millis bounds for the current UTC calendar month. */
-fun currentMonthRange(): Pair<Long, Long> {
-    val tz = TimeZone.getTimeZone("UTC")
-    val start = Calendar.getInstance(tz).apply {
-        set(Calendar.DAY_OF_MONTH, 1)
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-    }
-    val end = (start.clone() as Calendar).apply { add(Calendar.MONTH, 1) }
-    return start.timeInMillis to end.timeInMillis
 }
 
 fun todayUtcMidnight(): Long {

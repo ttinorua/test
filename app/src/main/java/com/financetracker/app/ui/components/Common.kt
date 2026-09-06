@@ -1,6 +1,7 @@
 package com.financetracker.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,13 +35,32 @@ fun SummaryCard(
     modifier: Modifier = Modifier,
     title: String,
     amount: String,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+    selected: Boolean = false,
+    onClick: (() -> Unit)? = null
 ) {
-    Card(modifier = modifier, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    val colors = if (selected) {
+        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+    } else {
+        CardDefaults.cardColors()
+    }
+    val content: @Composable () -> Unit = {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(text = title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(4.dp))
             Text(text = amount, style = MaterialTheme.typography.titleLarge, color = valueColor, fontWeight = FontWeight.Bold)
+        }
+    }
+    if (onClick != null) {
+        Card(
+            onClick = onClick,
+            modifier = modifier,
+            colors = colors,
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) { content() }
+    } else {
+        Card(modifier = modifier, colors = colors, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+            content()
         }
     }
 }
@@ -56,24 +76,62 @@ fun CategoryColorDot(colorHex: String, modifier: Modifier = Modifier.size(12.dp)
 }
 
 @Composable
-fun CategoryBreakdownList(categories: List<CategorySpend>, currencyCode: String, modifier: Modifier = Modifier) {
+fun CategoryBreakdownList(
+    categories: List<CategorySpend>,
+    currencyCode: String,
+    modifier: Modifier = Modifier,
+    selectedCategoryId: Long? = null,
+    onCategoryClick: ((CategorySpend) -> Unit)? = null
+) {
     val total = categories.sumOf { it.total }.takeIf { it > 0 } ?: 1.0
     Column(modifier = modifier) {
         categories.forEach { spend ->
             val fraction = (spend.total / total).coerceIn(0.0, 1.0)
-            Column(modifier = Modifier.padding(vertical = 6.dp)) {
+            val isSelected = onCategoryClick != null && spend.categoryId == selectedCategoryId
+            Column(
+                modifier = Modifier
+                    .padding(vertical = 6.dp)
+                    .then(
+                        if (onCategoryClick != null) {
+                            Modifier.clickable { onCategoryClick(spend) }
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .then(
+                        if (isSelected) {
+                            Modifier.background(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                RoundedCornerShape(8.dp)
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         CategoryColorDot(spend.colorHex)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = spend.categoryName, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = spend.categoryName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
                     }
                     Text(
                         text = Formatters.currency(spend.total, currencyCode),
                         style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
                         fontWeight = FontWeight.Medium
                     )
                 }

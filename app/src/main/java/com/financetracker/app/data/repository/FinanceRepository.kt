@@ -3,7 +3,6 @@ package com.financetracker.app.data.repository
 import com.financetracker.app.data.db.AppDatabase
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
-import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
@@ -53,26 +52,17 @@ class FinanceRepository(private val db: AppDatabase) {
     fun observeTransactions(): Flow<List<TransactionWithDetails>> =
         transactionDao.observeAllWithDetails()
 
-    fun observeRecentTransactions(limit: Int = 10): Flow<List<TransactionWithDetails>> =
-        transactionDao.observeRecentWithDetails(limit)
-
     suspend fun addTransaction(transaction: Transaction): Long = transactionDao.insert(transaction)
 
     suspend fun addTransactions(transactions: List<Transaction>): List<Long> =
         transactionDao.insertAll(transactions)
 
+    suspend fun getTransactionsForAccount(accountId: Long): List<Transaction> =
+        transactionDao.getByAccountId(accountId)
+
     suspend fun updateTransaction(transaction: Transaction) = transactionDao.update(transaction)
 
     suspend fun deleteTransaction(transaction: Transaction) = transactionDao.delete(transaction)
 
-    fun observeIncomeBetween(from: Long, to: Long): Flow<Double> =
-        transactionDao.observeIncomeBetween(from, to)
-
-    fun observeExpenseBetween(from: Long, to: Long): Flow<Double> =
-        transactionDao.observeExpenseBetween(from, to)
-
     fun observeNetBalance(): Flow<Double> = transactionDao.observeNetBalance()
-
-    fun observeExpenseByCategoryBetween(from: Long, to: Long): Flow<List<CategorySpend>> =
-        transactionDao.observeExpenseByCategoryBetween(from, to)
 }

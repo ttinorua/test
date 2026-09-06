@@ -1,5 +1,6 @@
 package com.financetracker.app.ui.screens.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,6 +14,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
@@ -41,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
@@ -61,6 +67,7 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
     var showAddCategory by remember { mutableStateOf(false) }
     var deleteAccountTarget by remember { mutableStateOf<Account?>(null) }
     var deleteCategoryTarget by remember { mutableStateOf<Category?>(null) }
+    var collapsedMains by remember { mutableStateOf(setOf<String>()) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Accounts & Categories") }) },
@@ -95,12 +102,19 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
-                                    Text(accountUi.account.name, style = MaterialTheme.typography.bodyLarge)
+                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                    Text(
+                                        accountUi.account.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                     Text(
                                         Formatters.currency(accountUi.balance, currencyCode),
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                                 IconButton(onClick = { deleteAccountTarget = accountUi.account }) {
@@ -113,19 +127,58 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
 
                 1 -> {
                     val grouped = state.categories.groupBy { it.mainCategory }.toSortedMap()
+                    val allExpanded = collapsedMains.isEmpty()
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp)
                     ) {
-                        grouped.forEach { (mainCategory, subcategories) ->
-                            item(key = "header_$mainCategory") {
+                        item(key = "expand_all_button") {
+                            TextButton(
+                                onClick = {
+                                    collapsedMains = if (allExpanded) grouped.keys.toSet() else emptySet()
+                                },
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (allExpanded) Icons.Filled.UnfoldLess else Icons.Filled.UnfoldMore,
+                                    contentDescription = null
+                                )
                                 Text(
-                                    text = mainCategory,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+                                    text = if (allExpanded) "Collapse all" else "Expand all",
+                                    modifier = Modifier.padding(start = 4.dp)
                                 )
                             }
-                            items(subcategories, key = { it.id }) { category ->
+                        }
+                        grouped.forEach { (mainCategory, subcategories) ->
+                            val isExpanded = mainCategory !in collapsedMains
+                            item(key = "header_$mainCategory") {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            collapsedMains = if (isExpanded) {
+                                                collapsedMains + mainCategory
+                                            } else {
+                                                collapsedMains - mainCategory
+                                            }
+                                        }
+                                        .padding(top = 12.dp, bottom = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "$mainCategory (${subcategories.size})",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.padding(start = 4.dp)
+                                    )
+                                }
+                            }
+                            if (isExpanded) {
+                                items(subcategories, key = { it.id }) { category ->
                                 Card(modifier = Modifier.padding(vertical = 4.dp)) {
                                     Row(
                                         modifier = Modifier
@@ -134,11 +187,18 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Row(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(end = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
                                             Text(
                                                 category.name,
                                                 style = MaterialTheme.typography.bodyLarge,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
                                                 modifier = Modifier.padding(start = 12.dp)
                                             )
                                         }
@@ -157,6 +217,7 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                             }
                         }
                     }
+                }
                 }
 
                 else -> Column(modifier = Modifier.padding(16.dp)) {

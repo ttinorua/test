@@ -21,7 +21,9 @@ data class ParsedTransactionRow(
     val mainCategoryName: String,
     val categoryName: String,
     val type: TransactionType,
-    val amount: Double
+    val amount: Double,
+    /** The account's running balance right after this transaction, if the file provided one. */
+    val balanceAfter: Double? = null
 )
 
 data class ImportResult(
@@ -43,6 +45,7 @@ object SpreadsheetParser {
     private val CATEGORY_ALIASES = listOf("category", "categories", "subcategory", "sub category")
     private val TYPE_ALIASES = listOf("type", "transaction type", "direction")
     private val AMOUNT_ALIASES = listOf("amount", "value", "transaction amount")
+    private val BALANCE_ALIASES = listOf("balance", "running balance", "closing balance", "account balance")
     private val DEBIT_ALIASES = listOf("debit", "withdrawal", "money out", "expense")
     private val CREDIT_ALIASES = listOf("credit", "deposit", "money in", "income")
 
@@ -154,7 +157,7 @@ object SpreadsheetParser {
 
     private fun findHeaderRowIndex(rawRows: List<List<String>>): Int {
         val allAliases = DATE_ALIASES + DESC_ALIASES + MAIN_CATEGORY_ALIASES + CATEGORY_ALIASES + TYPE_ALIASES +
-            AMOUNT_ALIASES + DEBIT_ALIASES + CREDIT_ALIASES
+            AMOUNT_ALIASES + DEBIT_ALIASES + CREDIT_ALIASES + BALANCE_ALIASES
         for (i in rawRows.indices.take(20)) {
             val normalized = rawRows[i].map { normalizeHeader(it) }
             val matches = normalized.count { it in allAliases }
@@ -188,6 +191,7 @@ object SpreadsheetParser {
         val amountCol = colIndex(AMOUNT_ALIASES)
         val debitCol = colIndex(DEBIT_ALIASES)
         val creditCol = colIndex(CREDIT_ALIASES)
+        val balanceCol = colIndex(BALANCE_ALIASES)
 
         if (dateCol == -1) {
             return ImportResult(emptyList(), listOf("Could not find a Date column."))
@@ -262,6 +266,7 @@ object SpreadsheetParser {
             val note = cell(descCol)
             val mainCategory = cell(mainCategoryCol).ifBlank { "Uncategorized" }
             val category = cell(categoryCol).ifBlank { "Uncategorized" }
+            val balanceAfter = if (balanceCol != -1) parseAmount(cell(balanceCol)) else null
 
             rows.add(
                 ParsedTransactionRow(
@@ -271,7 +276,8 @@ object SpreadsheetParser {
                     mainCategoryName = mainCategory,
                     categoryName = category,
                     type = type,
-                    amount = amount
+                    amount = amount,
+                    balanceAfter = balanceAfter
                 )
             )
         }

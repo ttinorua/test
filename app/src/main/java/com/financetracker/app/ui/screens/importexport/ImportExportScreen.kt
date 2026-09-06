@@ -162,18 +162,26 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column {
-                                Text(row.note.ifBlank { row.categoryName }, style = MaterialTheme.typography.bodyMedium)
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(
+                                    row.note.ifBlank { row.categoryName },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
                                 Text(
                                     "${row.mainCategoryName} · ${row.categoryName} · ${Formatters.date(row.date)}",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                             }
                             val income = row.type == com.financetracker.app.data.db.entity.TransactionType.INCOME
                             Text(
                                 (if (income) "+" else "-") + Formatters.amount(row.amount),
-                                color = if (income) IncomeGreen else ExpenseRed
+                                color = if (income) IncomeGreen else ExpenseRed,
+                                maxLines = 1
                             )
                         }
                     }

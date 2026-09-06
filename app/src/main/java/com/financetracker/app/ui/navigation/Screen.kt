@@ -16,6 +16,6 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     data object Settings : Screen("settings", "Accounts", Icons.Filled.AccountBalance)
 
     companion object {
-        val bottomNavItems = listOf(Dashboard, Transactions, Overview, ImportExport, Settings)
+        val bottomNavItems = listOf(Dashboard, Transactions, Overview, Settings, ImportExport)
     }
 }

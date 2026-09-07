@@ -118,7 +118,7 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
 
                         if (state.accounts.isEmpty()) {
                             Text(
-                                "Add an account first (Accounts & Categories tab).",
+                                "Add an account first (Accounts tab).",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.error
                             )

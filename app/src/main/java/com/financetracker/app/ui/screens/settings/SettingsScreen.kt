@@ -9,15 +9,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.AlertDialog
@@ -34,9 +35,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -82,7 +83,7 @@ fun SettingsScreen(
     var collapsedMains by remember { mutableStateOf(setOf<String>()) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Account") }) },
+        topBar = { TopAppBar(title = { Text("Settings") }) },
         floatingActionButton = {
             if (tabIndex == 0 || tabIndex == 1) {
                 FloatingActionButton(onClick = {
@@ -94,12 +95,32 @@ fun SettingsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            TabRow(selectedTabIndex = tabIndex) {
-                Tab(selected = tabIndex == 0, onClick = { tabIndex = 0 }, text = { Text("Accounts") })
-                Tab(selected = tabIndex == 1, onClick = { tabIndex = 1 }, text = { Text("Categories") })
-                Tab(selected = tabIndex == 2, onClick = { tabIndex = 2 }, text = { Text("Budgets") })
-                Tab(selected = tabIndex == 3, onClick = { tabIndex = 3 }, text = { Text("Import/Export") })
-                Tab(selected = tabIndex == 4, onClick = { tabIndex = 4 }, text = { Text("General") })
+            ScrollableTabRow(selectedTabIndex = tabIndex, edgePadding = 12.dp) {
+                Tab(
+                    selected = tabIndex == 0,
+                    onClick = { tabIndex = 0 },
+                    text = { Text("Accounts", maxLines = 1) }
+                )
+                Tab(
+                    selected = tabIndex == 1,
+                    onClick = { tabIndex = 1 },
+                    text = { Text("Categories", maxLines = 1) }
+                )
+                Tab(
+                    selected = tabIndex == 2,
+                    onClick = { tabIndex = 2 },
+                    text = { Text("Budgets", maxLines = 1) }
+                )
+                Tab(
+                    selected = tabIndex == 3,
+                    onClick = { tabIndex = 3 },
+                    text = { Text("Import/Export", maxLines = 1) }
+                )
+                Tab(
+                    selected = tabIndex == 4,
+                    onClick = { tabIndex = 4 },
+                    text = { Text("General", maxLines = 1) }
+                )
             }
 
             when (tabIndex) {
@@ -339,7 +360,16 @@ private fun BudgetsTab(categories: List<Category>, currencyCode: String) {
     val overallBudget by BudgetLimits.overallMonthlyBudget.collectAsState()
     val categoryBudgets by BudgetLimits.categoryBudgets.collectAsState()
     var overallText by remember { mutableStateOf(overallBudget?.let { Formatters.amount(it) } ?: "") }
-    val sortedCategories = categories.sortedWith(compareBy({ it.mainCategory }, { it.name }))
+    var pendingCategoryIds by remember { mutableStateOf(setOf<Long>()) }
+
+    val categoryById = categories.associateBy { it.id }
+    val activeCategories = (categoryBudgets.keys + pendingCategoryIds)
+        .mapNotNull { categoryById[it] }
+        .distinctBy { it.id }
+        .sortedWith(compareBy({ it.mainCategory }, { it.name }))
+    val availableCategories = categories
+        .filterNot { it.id in categoryBudgets.keys || it.id in pendingCategoryIds }
+        .sortedWith(compareBy({ it.mainCategory }, { it.name }))
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -381,22 +411,92 @@ private fun BudgetsTab(categories: List<Category>, currencyCode: String) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
             )
+            AddCategoryBudgetSelector(
+                availableCategories = availableCategories,
+                onCategorySelected = { category -> pendingCategoryIds = pendingCategoryIds + category.id }
+            )
         }
-        if (sortedCategories.isEmpty()) {
+        if (activeCategories.isEmpty()) {
             item {
                 Text(
-                    "Add an expense category first to set a budget for it.",
+                    "No category budgets set yet. Search above to add one.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 12.dp)
                 )
             }
         } else {
-            items(sortedCategories, key = { it.id }) { category ->
+            items(activeCategories, key = { it.id }) { category ->
                 CategoryBudgetRow(
                     category = category,
                     currentBudget = categoryBudgets[category.id],
                     currencyCode = currencyCode,
-                    onBudgetChanged = { amount -> BudgetLimits.setCategoryBudget(category.id, amount) }
+                    onBudgetChanged = { amount -> BudgetLimits.setCategoryBudget(category.id, amount) },
+                    onRemove = {
+                        BudgetLimits.setCategoryBudget(category.id, null)
+                        pendingCategoryIds = pendingCategoryIds - category.id
+                    }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddCategoryBudgetSelector(
+    availableCategories: List<Category>,
+    onCategorySelected: (Category) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(query, availableCategories) {
+        if (query.isBlank()) {
+            availableCategories
+        } else {
+            availableCategories.filter {
+                it.name.contains(query, ignoreCase = true) || it.mainCategory.contains(query, ignoreCase = true)
+            }
+        }
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded && filtered.isNotEmpty(),
+        onExpandedChange = { expanded = it },
+        modifier = Modifier.padding(top = 8.dp)
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = {
+                query = it
+                expanded = true
+            },
+            label = { Text("Add a category budget") },
+            placeholder = { Text("Search categories…") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(MenuAnchorType.PrimaryEditable)
+        )
+        ExposedDropdownMenu(expanded = expanded && filtered.isNotEmpty(), onDismissRequest = { expanded = false }) {
+            filtered.forEach { category ->
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
+                            Text(
+                                text = "${category.mainCategory} • ${category.name}",
+                                modifier = Modifier.padding(start = 12.dp)
+                            )
+                        }
+                    },
+                    onClick = {
+                        onCategorySelected(category)
+                        query = ""
+                        expanded = false
+                    }
                 )
             }
         }
@@ -408,43 +508,49 @@ private fun CategoryBudgetRow(
     category: Category,
     currentBudget: Double?,
     currencyCode: String,
-    onBudgetChanged: (Double?) -> Unit
+    onBudgetChanged: (Double?) -> Unit,
+    onRemove: () -> Unit
 ) {
     var text by remember(category.id) { mutableStateOf(currentBudget?.let { Formatters.amount(it) } ?: "") }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Card(modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 4.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
-            Text(
-                text = "${category.mainCategory} • ${category.name}",
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 12.dp)
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
+                Text(
+                    text = "${category.mainCategory} • ${category.name}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp, end = 8.dp)
+                )
+                IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Remove budget", modifier = Modifier.size(18.dp))
+                }
+            }
+            OutlinedTextField(
+                value = text,
+                onValueChange = { input ->
+                    text = input
+                    val amount = input.replace(",", "").toDoubleOrNull()
+                    onBudgetChanged(if (input.isBlank()) null else amount)
+                },
+                label = { Text("Amount") },
+                placeholder = { Text("No limit set") },
+                leadingIcon = { Text(Formatters.currencySymbol(currencyCode)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
             )
         }
-        OutlinedTextField(
-            value = text,
-            onValueChange = { input ->
-                text = input
-                val amount = input.replace(",", "").toDoubleOrNull()
-                onBudgetChanged(if (input.isBlank()) null else amount)
-            },
-            placeholder = { Text("None") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            modifier = Modifier.width(110.dp)
-        )
     }
 }
 

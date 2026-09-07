@@ -11,7 +11,7 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     data object Dashboard : Screen("dashboard", "Dashboard", Icons.Filled.Home)
     data object Transactions : Screen("transactions", "Transactions", Icons.Filled.ReceiptLong)
     data object Overview : Screen("overview", "Spending", Icons.Filled.PieChart)
-    data object Settings : Screen("settings", "Accounts", Icons.Filled.AccountBalance)
+    data object Settings : Screen("settings", "Settings", Icons.Filled.AccountBalance)
 
     companion object {
         val bottomNavItems = listOf(Dashboard, Transactions, Overview, Settings)

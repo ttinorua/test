@@ -20,6 +20,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.financetracker.app.ui.navigation.Screen
+import com.financetracker.app.ui.screens.ai.AskAiScreen
+import com.financetracker.app.ui.screens.ai.AskAiViewModel
 import com.financetracker.app.ui.screens.dashboard.DashboardScreen
 import com.financetracker.app.ui.screens.dashboard.DashboardViewModel
 import com.financetracker.app.ui.screens.importexport.ImportExportScreen
@@ -79,7 +81,13 @@ class MainActivity : ComponentActivity() {
                             val vm: DashboardViewModel = viewModel(
                                 factory = ViewModelFactory { DashboardViewModel(repository) }
                             )
-                            DashboardScreen(vm)
+                            DashboardScreen(vm, onOpenAskAi = { navController.navigate("ask_ai") })
+                        }
+                        composable("ask_ai") {
+                            val vm: AskAiViewModel = viewModel(
+                                factory = ViewModelFactory { AskAiViewModel(repository) }
+                            )
+                            AskAiScreen(vm, onBack = { navController.popBackStack() })
                         }
                         composable(Screen.Transactions.route) {
                             val vm: TransactionsViewModel = viewModel(

@@ -1,9 +1,21 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+// Falls back to an env var so CI can inject it without a local.properties file.
+val anthropicApiKey: String =
+    (localProperties.getProperty("ANTHROPIC_API_KEY") ?: System.getenv("ANTHROPIC_API_KEY") ?: "")
 
 android {
     namespace = "com.financetracker.app"
@@ -17,6 +29,7 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicApiKey\"")
     }
 
     buildTypes {
@@ -43,6 +56,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -89,6 +103,9 @@ dependencies {
         exclude(group = "org.apache.xmlbeans", module = "xmlbeans")
     }
     implementation("org.apache.xmlbeans:xmlbeans:5.2.0")
+
+    // Claude API (chat, category suggestions, spending insights)
+    implementation("com.anthropic:anthropic-java:2.52.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

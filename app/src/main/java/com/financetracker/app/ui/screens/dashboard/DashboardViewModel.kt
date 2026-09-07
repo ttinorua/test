@@ -2,10 +2,13 @@ package com.financetracker.app.ui.screens.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.ai.ClaudeService
 import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BudgetSettings
+import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.effectiveReportingDate
@@ -13,9 +16,11 @@ import com.financetracker.app.util.periodRange
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /** null/null = no filter (show everything in the period). */
 data class DashboardSelection(
@@ -138,5 +143,37 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
 
     fun clearSelection() {
         _selection.value = DashboardSelection()
+    }
+
+    private val _isGeneratingInsights = MutableStateFlow(false)
+    val isGeneratingInsights: StateFlow<Boolean> = _isGeneratingInsights.asStateFlow()
+
+    fun generateInsights() {
+        if (_isGeneratingInsights.value) return
+        _isGeneratingInsights.value = true
+
+        viewModelScope.launch {
+            val current = uiState.value
+            val currencyCode = CurrencySettings.currencyCode.value
+            val systemPrompt =
+                "You are a friendly personal finance assistant embedded in the user's finance-tracking app. " +
+                    "In 2-3 short sentences, give one specific, useful observation about their spending this " +
+                    "period using the numbers provided. Be concrete with amounts and category names. Avoid " +
+                    "generic advice like 'track your spending' or 'create a budget'."
+            val summary = buildString {
+                appendLine("Currency: $currencyCode")
+                appendLine("Period income: ${current.periodIncome}")
+                appendLine("Period expense: ${current.periodExpense}")
+                appendLine("Spending by category (mainCategory / category: total):")
+                current.categoryBreakdown.forEach {
+                    appendLine("- ${it.mainCategory} / ${it.categoryName}: ${it.total}")
+                }
+            }
+
+            ClaudeService.ask(systemPrompt, summary, maxTokens = 300L)
+                .onSuccess { AiInsightsCache.save(it) }
+                .onFailure { AiInsightsCache.save("Couldn't generate insights: ${it.message}") }
+            _isGeneratingInsights.value = false
+        }
     }
 }

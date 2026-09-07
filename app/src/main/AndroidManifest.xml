@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Only used for the optional Claude AI features (chat, category suggestions, insights). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:name=".FinanceApp"
         android:allowBackup="true"

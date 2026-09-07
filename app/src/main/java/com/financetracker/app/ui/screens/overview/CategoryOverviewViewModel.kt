@@ -52,7 +52,8 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
         val (periodOption, customRange, groupBy, selectedKey) = filters
         val (from, to) = periodRange(periodOption, customRange)
         val inPeriod = transactions.filter {
-            val effectiveDate = effectiveReportingDate(it.date, it.type, shiftSalary)
+            val effectiveDate =
+                effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
             effectiveDate >= from && effectiveDate < to
         }
 

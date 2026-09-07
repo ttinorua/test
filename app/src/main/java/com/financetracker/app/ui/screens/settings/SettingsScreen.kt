@@ -237,14 +237,15 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     )
 
                     Text(
-                        "Shift end-of-month salary to next month",
+                        "Shift salary to next month",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = 24.dp)
                     )
                     Text(
-                        "If income lands in the last 3 days of a month (a typical salary payday), " +
-                            "count it toward next month's totals instead — the transaction keeps its " +
-                            "real payment date, only dashboard and spending-overview totals shift.",
+                        "Income categorized as Income • \"Pay, benefits and pension\" (a salary " +
+                            "paid at month-end) counts toward next month's totals instead — the " +
+                            "transaction keeps its real payment date, only dashboard and " +
+                            "spending-overview totals shift.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)

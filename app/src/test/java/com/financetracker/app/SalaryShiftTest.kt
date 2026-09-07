@@ -23,44 +23,54 @@ class SalaryShiftTest {
     }
 
     @Test
-    fun `disabled setting never shifts the date`() {
+    fun `disabled setting never shifts even a matching salary category`() {
         val date = utcMillis(2026, 8, 31)
-        val result = effectiveReportingDate(date, TransactionType.INCOME, enabled = false)
+        val result = effectiveReportingDate(
+            date, TransactionType.INCOME, "Income", "Pay, benefits and pension", enabled = false
+        )
         assertEquals(date, result)
     }
 
     @Test
-    fun `expense near month end is never shifted even when enabled`() {
-        val date = utcMillis(2026, 8, 31)
-        val result = effectiveReportingDate(date, TransactionType.EXPENSE, enabled = true)
-        assertEquals(date, result)
+    fun `matching salary category shifts to next month regardless of day`() {
+        val date = utcMillis(2026, 8, 15)
+        val result = effectiveReportingDate(
+            date, TransactionType.INCOME, "Income", "Pay, benefits and pension", enabled = true
+        )
+        assertEquals(Triple(2026, 9, 15), yearMonthDay(result))
     }
 
     @Test
-    fun `income on the last day of a 31-day month shifts to next month`() {
+    fun `matching salary category is case-insensitive`() {
         val date = utcMillis(2026, 8, 31)
-        val result = effectiveReportingDate(date, TransactionType.INCOME, enabled = true)
+        val result = effectiveReportingDate(
+            date, TransactionType.INCOME, "INCOME", "PAY, BENEFITS AND PENSION", enabled = true
+        )
         assertEquals(Triple(2026, 9, 30), yearMonthDay(result))
     }
 
     @Test
-    fun `income three days before month end (Feb, 28-day month) shifts to next month`() {
-        val date = utcMillis(2026, 2, 26)
-        val result = effectiveReportingDate(date, TransactionType.INCOME, enabled = true)
-        assertEquals(Triple(2026, 3, 26), yearMonthDay(result))
-    }
-
-    @Test
-    fun `income mid-month is not shifted`() {
-        val date = utcMillis(2026, 8, 15)
-        val result = effectiveReportingDate(date, TransactionType.INCOME, enabled = true)
+    fun `other income categories are not shifted`() {
+        val date = utcMillis(2026, 8, 31)
+        val result = effectiveReportingDate(
+            date, TransactionType.INCOME, "Income", "Other income", enabled = true
+        )
         assertEquals(date, result)
     }
 
     @Test
-    fun `income four days before month end is not shifted`() {
-        val date = utcMillis(2026, 8, 27)
-        val result = effectiveReportingDate(date, TransactionType.INCOME, enabled = true)
+    fun `expense with the same category strings is never shifted`() {
+        val date = utcMillis(2026, 8, 31)
+        val result = effectiveReportingDate(
+            date, TransactionType.EXPENSE, "Income", "Pay, benefits and pension", enabled = true
+        )
+        assertEquals(date, result)
+    }
+
+    @Test
+    fun `null category never shifts`() {
+        val date = utcMillis(2026, 8, 31)
+        val result = effectiveReportingDate(date, TransactionType.INCOME, null, null, enabled = true)
         assertEquals(date, result)
     }
 }

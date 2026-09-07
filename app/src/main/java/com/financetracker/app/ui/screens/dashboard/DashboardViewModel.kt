@@ -60,7 +60,8 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
         val (periodOption, customRange, selection) = filters
         val (from, to) = periodRange(periodOption, customRange)
         val inPeriod = transactions.filter {
-            val effectiveDate = effectiveReportingDate(it.date, it.type, shiftSalary)
+            val effectiveDate =
+                effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
             effectiveDate >= from && effectiveDate < to
         }
 

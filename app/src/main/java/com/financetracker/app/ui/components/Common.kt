@@ -2,6 +2,7 @@ package com.financetracker.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,8 +27,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.db.entity.CategorySpend
+import com.financetracker.app.ui.theme.BudgetWarningDark
+import com.financetracker.app.ui.theme.BudgetWarningLight
+import com.financetracker.app.ui.theme.ExpenseRed
 import com.financetracker.app.util.Formatters
 
 @Composable
@@ -153,6 +158,74 @@ fun CategoryBreakdownList(
                     )
                 }
             }
+        }
+    }
+}
+
+/** A labeled progress bar comparing [spent] against [budget], color-coded by how close it is. */
+@Composable
+fun BudgetProgressRow(
+    label: String,
+    spent: Double,
+    budget: Double,
+    currencyCode: String,
+    modifier: Modifier = Modifier,
+    colorHex: String? = null
+) {
+    val ratio = if (budget > 0) spent / budget else 0.0
+    val isDark = isSystemInDarkTheme()
+    val statusColor = when {
+        ratio >= 1.0 -> ExpenseRed
+        ratio >= 0.8 -> if (isDark) BudgetWarningDark else BudgetWarningLight
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    Column(modifier = modifier.padding(vertical = 6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (colorHex != null) {
+                    CategoryColorDot(colorHex)
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Text(
+                text = "${Formatters.amount(spent)} / ${Formatters.currency(budget, currencyCode)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = statusColor,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(statusColor.copy(alpha = 0.15f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(ratio.coerceIn(0.0, 1.0).toFloat())
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(statusColor)
+            )
         }
     }
 }

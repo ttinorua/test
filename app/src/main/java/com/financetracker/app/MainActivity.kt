@@ -24,7 +24,6 @@ import com.financetracker.app.ui.screens.ai.AskAiScreen
 import com.financetracker.app.ui.screens.ai.AskAiViewModel
 import com.financetracker.app.ui.screens.dashboard.DashboardScreen
 import com.financetracker.app.ui.screens.dashboard.DashboardViewModel
-import com.financetracker.app.ui.screens.importexport.ImportExportScreen
 import com.financetracker.app.ui.screens.importexport.ImportExportViewModel
 import com.financetracker.app.ui.screens.overview.CategoryOverviewScreen
 import com.financetracker.app.ui.screens.overview.CategoryOverviewViewModel
@@ -101,17 +100,14 @@ class MainActivity : ComponentActivity() {
                             )
                             CategoryOverviewScreen(vm)
                         }
-                        composable(Screen.ImportExport.route) {
-                            val vm: ImportExportViewModel = viewModel(
-                                factory = ViewModelFactory { ImportExportViewModel(repository, applicationContext) }
-                            )
-                            ImportExportScreen(vm)
-                        }
                         composable(Screen.Settings.route) {
                             val vm: SettingsViewModel = viewModel(
                                 factory = ViewModelFactory { SettingsViewModel(repository) }
                             )
-                            SettingsScreen(vm)
+                            val importExportVm: ImportExportViewModel = viewModel(
+                                factory = ViewModelFactory { ImportExportViewModel(repository, applicationContext) }
+                            )
+                            SettingsScreen(vm, importExportVm)
                         }
                     }
                 }

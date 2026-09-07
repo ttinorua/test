@@ -3,10 +3,12 @@ package com.financetracker.app.ui.screens.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.AiInsightsCache
+import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.repository.FinanceRepository
@@ -29,6 +31,21 @@ data class DashboardSelection(
     val label: String? = null
 )
 
+data class CategoryBudgetStatus(
+    val categoryId: Long,
+    val categoryName: String,
+    val mainCategory: String,
+    val colorHex: String,
+    val budget: Double,
+    val spent: Double
+)
+
+data class BudgetStatus(
+    val overallBudget: Double? = null,
+    val overallSpent: Double = 0.0,
+    val categoryStatuses: List<CategoryBudgetStatus> = emptyList()
+)
+
 data class DashboardUiState(
     val netBalance: Double = 0.0,
     val periodIncome: Double = 0.0,
@@ -37,7 +54,8 @@ data class DashboardUiState(
     val transactions: List<TransactionWithDetails> = emptyList(),
     val periodOption: PeriodOption = PeriodOption.THIS_MONTH,
     val customRange: Pair<Long, Long>? = null,
-    val selection: DashboardSelection = DashboardSelection()
+    val selection: DashboardSelection = DashboardSelection(),
+    val budgetStatus: BudgetStatus = BudgetStatus()
 )
 
 private const val UNFILTERED_DISPLAY_LIMIT = 20
@@ -46,6 +64,13 @@ private data class DashboardFilters(
     val periodOption: PeriodOption,
     val customRange: Pair<Long, Long>?,
     val selection: DashboardSelection
+)
+
+private data class DashboardExtras(
+    val shiftSalary: Boolean,
+    val categories: List<Category>,
+    val overallBudget: Double?,
+    val categoryBudgets: Map<Long, Double>
 )
 
 class DashboardViewModel(private val repository: FinanceRepository) : ViewModel() {
@@ -60,9 +85,17 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
         combine(_periodOption, _customRange, _selection) { periodOption, customRange, selection ->
             DashboardFilters(periodOption, customRange, selection)
         },
-        BudgetSettings.shiftSalaryToNextMonth
-    ) { transactions, netBalance, filters, shiftSalary ->
+        combine(
+            BudgetSettings.shiftSalaryToNextMonth,
+            repository.observeCategories(),
+            BudgetLimits.overallMonthlyBudget,
+            BudgetLimits.categoryBudgets
+        ) { shiftSalary, categories, overallBudget, categoryBudgets ->
+            DashboardExtras(shiftSalary, categories, overallBudget, categoryBudgets)
+        }
+    ) { transactions, netBalance, filters, extras ->
         val (periodOption, customRange, selection) = filters
+        val (shiftSalary, categories, overallBudget, categoryBudgets) = extras
         val (from, to) = periodRange(periodOption, customRange)
         val inPeriod = transactions.filter {
             val effectiveDate =
@@ -99,6 +132,29 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
         val isFiltered = selection.type != null || selection.categoryId != null
         val displayed = if (isFiltered) matches else matches.take(UNFILTERED_DISPLAY_LIMIT)
 
+        val (monthFrom, monthTo) = periodRange(PeriodOption.THIS_MONTH, null)
+        val monthExpenses = transactions.filter {
+            val effectiveDate =
+                effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
+            it.type == TransactionType.EXPENSE && effectiveDate >= monthFrom && effectiveDate < monthTo
+        }
+        val spentByCategory = monthExpenses
+            .filter { it.categoryId != null }
+            .groupBy { it.categoryId }
+            .mapValues { (_, txs) -> txs.sumOf { it.amount } }
+        val categoryById = categories.associateBy { it.id }
+        val categoryStatuses = categoryBudgets.mapNotNull { (categoryId, budget) ->
+            val category = categoryById[categoryId] ?: return@mapNotNull null
+            CategoryBudgetStatus(
+                categoryId = categoryId,
+                categoryName = category.name,
+                mainCategory = category.mainCategory,
+                colorHex = category.colorHex,
+                budget = budget,
+                spent = spentByCategory[categoryId] ?: 0.0
+            )
+        }.sortedByDescending { if (it.budget > 0) it.spent / it.budget else 0.0 }
+
         DashboardUiState(
             netBalance = netBalance,
             periodIncome = income,
@@ -107,7 +163,12 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
             transactions = displayed,
             periodOption = periodOption,
             customRange = customRange,
-            selection = selection
+            selection = selection,
+            budgetStatus = BudgetStatus(
+                overallBudget = overallBudget,
+                overallSpent = monthExpenses.sumOf { it.amount },
+                categoryStatuses = categoryStatuses
+            )
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 

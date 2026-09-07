@@ -19,3 +19,7 @@ val ChartIncomeLight = Color(0xFF2A78D6)
 val ChartIncomeDark = Color(0xFF3987E5)
 val ChartExpenseLight = Color(0xFFEB6834)
 val ChartExpenseDark = Color(0xFFD95926)
+
+// Budget progress "nearing limit" state (under = default onSurface, over = ExpenseRed).
+val BudgetWarningLight = Color(0xFFB25E00)
+val BudgetWarningDark = Color(0xFFFFB74D)

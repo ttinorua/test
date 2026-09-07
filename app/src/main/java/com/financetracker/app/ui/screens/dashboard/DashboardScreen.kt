@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.ai.ClaudeService
 import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.ui.components.BudgetProgressRow
 import com.financetracker.app.ui.components.CategoryBreakdownList
 import com.financetracker.app.ui.components.EmptyState
 import com.financetracker.app.ui.components.PeriodSelectorChip
@@ -80,6 +81,34 @@ fun DashboardScreen(viewModel: DashboardViewModel, onOpenAskAi: () -> Unit) {
                     selected = !isFiltered,
                     onClick = viewModel::clearSelection
                 )
+            }
+            val budgetStatus = state.budgetStatus
+            if (budgetStatus.overallBudget != null || budgetStatus.categoryStatuses.isNotEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(text = "Budget · This month", style = MaterialTheme.typography.titleMedium)
+                            budgetStatus.overallBudget?.let { overallBudget ->
+                                BudgetProgressRow(
+                                    label = "Overall",
+                                    spent = budgetStatus.overallSpent,
+                                    budget = overallBudget,
+                                    currencyCode = currencyCode,
+                                    modifier = Modifier.padding(top = 8.dp)
+                                )
+                            }
+                            budgetStatus.categoryStatuses.forEach { catStatus ->
+                                BudgetProgressRow(
+                                    label = catStatus.categoryName,
+                                    spent = catStatus.spent,
+                                    budget = catStatus.budget,
+                                    currencyCode = currencyCode,
+                                    colorHex = catStatus.colorHex
+                                )
+                            }
+                        }
+                    }
+                }
             }
             if (ClaudeService.isConfigured) {
                 item {

@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -47,20 +49,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.SUPPORTED_CURRENCIES
 import com.financetracker.app.ui.components.CategoryColorDot
+import com.financetracker.app.ui.screens.importexport.ImportExportScreen
+import com.financetracker.app.ui.screens.importexport.ImportExportViewModel
 import com.financetracker.app.util.Formatters
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel) {
+fun SettingsScreen(
+    viewModel: SettingsViewModel,
+    importExportViewModel: ImportExportViewModel
+) {
     val state by viewModel.uiState.collectAsState()
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
     val shiftSalaryToNextMonth by BudgetSettings.shiftSalaryToNextMonth.collectAsState()
@@ -73,9 +82,9 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
     var collapsedMains by remember { mutableStateOf(setOf<String>()) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Accounts & Categories") }) },
+        topBar = { TopAppBar(title = { Text("Account") }) },
         floatingActionButton = {
-            if (tabIndex != 2) {
+            if (tabIndex == 0 || tabIndex == 1) {
                 FloatingActionButton(onClick = {
                     if (tabIndex == 0) showAddAccount = true else showAddCategory = true
                 }) {
@@ -88,7 +97,9 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
             TabRow(selectedTabIndex = tabIndex) {
                 Tab(selected = tabIndex == 0, onClick = { tabIndex = 0 }, text = { Text("Accounts") })
                 Tab(selected = tabIndex == 1, onClick = { tabIndex = 1 }, text = { Text("Categories") })
-                Tab(selected = tabIndex == 2, onClick = { tabIndex = 2 }, text = { Text("General") })
+                Tab(selected = tabIndex == 2, onClick = { tabIndex = 2 }, text = { Text("Budgets") })
+                Tab(selected = tabIndex == 3, onClick = { tabIndex = 3 }, text = { Text("Import/Export") })
+                Tab(selected = tabIndex == 4, onClick = { tabIndex = 4 }, text = { Text("General") })
             }
 
             when (tabIndex) {
@@ -223,6 +234,13 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 }
                 }
 
+                2 -> BudgetsTab(
+                    categories = state.categories.filter { it.type == TransactionType.EXPENSE },
+                    currencyCode = currencyCode
+                )
+
+                3 -> ImportExportScreen(importExportViewModel)
+
                 else -> Column(modifier = Modifier.padding(16.dp)) {
                     Text("Display currency", style = MaterialTheme.typography.titleMedium)
                     Text(
@@ -312,6 +330,120 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { deleteCategoryTarget = null }) { Text("Cancel") } }
+        )
+    }
+}
+
+@Composable
+private fun BudgetsTab(categories: List<Category>, currencyCode: String) {
+    val overallBudget by BudgetLimits.overallMonthlyBudget.collectAsState()
+    val categoryBudgets by BudgetLimits.categoryBudgets.collectAsState()
+    var overallText by remember { mutableStateOf(overallBudget?.let { Formatters.amount(it) } ?: "") }
+    val sortedCategories = categories.sortedWith(compareBy({ it.mainCategory }, { it.name }))
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp)
+    ) {
+        item {
+            Text("Overall monthly budget", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "A single spending limit across all expenses combined, compared against " +
+                    "this calendar month's spending so far.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
+            )
+            OutlinedTextField(
+                value = overallText,
+                onValueChange = { text ->
+                    overallText = text
+                    val amount = text.replace(",", "").toDoubleOrNull()
+                    BudgetLimits.setOverallMonthlyBudget(if (text.isBlank()) null else amount)
+                },
+                label = { Text("Amount") },
+                placeholder = { Text("No limit set") },
+                leadingIcon = { Text(Formatters.currencySymbol(currencyCode)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            Text(
+                "Category budgets",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 24.dp)
+            )
+            Text(
+                "Optional monthly limits per category, shown on the dashboard once set.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
+            )
+        }
+        if (sortedCategories.isEmpty()) {
+            item {
+                Text(
+                    "Add an expense category first to set a budget for it.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            items(sortedCategories, key = { it.id }) { category ->
+                CategoryBudgetRow(
+                    category = category,
+                    currentBudget = categoryBudgets[category.id],
+                    currencyCode = currencyCode,
+                    onBudgetChanged = { amount -> BudgetLimits.setCategoryBudget(category.id, amount) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryBudgetRow(
+    category: Category,
+    currentBudget: Double?,
+    currencyCode: String,
+    onBudgetChanged: (Double?) -> Unit
+) {
+    var text by remember(category.id) { mutableStateOf(currentBudget?.let { Formatters.amount(it) } ?: "") }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
+            Text(
+                text = "${category.mainCategory} • ${category.name}",
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 12.dp)
+            )
+        }
+        OutlinedTextField(
+            value = text,
+            onValueChange = { input ->
+                text = input
+                val amount = input.replace(",", "").toDoubleOrNull()
+                onBudgetChanged(if (input.isBlank()) null else amount)
+            },
+            placeholder = { Text("None") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.width(110.dp)
         )
     }
 }

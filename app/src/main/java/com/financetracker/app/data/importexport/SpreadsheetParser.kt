@@ -104,7 +104,12 @@ object SpreadsheetParser {
                 if (DateUtil.isCellDateFormatted(cell)) {
                     val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
                     fmt.timeZone = TimeZone.getTimeZone("UTC")
-                    fmt.format(cell.dateCellValue)
+                    // cell.dateCellValue builds its Date using the JVM's default (device) timezone.
+                    // Re-derive it directly in UTC from the raw serial number instead, so a phone
+                    // set to e.g. Europe/Copenhagen (UTC+1/+2) doesn't shift the date back a day
+                    // when we then format it as UTC.
+                    val utcDate = DateUtil.getJavaDate(cell.numericCellValue, false, TimeZone.getTimeZone("UTC"))
+                    fmt.format(utcDate)
                 } else {
                     val d = cell.numericCellValue
                     if (d == Math.floor(d) && !d.isInfinite()) d.toLong().toString() else d.toString()

@@ -104,6 +104,55 @@ class SpreadsheetParserTest {
     }
 
     @Test
+    fun `parses xlsx date cell as the correct calendar day regardless of device timezone`() {
+        val originalTimeZone = java.util.TimeZone.getDefault()
+        try {
+            // Denmark sits at UTC+1/+2 — ahead of UTC. If the parser naively reads
+            // cell.dateCellValue (built in the *device's* timezone) and formats it as
+            // UTC, local midnight on Sept 1 lands on Aug 31 in UTC. This reproduces
+            // exactly that device setting to guard against it.
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Europe/Copenhagen"))
+
+            val bytes = ByteArrayOutputStream().use { bos ->
+                XSSFWorkbook().use { wb ->
+                    val sheet = wb.createSheet("Sheet1")
+                    val header = sheet.createRow(0)
+                    listOf("Date", "Text", "Amount", "MainCategory", "Category").forEachIndexed { i, v ->
+                        header.createCell(i).setCellValue(v)
+                    }
+                    val dateStyle = wb.createCellStyle().apply {
+                        dataFormat = wb.creationHelper.createDataFormat().getFormat("yyyy-mm-dd")
+                    }
+                    val row1 = sheet.createRow(1)
+                    val dateCell = row1.createCell(0)
+                    dateCell.setCellValue(java.time.LocalDate.of(2026, 9, 1))
+                    dateCell.cellStyle = dateStyle
+                    row1.createCell(1).setCellValue("BS SOLRØD KOMMUNE")
+                    row1.createCell(2).setCellValue(-3055.0)
+                    row1.createCell(3).setCellValue("Education and institution")
+                    row1.createCell(4).setCellValue("Education and institution (Other)")
+
+                    wb.write(bos)
+                }
+                bos.toByteArray()
+            }
+
+            val result = SpreadsheetParser.parseWorkbook(ByteArrayInputStream(bytes))
+
+            assertTrue(result.errors.toString(), result.errors.isEmpty())
+            assertEquals(1, result.rows.size)
+
+            val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+            cal.timeInMillis = result.rows[0].date
+            assertEquals(2026, cal.get(java.util.Calendar.YEAR))
+            assertEquals(java.util.Calendar.SEPTEMBER, cal.get(java.util.Calendar.MONTH))
+            assertEquals(1, cal.get(java.util.Calendar.DAY_OF_MONTH))
+        } finally {
+            java.util.TimeZone.setDefault(originalTimeZone)
+        }
+    }
+
+    @Test
     fun `parses bank export with Text, MainCategory and Category columns`() {
         // Mirrors the real Danske-Bank-style export: Date, Text, Amount, Balance, Reconciled,
         // AccountNumber, AccountName, MainCategory, Category, Comment — minus sign for expenses.

@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.ui.components.BarChartEntry
 import com.financetracker.app.util.GroupByOption
 import com.financetracker.app.util.PeriodOption
+import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.periodRange
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +28,13 @@ data class CategoryOverviewUiState(
     val totalExpense: Double = 0.0
 )
 
+private data class OverviewFilters(
+    val periodOption: PeriodOption,
+    val customRange: Pair<Long, Long>?,
+    val groupBy: GroupByOption,
+    val selectedKey: String?
+)
+
 class CategoryOverviewViewModel(private val repository: FinanceRepository) : ViewModel() {
 
     private val _periodOption = MutableStateFlow(PeriodOption.THIS_MONTH)
@@ -35,13 +44,17 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
 
     val uiState: StateFlow<CategoryOverviewUiState> = combine(
         repository.observeTransactions(),
-        _periodOption,
-        _customRange,
-        _groupBy,
-        _selectedKey
-    ) { transactions, periodOption, customRange, groupBy, selectedKey ->
+        combine(_periodOption, _customRange, _groupBy, _selectedKey) { periodOption, customRange, groupBy, selectedKey ->
+            OverviewFilters(periodOption, customRange, groupBy, selectedKey)
+        },
+        BudgetSettings.shiftSalaryToNextMonth
+    ) { transactions, filters, shiftSalary ->
+        val (periodOption, customRange, groupBy, selectedKey) = filters
         val (from, to) = periodRange(periodOption, customRange)
-        val inPeriod = transactions.filter { it.date >= from && it.date < to }
+        val inPeriod = transactions.filter {
+            val effectiveDate = effectiveReportingDate(it.date, it.type, shiftSalary)
+            effectiveDate >= from && effectiveDate < to
+        }
 
         val entries = inPeriod
             .groupBy { groupKeyOf(it, groupBy) }

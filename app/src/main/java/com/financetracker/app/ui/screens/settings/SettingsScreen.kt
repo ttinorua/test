@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.SUPPORTED_CURRENCIES
 import com.financetracker.app.ui.components.CategoryColorDot
@@ -61,6 +63,7 @@ import com.financetracker.app.util.Formatters
 fun SettingsScreen(viewModel: SettingsViewModel) {
     val state by viewModel.uiState.collectAsState()
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
+    val shiftSalaryToNextMonth by BudgetSettings.shiftSalaryToNextMonth.collectAsState()
     var tabIndex by remember { mutableIntStateOf(0) }
 
     var showAddAccount by remember { mutableStateOf(false) }
@@ -232,6 +235,30 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                         selected = currencyCode,
                         onSelected = { CurrencySettings.setCurrencyCode(it) }
                     )
+
+                    Text(
+                        "Shift end-of-month salary to next month",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
+                    Text(
+                        "If income lands in the last 3 days of a month (a typical salary payday), " +
+                            "count it toward next month's totals instead — the transaction keeps its " +
+                            "real payment date, only dashboard and spending-overview totals shift.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(
+                            checked = shiftSalaryToNextMonth,
+                            onCheckedChange = { BudgetSettings.setShiftSalaryToNextMonth(it) }
+                        )
+                        Text(
+                            text = if (shiftSalaryToNextMonth) "On" else "Off",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
                 }
             }
         }

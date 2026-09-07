@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
+import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.periodRange
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,6 +37,12 @@ data class DashboardUiState(
 
 private const val UNFILTERED_DISPLAY_LIMIT = 20
 
+private data class DashboardFilters(
+    val periodOption: PeriodOption,
+    val customRange: Pair<Long, Long>?,
+    val selection: DashboardSelection
+)
+
 class DashboardViewModel(private val repository: FinanceRepository) : ViewModel() {
 
     private val _periodOption = MutableStateFlow(PeriodOption.THIS_MONTH)
@@ -44,12 +52,17 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
     val uiState: StateFlow<DashboardUiState> = combine(
         repository.observeTransactions(),
         repository.observeNetBalance(),
-        _periodOption,
-        _customRange,
-        _selection
-    ) { transactions, netBalance, periodOption, customRange, selection ->
+        combine(_periodOption, _customRange, _selection) { periodOption, customRange, selection ->
+            DashboardFilters(periodOption, customRange, selection)
+        },
+        BudgetSettings.shiftSalaryToNextMonth
+    ) { transactions, netBalance, filters, shiftSalary ->
+        val (periodOption, customRange, selection) = filters
         val (from, to) = periodRange(periodOption, customRange)
-        val inPeriod = transactions.filter { it.date >= from && it.date < to }
+        val inPeriod = transactions.filter {
+            val effectiveDate = effectiveReportingDate(it.date, it.type, shiftSalary)
+            effectiveDate >= from && effectiveDate < to
+        }
 
         val income = inPeriod.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
         val expense = inPeriod.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }

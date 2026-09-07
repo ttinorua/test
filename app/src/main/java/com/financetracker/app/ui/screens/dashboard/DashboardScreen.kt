@@ -154,9 +154,10 @@ fun DashboardScreen(viewModel: DashboardViewModel, onOpenAskAi: () -> Unit) {
                 )
             }
             item {
+                val remaining = state.periodIncome - state.periodExpense
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     SummaryCard(
                         modifier = Modifier.weight(1f),
@@ -164,7 +165,9 @@ fun DashboardScreen(viewModel: DashboardViewModel, onOpenAskAi: () -> Unit) {
                         amount = Formatters.currency(state.periodIncome, currencyCode),
                         valueColor = IncomeGreen,
                         selected = state.selection.type == com.financetracker.app.data.db.entity.TransactionType.INCOME,
-                        onClick = viewModel::selectIncome
+                        onClick = viewModel::selectIncome,
+                        amountStyle = MaterialTheme.typography.titleMedium,
+                        contentPadding = 12.dp
                     )
                     SummaryCard(
                         modifier = Modifier.weight(1f),
@@ -173,7 +176,17 @@ fun DashboardScreen(viewModel: DashboardViewModel, onOpenAskAi: () -> Unit) {
                         valueColor = ExpenseRed,
                         selected = state.selection.type == com.financetracker.app.data.db.entity.TransactionType.EXPENSE &&
                             state.selection.categoryId == null,
-                        onClick = viewModel::selectExpense
+                        onClick = viewModel::selectExpense,
+                        amountStyle = MaterialTheme.typography.titleMedium,
+                        contentPadding = 12.dp
+                    )
+                    SummaryCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Remaining",
+                        amount = Formatters.currency(remaining, currencyCode),
+                        valueColor = if (remaining >= 0) IncomeGreen else ExpenseRed,
+                        amountStyle = MaterialTheme.typography.titleMedium,
+                        contentPadding = 12.dp
                     )
                 }
             }

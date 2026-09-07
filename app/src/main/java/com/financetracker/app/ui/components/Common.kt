@@ -26,8 +26,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.ui.theme.BudgetWarningDark
@@ -42,7 +44,9 @@ fun SummaryCard(
     amount: String,
     valueColor: Color = MaterialTheme.colorScheme.onSurface,
     selected: Boolean = false,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    amountStyle: TextStyle = MaterialTheme.typography.titleLarge,
+    contentPadding: Dp = 16.dp
 ) {
     val colors = if (selected) {
         CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
@@ -50,10 +54,16 @@ fun SummaryCard(
         CardDefaults.cardColors()
     }
     val content: @Composable () -> Unit = {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(modifier = Modifier.padding(contentPadding)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Spacer(modifier = Modifier.height(4.dp))
-            Text(text = amount, style = MaterialTheme.typography.titleLarge, color = valueColor, fontWeight = FontWeight.Bold)
+            Text(text = amount, style = amountStyle, color = valueColor, fontWeight = FontWeight.Bold)
         }
     }
     if (onClick != null) {

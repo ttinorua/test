@@ -7,13 +7,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,9 +27,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.financetracker.app.ui.theme.ExpenseRed
 import com.financetracker.app.ui.theme.IncomeGreen
-import kotlin.math.abs
 
 data class BarChartEntry(
     val key: String,
@@ -37,13 +39,14 @@ data class BarChartEntry(
 )
 
 private const val CHART_HEIGHT_DP = 160
-private const val BAR_WIDTH_DP = 28
-private const val COLUMN_WIDTH_DP = 48
+private const val BAR_WIDTH_DP = 16
+private const val COLUMN_WIDTH_DP = 72
+private const val MIN_LABEL_SPACE_DP = 20
 
 /**
- * One bar per entry, showing its net (income − expense): green above the axis,
- * red below. Columns sit close together (no per-series legend, single value each)
- * so many entries stay scannable on one row. Tapping a bar selects it.
+ * A grouped (income vs. expense) bar chart on one shared axis, with each bar's own
+ * value printed above it — or, if the bar is tall enough that a label above it would
+ * be clipped, inside the bar near its top instead. Tapping a bar's column selects it.
  */
 @Composable
 fun IncomeExpenseBarChart(
@@ -53,19 +56,28 @@ fun IncomeExpenseBarChart(
     formatValue: (Double) -> String,
     modifier: Modifier = Modifier
 ) {
-    val maxAbsNet = entries.maxOfOrNull { abs(it.income - it.expense) }?.takeIf { it > 0 } ?: 1.0
+    val maxValue = entries.maxOfOrNull { maxOf(it.income, it.expense) }?.takeIf { it > 0 } ?: 1.0
 
     Column(modifier = modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LegendDot(IncomeGreen)
+            Text(
+                "Income",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(start = 6.dp, end = 16.dp)
+            )
+            LegendDot(ExpenseRed)
+            Text("Expense", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 6.dp))
+        }
+        Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             entries.forEach { entry ->
-                val net = entry.income - entry.expense
                 val isSelected = entry.key == selectedKey
-                val color = if (net >= 0) IncomeGreen else ExpenseRed
                 Column(
                     modifier = Modifier
                         .width(COLUMN_WIDTH_DP.dp)
@@ -83,11 +95,13 @@ fun IncomeExpenseBarChart(
                         .padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Box(
+                    Row(
                         modifier = Modifier.height(CHART_HEIGHT_DP.dp),
-                        contentAlignment = Alignment.BottomCenter
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Bar(value = abs(net), maxValue = maxAbsNet, color = color)
+                        Bar(value = entry.income, maxValue = maxValue, color = IncomeGreen, formatValue = formatValue)
+                        Bar(value = entry.expense, maxValue = maxValue, color = ExpenseRed, formatValue = formatValue)
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
@@ -101,25 +115,51 @@ fun IncomeExpenseBarChart(
                 }
             }
         }
-        if (entries.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun Bar(value: Double, maxValue: Double, color: Color, formatValue: (Double) -> String) {
+    val fraction = (value / maxValue).toFloat().coerceIn(0f, 1f)
+    val barHeightDp = (CHART_HEIGHT_DP * fraction).dp
+    val labelInside = (CHART_HEIGHT_DP.dp - barHeightDp) < MIN_LABEL_SPACE_DP.dp
+
+    Box(
+        modifier = Modifier
+            .width(BAR_WIDTH_DP.dp)
+            .height(CHART_HEIGHT_DP.dp),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (fraction > 0f) barHeightDp else 2.dp)
+                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                .background(color)
+        )
+        if (value > 0) {
             Text(
-                text = "Scale: up to ${formatValue(maxAbsNet)} (green = net income, red = net spend)",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = formatValue(value),
+                fontSize = 9.sp,
+                lineHeight = 11.sp,
+                color = if (labelInside) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Visible,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .offset(y = if (labelInside) -(barHeightDp - 6.dp) else -(barHeightDp + 4.dp))
             )
         }
     }
 }
 
 @Composable
-private fun Bar(value: Double, maxValue: Double, color: Color) {
-    val fraction = (value / maxValue).toFloat().coerceIn(0f, 1f)
+private fun LegendDot(color: Color) {
     Box(
         modifier = Modifier
-            .width(BAR_WIDTH_DP.dp)
-            .fillMaxHeight(if (fraction > 0f) fraction else 0.01f)
-            .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+            .size(10.dp)
+            .clip(CircleShape)
             .background(color)
     )
 }

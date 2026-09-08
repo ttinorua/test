@@ -63,7 +63,13 @@ fun SummaryCard(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(4.dp))
-            Text(text = amount, style = amountStyle, color = valueColor, fontWeight = FontWeight.Bold)
+            AutoSizeText(
+                text = amount,
+                style = amountStyle,
+                color = valueColor,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
     if (onClick != null) {

@@ -118,7 +118,7 @@ fun DashboardScreen(
                                 state.customRange
                             )
                         },
-                        amountStyle = MaterialTheme.typography.titleMedium,
+                        amountStyle = MaterialTheme.typography.titleSmall,
                         contentPadding = 12.dp
                     )
                     SummaryCard(
@@ -135,7 +135,7 @@ fun DashboardScreen(
                                 state.customRange
                             )
                         },
-                        amountStyle = MaterialTheme.typography.titleMedium,
+                        amountStyle = MaterialTheme.typography.titleSmall,
                         contentPadding = 12.dp
                     )
                     SummaryCard(
@@ -143,7 +143,7 @@ fun DashboardScreen(
                         title = "Remaining",
                         amount = Formatters.currency(remaining, currencyCode),
                         valueColor = if (remaining >= 0) IncomeGreen else ExpenseRed,
-                        amountStyle = MaterialTheme.typography.titleMedium,
+                        amountStyle = MaterialTheme.typography.titleSmall,
                         contentPadding = 12.dp
                     )
                 }

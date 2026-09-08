@@ -8,5 +8,14 @@ import com.financetracker.app.ui.components.TransactionsPopupScreen
 @Composable
 fun DashboardTransactionsScreen(viewModel: DashboardTransactionsViewModel, onClose: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
-    TransactionsPopupScreen(title = state.label, transactions = state.transactions, onClose = onClose)
+    TransactionsPopupScreen(
+        title = state.label,
+        transactions = state.transactions,
+        accounts = state.accounts,
+        categories = state.categories,
+        onClose = onClose,
+        onAddTransaction = viewModel::addTransaction,
+        onUpdateTransaction = viewModel::updateTransaction,
+        onDeleteTransaction = viewModel::deleteTransaction
+    )
 }

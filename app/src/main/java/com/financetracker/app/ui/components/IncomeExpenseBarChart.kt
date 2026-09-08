@@ -96,12 +96,21 @@ fun IncomeExpenseBarChart(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(
-                        modifier = Modifier.height(CHART_HEIGHT_DP.dp),
+                        modifier = Modifier
+                            .height(CHART_HEIGHT_DP.dp)
+                            .width(COLUMN_WIDTH_DP.dp),
                         verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
                     ) {
-                        Bar(value = entry.income, maxValue = maxValue, color = IncomeGreen, formatValue = formatValue)
-                        Bar(value = entry.expense, maxValue = maxValue, color = ExpenseRed, formatValue = formatValue)
+                        // A category/main-category entry is inherently one type or the other
+                        // (a category never mixes income and expense), so only draw the bar
+                        // that's actually non-zero — an account, which does mix both, gets both.
+                        if (entry.income > 0) {
+                            Bar(value = entry.income, maxValue = maxValue, color = IncomeGreen, formatValue = formatValue)
+                        }
+                        if (entry.expense > 0) {
+                            Bar(value = entry.expense, maxValue = maxValue, color = ExpenseRed, formatValue = formatValue)
+                        }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
@@ -118,10 +127,11 @@ fun IncomeExpenseBarChart(
     }
 }
 
+/** Only ever called with a positive [value] — zero-value bars are simply omitted by the caller. */
 @Composable
 private fun Bar(value: Double, maxValue: Double, color: Color, formatValue: (Double) -> String) {
     val fraction = (value / maxValue).toFloat().coerceIn(0f, 1f)
-    val barHeightDp = (CHART_HEIGHT_DP * fraction).dp
+    val barHeightDp = maxOf((CHART_HEIGHT_DP * fraction).dp, 2.dp)
     val labelInside = (CHART_HEIGHT_DP.dp - barHeightDp) < MIN_LABEL_SPACE_DP.dp
 
     Box(
@@ -133,24 +143,22 @@ private fun Bar(value: Double, maxValue: Double, color: Color, formatValue: (Dou
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (fraction > 0f) barHeightDp else 2.dp)
+                .height(barHeightDp)
                 .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
                 .background(color)
         )
-        if (value > 0) {
-            Text(
-                text = formatValue(value),
-                fontSize = 9.sp,
-                lineHeight = 11.sp,
-                color = if (labelInside) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Visible,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .offset(y = if (labelInside) -(barHeightDp - 6.dp) else -(barHeightDp + 4.dp))
-            )
-        }
+        Text(
+            text = formatValue(value),
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            color = if (labelInside) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Visible,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .offset(y = if (labelInside) -(barHeightDp - 6.dp) else -(barHeightDp + 4.dp))
+        )
     }
 }
 

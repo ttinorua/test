@@ -22,10 +22,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.ui.navigation.Screen
 import com.financetracker.app.ui.screens.ai.AskAiScreen
 import com.financetracker.app.ui.screens.ai.AskAiViewModel
 import com.financetracker.app.ui.screens.dashboard.DashboardScreen
+import com.financetracker.app.ui.screens.dashboard.DashboardTransactionsScreen
+import com.financetracker.app.ui.screens.dashboard.DashboardTransactionsViewModel
 import com.financetracker.app.ui.screens.dashboard.DashboardViewModel
 import com.financetracker.app.ui.screens.importexport.ImportExportViewModel
 import com.financetracker.app.ui.screens.overview.CategoryOverviewScreen
@@ -87,7 +90,50 @@ class MainActivity : ComponentActivity() {
                             val vm: DashboardViewModel = viewModel(
                                 factory = ViewModelFactory { DashboardViewModel(repository) }
                             )
-                            DashboardScreen(vm, onOpenAskAi = { navController.navigate("ask_ai") })
+                            DashboardScreen(
+                                vm,
+                                onOpenAskAi = { navController.navigate("ask_ai") },
+                                onOpenTransactions = { type, categoryId, label, periodOption, customRange ->
+                                    val typeName = type?.name ?: "NONE"
+                                    val catId = categoryId ?: -1L
+                                    val from = customRange?.first ?: -1L
+                                    val to = customRange?.second ?: -1L
+                                    navController.navigate(
+                                        "dashboard_transactions/$typeName/$catId/${Uri.encode(label)}/" +
+                                            "${periodOption.name}/$from/$to"
+                                    )
+                                }
+                            )
+                        }
+                        composable(
+                            route = "dashboard_transactions/{type}/{categoryId}/{label}/{periodOption}/{from}/{to}",
+                            arguments = listOf(
+                                navArgument("type") { type = NavType.StringType },
+                                navArgument("categoryId") { type = NavType.LongType },
+                                navArgument("label") { type = NavType.StringType },
+                                navArgument("periodOption") { type = NavType.StringType },
+                                navArgument("from") { type = NavType.LongType },
+                                navArgument("to") { type = NavType.LongType }
+                            )
+                        ) { backStackEntry ->
+                            val args = backStackEntry.arguments!!
+                            val txType = args.getString("type")!!.let { if (it == "NONE") null else TransactionType.valueOf(it) }
+                            val categoryId = args.getLong("categoryId").takeIf { it >= 0 }
+                            val label = Uri.decode(args.getString("label")!!)
+                            val periodOption = PeriodOption.valueOf(args.getString("periodOption")!!)
+                            val from = args.getLong("from")
+                            val to = args.getLong("to")
+                            val customRange = if (periodOption == PeriodOption.CUSTOM && from >= 0 && to >= 0) {
+                                from to to
+                            } else {
+                                null
+                            }
+                            val vm: DashboardTransactionsViewModel = viewModel(
+                                factory = ViewModelFactory {
+                                    DashboardTransactionsViewModel(repository, txType, categoryId, label, periodOption, customRange)
+                                }
+                            )
+                            DashboardTransactionsScreen(vm, onClose = { navController.popBackStack() })
                         }
                         composable("ask_ai") {
                             val vm: AskAiViewModel = viewModel(

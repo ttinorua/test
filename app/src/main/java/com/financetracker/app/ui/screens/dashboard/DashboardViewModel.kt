@@ -6,7 +6,6 @@ import com.financetracker.app.data.ai.ClaudeService
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.data.db.entity.TransactionType
-import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
@@ -21,15 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-/** null/null = no filter (show everything in the period). */
-data class DashboardSelection(
-    val type: TransactionType? = null,
-    val categoryId: Long? = null,
-    val label: String? = null
-)
 
 data class CategoryBudgetStatus(
     val categoryId: Long,
@@ -51,19 +42,14 @@ data class DashboardUiState(
     val periodIncome: Double = 0.0,
     val periodExpense: Double = 0.0,
     val categoryBreakdown: List<CategorySpend> = emptyList(),
-    val transactions: List<TransactionWithDetails> = emptyList(),
     val periodOption: PeriodOption = PeriodOption.THIS_MONTH,
     val customRange: Pair<Long, Long>? = null,
-    val selection: DashboardSelection = DashboardSelection(),
     val budgetStatus: BudgetStatus = BudgetStatus()
 )
 
-private const val UNFILTERED_DISPLAY_LIMIT = 20
-
 private data class DashboardFilters(
     val periodOption: PeriodOption,
-    val customRange: Pair<Long, Long>?,
-    val selection: DashboardSelection
+    val customRange: Pair<Long, Long>?
 )
 
 private data class DashboardExtras(
@@ -77,13 +63,12 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
 
     private val _periodOption = MutableStateFlow(PeriodOption.THIS_MONTH)
     private val _customRange = MutableStateFlow<Pair<Long, Long>?>(null)
-    private val _selection = MutableStateFlow(DashboardSelection())
 
     val uiState: StateFlow<DashboardUiState> = combine(
         repository.observeTransactions(),
         repository.observeNetBalance(),
-        combine(_periodOption, _customRange, _selection) { periodOption, customRange, selection ->
-            DashboardFilters(periodOption, customRange, selection)
+        combine(_periodOption, _customRange) { periodOption, customRange ->
+            DashboardFilters(periodOption, customRange)
         },
         combine(
             BudgetSettings.shiftSalaryToNextMonth,
@@ -94,7 +79,7 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
             DashboardExtras(shiftSalary, categories, overallBudget, categoryBudgets)
         }
     ) { transactions, netBalance, filters, extras ->
-        val (periodOption, customRange, selection) = filters
+        val (periodOption, customRange) = filters
         val (shiftSalary, categories, overallBudget, categoryBudgets) = extras
         val (from, to) = periodRange(periodOption, customRange)
         val inPeriod = transactions.filter {
@@ -120,17 +105,6 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
                 )
             }
             .sortedByDescending { it.total }
-
-        val matches = inPeriod.filter { tx ->
-            when {
-                selection.categoryId != null -> tx.categoryId == selection.categoryId
-                selection.type != null -> tx.type == selection.type
-                else -> true
-            }
-        }.sortedByDescending { it.date }
-
-        val isFiltered = selection.type != null || selection.categoryId != null
-        val displayed = if (isFiltered) matches else matches.take(UNFILTERED_DISPLAY_LIMIT)
 
         val (monthFrom, monthTo) = periodRange(PeriodOption.THIS_MONTH, null)
         val monthExpenses = transactions.filter {
@@ -160,10 +134,8 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
             periodIncome = income,
             periodExpense = expense,
             categoryBreakdown = breakdown,
-            transactions = displayed,
             periodOption = periodOption,
             customRange = customRange,
-            selection = selection,
             budgetStatus = BudgetStatus(
                 overallBudget = overallBudget,
                 overallSpent = monthExpenses.sumOf { it.amount },
@@ -179,31 +151,6 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
     fun selectCustomRange(start: Long, endExclusive: Long) {
         _customRange.value = start to endExclusive
         _periodOption.value = PeriodOption.CUSTOM
-    }
-
-    fun selectIncome() {
-        _selection.update {
-            if (it.type == TransactionType.INCOME && it.categoryId == null) DashboardSelection()
-            else DashboardSelection(type = TransactionType.INCOME, label = "Income")
-        }
-    }
-
-    fun selectExpense() {
-        _selection.update {
-            if (it.type == TransactionType.EXPENSE && it.categoryId == null) DashboardSelection()
-            else DashboardSelection(type = TransactionType.EXPENSE, label = "Expenses")
-        }
-    }
-
-    fun selectCategory(categoryId: Long?, label: String) {
-        _selection.update {
-            if (it.categoryId == categoryId) DashboardSelection()
-            else DashboardSelection(type = TransactionType.EXPENSE, categoryId = categoryId, label = label)
-        }
-    }
-
-    fun clearSelection() {
-        _selection.value = DashboardSelection()
     }
 
     private val _isGeneratingInsights = MutableStateFlow(false)

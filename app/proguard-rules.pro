@@ -1,10 +1,19 @@
 # Apache POI / xmlbeans do runtime reflection and ship service files; keep them intact.
 -dontwarn org.apache.poi.**
 -dontwarn org.apache.xmlbeans.**
--dontwarn org.apache.commons.compress.**
 -keep class org.apache.poi.** { *; }
 -keep class org.apache.xmlbeans.** { *; }
 -keep interface org.apache.poi.** { *; }
+
+# commons-compress (zip handling for OOXML's underlying zip archive format) had the
+# same -dontwarn-without-a-real-keep gap as log4j2 above: its archivers.zip package
+# picks extra-field/compression-method implementations by reflectively calling a
+# specific class's no-arg constructor. R8 stripped one such constructor as apparently
+# unused, which failed with "NoSuchMethodException: <init> []" the moment a real
+# .xlsx (an actual zip archive, unlike a trivial test file) was opened.
+-dontwarn org.apache.commons.compress.**
+-keep class org.apache.commons.compress.** { *; }
+-keep interface org.apache.commons.compress.** { *; }
 
 # log4j2 (org.apache.logging.log4j) is POI's internal logging facade, pulled in
 # transitively — not used by the app directly. Its ThreadContextMapFactory picks a

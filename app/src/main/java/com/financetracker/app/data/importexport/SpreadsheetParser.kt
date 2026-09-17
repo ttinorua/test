@@ -32,6 +32,18 @@ data class ImportResult(
 )
 
 /**
+ * Renders a throwable together with its cause chain, since wrapper errors like
+ * ExceptionInInitializerError or InvocationTargetException hide the actually useful exception
+ * in getCause() — showing only the wrapper's own name is nearly useless for diagnosing a
+ * real-device failure we can't attach a debugger to.
+ */
+internal fun describeError(e: Throwable): String {
+    return generateSequence(e) { it.cause.takeIf { cause -> cause !== it } }
+        .take(4)
+        .joinToString(" ← ") { t -> t.javaClass.simpleName + (t.message?.let { m -> ": $m" } ?: "") }
+}
+
+/**
  * Parses bank/expense export files (.csv, .xlsx, .xls) into transaction rows.
  * Column names are matched against common aliases so real-world exports from
  * banks and spreadsheet apps work without a fixed template.
@@ -75,7 +87,7 @@ object SpreadsheetParser {
         } catch (e: OutOfMemoryError) {
             ImportResult(emptyList(), listOf("The file is too large to import on this device."))
         } catch (e: Throwable) {
-            ImportResult(emptyList(), listOf("Could not read file: ${e.message ?: e.javaClass.simpleName}"))
+            ImportResult(emptyList(), listOf("Could not read file: ${describeError(e)}"))
         }
     }
 
@@ -97,7 +109,7 @@ object SpreadsheetParser {
                 listOf("The spreadsheet is too large or complex to import on this device. Try trimming it to fewer rows/sheets, or export as CSV instead.")
             )
         } catch (e: Throwable) {
-            ImportResult(emptyList(), listOf("Could not read spreadsheet: ${e.message ?: e.javaClass.simpleName}"))
+            ImportResult(emptyList(), listOf("Could not read spreadsheet: ${describeError(e)}"))
         }
     }
 

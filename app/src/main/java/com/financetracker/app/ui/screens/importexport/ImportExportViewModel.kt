@@ -12,6 +12,7 @@ import com.financetracker.app.data.importexport.FileImportHelper
 import com.financetracker.app.data.importexport.ImportResult
 import com.financetracker.app.data.importexport.ParsedTransactionRow
 import com.financetracker.app.data.importexport.SpreadsheetExporter
+import com.financetracker.app.data.importexport.describeError
 import com.financetracker.app.data.repository.FinanceRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,7 +82,7 @@ class ImportExportViewModel(
             val result = try {
                 withContext(Dispatchers.IO) { FileImportHelper.parse(appContext, uri) }
             } catch (e: Throwable) {
-                ImportResult(emptyList(), listOf("Could not read file: ${e.message ?: e.javaClass.simpleName}"))
+                ImportResult(emptyList(), listOf("Could not read file: ${describeError(e)}"))
             }
 
             val (uniqueRows, duplicateCount) = if (accountId != null && result.rows.isNotEmpty()) {
@@ -163,7 +164,7 @@ class ImportExportViewModel(
                 _uiState.update {
                     it.copy(
                         isImporting = false,
-                        importError = "Import failed: ${e.message ?: e.javaClass.simpleName}"
+                        importError = "Import failed: ${describeError(e)}"
                     )
                 }
             }

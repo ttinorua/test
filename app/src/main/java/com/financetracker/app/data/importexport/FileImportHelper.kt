@@ -30,7 +30,7 @@ object FileImportHelper {
         } catch (e: OutOfMemoryError) {
             ImportResult(emptyList(), listOf("The file is too large to import on this device."))
         } catch (e: Throwable) {
-            ImportResult(emptyList(), listOf("Could not open the file: ${e.message ?: e.javaClass.simpleName}"))
+            ImportResult(emptyList(), listOf("Could not open the file: ${describeError(e)}"))
         }
     }
 

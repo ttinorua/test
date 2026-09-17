@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
@@ -143,12 +145,13 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
                 }
             }
 
-            if (state.parsedRows.isNotEmpty() || state.parseErrors.isNotEmpty()) {
+            if (state.parsedRows.isNotEmpty() || state.parseErrors.isNotEmpty() || state.duplicateCount > 0) {
                 item {
                     ImportPreview(
                         fileName = state.selectedFileName,
                         rowCount = state.parsedRows.size,
                         errors = state.parseErrors,
+                        duplicateCount = state.duplicateCount,
                         isImporting = state.isImporting,
                         onConfirm = { viewModel.confirmImport() },
                         onCancel = { viewModel.cancelPreview() }
@@ -240,7 +243,16 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
             onDismissRequest = viewModel::dismissResult,
             icon = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = IncomeGreen) },
             title = { Text("Import complete") },
-            text = { Text("Added ${state.importedCount} transactions.") },
+            text = {
+                Text(
+                    if (state.skippedDuplicates > 0) {
+                        "Added ${state.importedCount} transactions. Skipped ${state.skippedDuplicates} " +
+                            "already in your data."
+                    } else {
+                        "Added ${state.importedCount} transactions."
+                    }
+                )
+            },
             confirmButton = { TextButton(onClick = viewModel::dismissResult) { Text("OK") } }
         )
     }
@@ -251,6 +263,7 @@ private fun ImportPreview(
     fileName: String?,
     rowCount: Int,
     errors: List<String>,
+    duplicateCount: Int,
     isImporting: Boolean,
     onConfirm: () -> Unit,
     onCancel: () -> Unit
@@ -259,6 +272,23 @@ private fun ImportPreview(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Preview: ${fileName ?: "spreadsheet"}", style = MaterialTheme.typography.titleMedium)
             Text("$rowCount transactions ready to import", style = MaterialTheme.typography.bodyMedium)
+
+            if (duplicateCount > 0) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.ContentCopy,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        " $duplicateCount already in your data — skipped automatically",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                }
+            }
 
             if (errors.isNotEmpty()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

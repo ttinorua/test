@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.importexport.DuplicateTransactionFilter
 import com.financetracker.app.data.importexport.FileImportHelper
 import com.financetracker.app.data.importexport.ImportResult
 import com.financetracker.app.data.importexport.ParsedTransactionRow
@@ -30,8 +31,10 @@ data class ImportExportUiState(
     val selectedFileName: String? = null,
     val parsedRows: List<ParsedTransactionRow> = emptyList(),
     val parseErrors: List<String> = emptyList(),
+    val duplicateCount: Int = 0,
     val isImporting: Boolean = false,
     val importedCount: Int = 0,
+    val skippedDuplicates: Int = 0,
     val showResult: Boolean = false,
     val isExporting: Boolean = false,
     val exportMessage: String? = null,
@@ -63,12 +66,14 @@ class ImportExportViewModel(
     }
 
     fun onFilePicked(uri: Uri, displayName: String?) {
+        val accountId = _uiState.value.selectedAccountId
         _uiState.update {
             it.copy(
                 isParsing = true,
                 selectedFileName = displayName,
                 parsedRows = emptyList(),
                 parseErrors = emptyList(),
+                duplicateCount = 0,
                 showResult = false
             )
         }
@@ -78,12 +83,43 @@ class ImportExportViewModel(
             } catch (e: Throwable) {
                 ImportResult(emptyList(), listOf("Could not read file: ${e.message ?: e.javaClass.simpleName}"))
             }
-            _uiState.update { it.copy(isParsing = false, parsedRows = result.rows, parseErrors = result.errors) }
+
+            val (uniqueRows, duplicateCount) = if (accountId != null && result.rows.isNotEmpty()) {
+                try {
+                    withContext(Dispatchers.IO) { filterOutDuplicates(accountId, result.rows) }
+                } catch (e: Throwable) {
+                    result.rows to 0
+                }
+            } else {
+                result.rows to 0
+            }
+
+            _uiState.update {
+                it.copy(
+                    isParsing = false,
+                    parsedRows = uniqueRows,
+                    parseErrors = result.errors,
+                    duplicateCount = duplicateCount
+                )
+            }
         }
     }
 
+    /** Skips rows that already exist for this account, so re-importing an overlapping or
+     * previously-uploaded file never double-counts transactions. */
+    private suspend fun filterOutDuplicates(
+        accountId: Long,
+        rows: List<ParsedTransactionRow>
+    ): Pair<List<ParsedTransactionRow>, Int> {
+        val existing = repository.getTransactionsForAccount(accountId)
+        val result = DuplicateTransactionFilter.filter(existing, rows)
+        return result.uniqueRows to result.duplicateCount
+    }
+
     fun cancelPreview() {
-        _uiState.update { it.copy(parsedRows = emptyList(), parseErrors = emptyList(), selectedFileName = null) }
+        _uiState.update {
+            it.copy(parsedRows = emptyList(), parseErrors = emptyList(), duplicateCount = 0, selectedFileName = null)
+        }
     }
 
     fun confirmImport() {
@@ -115,9 +151,11 @@ class ImportExportViewModel(
                     it.copy(
                         isImporting = false,
                         importedCount = transactions.size,
+                        skippedDuplicates = state.duplicateCount,
                         showResult = true,
                         parsedRows = emptyList(),
                         parseErrors = emptyList(),
+                        duplicateCount = 0,
                         selectedFileName = null
                     )
                 }
@@ -159,7 +197,7 @@ class ImportExportViewModel(
     }
 
     fun dismissResult() {
-        _uiState.update { it.copy(showResult = false, importedCount = 0) }
+        _uiState.update { it.copy(showResult = false, importedCount = 0, skippedDuplicates = 0) }
     }
 
     fun exportTransactions(uri: Uri, format: ExportFormat) {

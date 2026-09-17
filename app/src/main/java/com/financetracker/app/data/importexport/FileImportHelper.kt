@@ -8,21 +8,29 @@ import android.provider.OpenableColumns
 object FileImportHelper {
 
     fun parse(context: Context, uri: Uri): ImportResult {
-        val displayName = queryDisplayName(context, uri) ?: uri.lastPathSegment ?: ""
-        val mimeType = context.contentResolver.getType(uri) ?: ""
-        val isCsv = displayName.endsWith(".csv", ignoreCase = true) ||
-            displayName.endsWith(".txt", ignoreCase = true) ||
-            mimeType.contains("csv", ignoreCase = true)
+        return try {
+            val displayName = queryDisplayName(context, uri) ?: uri.lastPathSegment ?: ""
+            val mimeType = context.contentResolver.getType(uri) ?: ""
+            val isCsv = displayName.endsWith(".csv", ignoreCase = true) ||
+                displayName.endsWith(".txt", ignoreCase = true) ||
+                mimeType.contains("csv", ignoreCase = true)
 
-        val stream = context.contentResolver.openInputStream(uri)
-            ?: return ImportResult(emptyList(), listOf("Could not open the selected file."))
+            val stream = context.contentResolver.openInputStream(uri)
+                ?: return ImportResult(emptyList(), listOf("Could not open the selected file."))
 
-        return stream.use { input ->
-            if (isCsv) {
-                SpreadsheetParser.parseCsv(input)
-            } else {
-                SpreadsheetParser.parseWorkbook(input)
+            stream.use { input ->
+                if (isCsv) {
+                    SpreadsheetParser.parseCsv(input)
+                } else {
+                    SpreadsheetParser.parseWorkbook(input)
+                }
             }
+        } catch (e: SecurityException) {
+            ImportResult(emptyList(), listOf("Lost access to the file — please pick it again."))
+        } catch (e: OutOfMemoryError) {
+            ImportResult(emptyList(), listOf("The file is too large to import on this device."))
+        } catch (e: Throwable) {
+            ImportResult(emptyList(), listOf("Could not open the file: ${e.message ?: e.javaClass.simpleName}"))
         }
     }
 

@@ -65,12 +65,18 @@ object SpreadsheetParser {
     )
 
     fun parseCsv(input: InputStream): ImportResult {
-        val reader = BufferedReader(InputStreamReader(input, Charsets.UTF_8))
-        val lines = reader.readLines().filter { it.isNotBlank() }
-        if (lines.isEmpty()) return ImportResult(emptyList(), listOf("The file is empty."))
+        return try {
+            val reader = BufferedReader(InputStreamReader(input, Charsets.UTF_8))
+            val lines = reader.readLines().filter { it.isNotBlank() }
+            if (lines.isEmpty()) return ImportResult(emptyList(), listOf("The file is empty."))
 
-        val rawRows = lines.map { splitCsvLine(it) }
-        return parseTable(rawRows)
+            val rawRows = lines.map { splitCsvLine(it) }
+            parseTable(rawRows)
+        } catch (e: OutOfMemoryError) {
+            ImportResult(emptyList(), listOf("The file is too large to import on this device."))
+        } catch (e: Throwable) {
+            ImportResult(emptyList(), listOf("Could not read file: ${e.message ?: e.javaClass.simpleName}"))
+        }
     }
 
     fun parseWorkbook(input: InputStream): ImportResult {
@@ -83,7 +89,14 @@ object SpreadsheetParser {
                 }
                 parseTable(rawRows)
             }
-        } catch (e: Exception) {
+        } catch (e: OutOfMemoryError) {
+            // Apache POI's XSSF reader loads the whole workbook into memory; a large/complex
+            // spreadsheet can exceed Android's heap even though the file itself isn't huge.
+            ImportResult(
+                emptyList(),
+                listOf("The spreadsheet is too large or complex to import on this device. Try trimming it to fewer rows/sheets, or export as CSV instead.")
+            )
+        } catch (e: Throwable) {
             ImportResult(emptyList(), listOf("Could not read spreadsheet: ${e.message ?: e.javaClass.simpleName}"))
         }
     }

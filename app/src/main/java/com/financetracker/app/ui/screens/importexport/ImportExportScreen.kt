@@ -83,6 +83,13 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
         }
     }
 
+    LaunchedEffect(state.importError) {
+        state.importError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.dismissImportError()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),

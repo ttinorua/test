@@ -8,6 +8,7 @@ import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.importexport.FileImportHelper
+import com.financetracker.app.data.importexport.ImportResult
 import com.financetracker.app.data.importexport.ParsedTransactionRow
 import com.financetracker.app.data.importexport.SpreadsheetExporter
 import com.financetracker.app.data.repository.FinanceRepository
@@ -33,7 +34,8 @@ data class ImportExportUiState(
     val importedCount: Int = 0,
     val showResult: Boolean = false,
     val isExporting: Boolean = false,
-    val exportMessage: String? = null
+    val exportMessage: String? = null,
+    val importError: String? = null
 )
 
 class ImportExportViewModel(
@@ -71,7 +73,11 @@ class ImportExportViewModel(
             )
         }
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { FileImportHelper.parse(appContext, uri) }
+            val result = try {
+                withContext(Dispatchers.IO) { FileImportHelper.parse(appContext, uri) }
+            } catch (e: Throwable) {
+                ImportResult(emptyList(), listOf("Could not read file: ${e.message ?: e.javaClass.simpleName}"))
+            }
             _uiState.update { it.copy(isParsing = false, parsedRows = result.rows, parseErrors = result.errors) }
         }
     }
@@ -87,32 +93,41 @@ class ImportExportViewModel(
 
         _uiState.update { it.copy(isImporting = true) }
         viewModelScope.launch {
-            val categoryCache = mutableMapOf<Triple<String, String, TransactionType>, Long>()
-            val transactions = state.parsedRows.map { row ->
-                val key = Triple(row.mainCategoryName, row.categoryName, row.type)
-                val categoryId = categoryCache.getOrPut(key) {
-                    repository.getOrCreateCategory(row.mainCategoryName, row.categoryName, row.type).id
+            try {
+                val categoryCache = mutableMapOf<Triple<String, String, TransactionType>, Long>()
+                val transactions = state.parsedRows.map { row ->
+                    val key = Triple(row.mainCategoryName, row.categoryName, row.type)
+                    val categoryId = categoryCache.getOrPut(key) {
+                        repository.getOrCreateCategory(row.mainCategoryName, row.categoryName, row.type).id
+                    }
+                    Transaction(
+                        amount = row.amount,
+                        type = row.type,
+                        accountId = accountId,
+                        categoryId = categoryId,
+                        date = row.date,
+                        note = row.note
+                    )
                 }
-                Transaction(
-                    amount = row.amount,
-                    type = row.type,
-                    accountId = accountId,
-                    categoryId = categoryId,
-                    date = row.date,
-                    note = row.note
-                )
-            }
-            repository.addTransactions(transactions)
-            reconcileAccountBalance(accountId, state.parsedRows)
-            _uiState.update {
-                it.copy(
-                    isImporting = false,
-                    importedCount = transactions.size,
-                    showResult = true,
-                    parsedRows = emptyList(),
-                    parseErrors = emptyList(),
-                    selectedFileName = null
-                )
+                repository.addTransactions(transactions)
+                reconcileAccountBalance(accountId, state.parsedRows)
+                _uiState.update {
+                    it.copy(
+                        isImporting = false,
+                        importedCount = transactions.size,
+                        showResult = true,
+                        parsedRows = emptyList(),
+                        parseErrors = emptyList(),
+                        selectedFileName = null
+                    )
+                }
+            } catch (e: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isImporting = false,
+                        importError = "Import failed: ${e.message ?: e.javaClass.simpleName}"
+                    )
+                }
             }
         }
     }
@@ -167,5 +182,9 @@ class ImportExportViewModel(
 
     fun dismissExportMessage() {
         _uiState.update { it.copy(exportMessage = null) }
+    }
+
+    fun dismissImportError() {
+        _uiState.update { it.copy(importError = null) }
     }
 }

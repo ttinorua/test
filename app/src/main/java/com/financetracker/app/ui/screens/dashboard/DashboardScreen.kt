@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +47,7 @@ import com.financetracker.app.util.PeriodOption
 fun DashboardScreen(
     viewModel: DashboardViewModel,
     onOpenAskAi: () -> Unit,
+    onOpenTrends: () -> Unit,
     onOpenTransactions: (
         type: TransactionType?,
         categoryId: Long?,
@@ -64,6 +66,9 @@ fun DashboardScreen(
             TopAppBar(
                 title = { Text("Finance Tracker") },
                 actions = {
+                    IconButton(onClick = onOpenTrends) {
+                        Icon(Icons.Filled.ShowChart, contentDescription = "Trends")
+                    }
                     if (ClaudeService.isConfigured) {
                         IconButton(onClick = onOpenAskAi) {
                             Icon(Icons.Filled.Chat, contentDescription = "Ask your finances")

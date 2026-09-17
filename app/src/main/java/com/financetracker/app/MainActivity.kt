@@ -39,6 +39,8 @@ import com.financetracker.app.ui.screens.settings.SettingsScreen
 import com.financetracker.app.ui.screens.settings.SettingsViewModel
 import com.financetracker.app.ui.screens.transactions.TransactionsScreen
 import com.financetracker.app.ui.screens.transactions.TransactionsViewModel
+import com.financetracker.app.ui.screens.trends.TrendsScreen
+import com.financetracker.app.ui.screens.trends.TrendsViewModel
 import com.financetracker.app.ui.theme.PersonalFinanceTheme
 import com.financetracker.app.util.GroupByOption
 import com.financetracker.app.util.PeriodOption
@@ -93,6 +95,7 @@ class MainActivity : ComponentActivity() {
                             DashboardScreen(
                                 vm,
                                 onOpenAskAi = { navController.navigate("ask_ai") },
+                                onOpenTrends = { navController.navigate("trends") },
                                 onOpenTransactions = { type, categoryId, label, periodOption, customRange ->
                                     val typeName = type?.name ?: "NONE"
                                     val catId = categoryId ?: -1L
@@ -134,6 +137,12 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                             DashboardTransactionsScreen(vm, onClose = { navController.popBackStack() })
+                        }
+                        composable("trends") {
+                            val vm: TrendsViewModel = viewModel(
+                                factory = ViewModelFactory { TrendsViewModel(repository) }
+                            )
+                            TrendsScreen(vm, onBack = { navController.popBackStack() })
                         }
                         composable("ask_ai") {
                             val vm: AskAiViewModel = viewModel(

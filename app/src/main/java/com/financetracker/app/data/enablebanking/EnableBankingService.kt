@@ -4,6 +4,7 @@ import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.importexport.ParsedTransactionRow
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.LinkedBankAccount
+import com.financetracker.app.util.todayUtcMidnight
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -139,8 +140,15 @@ object EnableBankingService {
     }
 
     private fun mapTransaction(obj: JSONObject, rowNumber: Int): ParsedTransactionRow? {
+        // Sydbank shows scheduled/standing transfers ahead of their real date, so without this
+        // filter a future-dated "PDNG" entry can (a) get imported as if it already happened and
+        // (b) get picked by BalanceReconciler as the latest row, skewing the reconciled balance
+        // with a transaction that hasn't actually settled yet.
+        if (obj.stringOrNull("status") == "PDNG") return null
+
         val bookingDate = obj.stringOrNull("booking_date") ?: obj.stringOrNull("value_date") ?: return null
         val date = parseDateOnly(bookingDate) ?: return null
+        if (date > todayUtcMidnight()) return null
 
         val amountObj = obj.optJSONObject("transaction_amount") ?: return null
         val amount = amountObj.stringOrNull("amount")?.toDoubleOrNull()?.let { Math.abs(it) } ?: return null

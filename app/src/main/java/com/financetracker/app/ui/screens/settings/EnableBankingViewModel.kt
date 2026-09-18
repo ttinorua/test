@@ -2,12 +2,8 @@ package com.financetracker.app.ui.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.financetracker.app.data.db.entity.Account
-import com.financetracker.app.data.db.entity.Transaction
-import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.enablebanking.EnableBankingService
-import com.financetracker.app.data.importexport.BalanceReconciler
-import com.financetracker.app.data.importexport.DuplicateTransactionFilter
+import com.financetracker.app.data.enablebanking.EnableBankingSyncCoordinator
 import com.financetracker.app.data.importexport.describeError
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.LinkedBankAccount
@@ -114,15 +110,12 @@ class EnableBankingViewModel(private val repository: FinanceRepository) : ViewMo
         _statusMessage.value = null
     }
 
-    /** Pulls every transaction the bank makes available (no date_from means Enable Banking
-     * returns the account's full history, not just a recent window) for every selected linked
-     * account, skips anything already imported (same dedup rule as spreadsheet import), and
-     * reconciles each account's balance against the bank's own running total. */
+    /** Pulls every transaction the bank makes available for every selected linked account. Runs
+     * through [EnableBankingSyncCoordinator], shared with the automatic sync-on-app-open so both
+     * paths behave identically. */
     fun syncNow() {
         if (_isSyncing.value) return
-        val accountsToSync = EnableBankingPrefs.linkedAccounts.value
-            .filter { it.uid in EnableBankingPrefs.selectedAccountUids.value }
-        if (accountsToSync.isEmpty()) {
+        if (EnableBankingPrefs.selectedAccountUids.value.isEmpty()) {
             _statusMessage.value = "Select at least one account to sync."
             return
         }
@@ -130,66 +123,10 @@ class EnableBankingViewModel(private val repository: FinanceRepository) : ViewMo
         _isSyncing.value = true
         _statusMessage.value = null
         viewModelScope.launch {
-            var totalImported = 0
-            var totalSkipped = 0
-            var failure: String? = null
-
-            for (bankAccount in accountsToSync) {
-                val accountId = resolveLocalAccount(bankAccount)
-
-                val rowsResult = EnableBankingService.fetchTransactions(bankAccount.uid, sinceEpochMillis = null)
-                if (rowsResult.isFailure) {
-                    failure = "Couldn't sync \"${bankAccount.name}\": ${describeError(rowsResult.exceptionOrNull()!!)}"
-                    continue
-                }
-                val rows = rowsResult.getOrThrow()
-
-                val existing = repository.getTransactionsForAccount(accountId)
-                val filterResult = DuplicateTransactionFilter.filter(existing, rows)
-
-                val categoryCache = mutableMapOf<TransactionType, Long>()
-                val transactions = filterResult.uniqueRows.map { row ->
-                    val categoryId = categoryCache.getOrPut(row.type) {
-                        repository.getOrCreateCategory(row.mainCategoryName, row.categoryName, row.type).id
-                    }
-                    Transaction(
-                        amount = row.amount,
-                        type = row.type,
-                        accountId = accountId,
-                        categoryId = categoryId,
-                        date = row.date,
-                        note = row.note
-                    )
-                }
-                if (transactions.isNotEmpty()) {
-                    repository.addTransactions(transactions)
-                }
-                BalanceReconciler.reconcile(repository, accountId, rows, sourceOrderIsNewestFirst = false)
-
-                totalImported += transactions.size
-                totalSkipped += filterResult.duplicateCount
-            }
-
-            EnableBankingPrefs.setLastSyncedAt(System.currentTimeMillis())
-            _statusMessage.value = failure
-                ?: "Synced: $totalImported new transaction(s), $totalSkipped already up to date."
+            val outcome = EnableBankingSyncCoordinator.syncSelectedAccounts(repository)
+            _statusMessage.value = outcome?.failureMessage
+                ?: outcome?.let { "Synced: ${it.importedCount} new transaction(s), ${it.skippedCount} already up to date." }
             _isSyncing.value = false
         }
-    }
-
-    /** Sydbank reuses the same product label (e.g. "Privatkonto") across more than one real
-     * account, so the label alone isn't a safe local-account key — always disambiguate with a
-     * suffix that's actually unique per account (the IBAN, falling back to the account uid). */
-    private suspend fun resolveLocalAccount(bankAccount: LinkedBankAccount): Long {
-        val name = localAccountName(bankAccount)
-        val existing = repository.getAccounts().firstOrNull { it.name == name }
-        if (existing != null) return existing.id
-        return repository.upsertAccount(Account(name = name, currencyCode = bankAccount.currency))
-    }
-
-    private fun localAccountName(bankAccount: LinkedBankAccount): String {
-        val label = bankAccount.product ?: "Account"
-        val suffix = bankAccount.iban?.takeLast(4) ?: bankAccount.uid.take(6)
-        return "Sydbank $label ••$suffix"
     }
 }

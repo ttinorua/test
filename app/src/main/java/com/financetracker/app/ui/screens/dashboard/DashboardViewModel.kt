@@ -86,10 +86,8 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
     ) { allTransactions, accounts, filters, extras ->
         val (periodOption, customRange, selectedAccountId) = filters
         val (shiftSalary, categories, overallBudgets, allCategoryBudgets) = extras
-        val overallBudget = overallBudgets[selectedAccountId]
-        val categoryBudgets = allCategoryBudgets
-            .filterKeys { it.second == selectedAccountId }
-            .mapKeys { it.key.first }
+        val overallBudget = resolveOverallBudget(overallBudgets, selectedAccountId)
+        val categoryBudgets = resolveCategoryBudgets(allCategoryBudgets, selectedAccountId)
         val transactions = if (selectedAccountId != null) {
             allTransactions.filter { it.accountId == selectedAccountId }
         } else {
@@ -210,5 +208,34 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
                 .onFailure { AiInsightsCache.save("Couldn't generate insights: ${it.message}") }
             _isGeneratingInsights.value = false
         }
+    }
+}
+
+/** For a specific account, its own budget. For "All accounts" (null), the combined total of
+ * every account's own budget when any are set, falling back to the budget explicitly set under
+ * "All accounts" itself otherwise. */
+private fun resolveOverallBudget(overallBudgets: Map<Long?, Double>, selectedAccountId: Long?): Double? {
+    if (selectedAccountId != null) return overallBudgets[selectedAccountId]
+    val perAccount = overallBudgets.filterKeys { it != null }
+    return if (perAccount.isNotEmpty()) perAccount.values.sum() else overallBudgets[null]
+}
+
+/** Same combining rule as [resolveOverallBudget], applied per category: a category with any
+ * per-account budgets sums those; a category with none falls back to its "All accounts" budget. */
+private fun resolveCategoryBudgets(
+    allCategoryBudgets: Map<Pair<Long, Long?>, Double>,
+    selectedAccountId: Long?
+): Map<Long, Double> {
+    if (selectedAccountId != null) {
+        return allCategoryBudgets.filterKeys { it.second == selectedAccountId }.mapKeys { it.key.first }
+    }
+    val perAccountByCategory = allCategoryBudgets
+        .filterKeys { it.second != null }
+        .entries
+        .groupBy({ it.key.first }) { it.value }
+        .mapValues { (_, amounts) -> amounts.sum() }
+    val allAccountsByCategory = allCategoryBudgets.filterKeys { it.second == null }.mapKeys { it.key.first }
+    return (perAccountByCategory.keys + allAccountsByCategory.keys).associateWith { categoryId ->
+        perAccountByCategory[categoryId] ?: allAccountsByCategory.getValue(categoryId)
     }
 }

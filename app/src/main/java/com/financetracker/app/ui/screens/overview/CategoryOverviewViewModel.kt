@@ -2,6 +2,7 @@ package com.financetracker.app.ui.screens.overview
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.repository.FinanceRepository
@@ -23,13 +24,16 @@ data class CategoryOverviewUiState(
     val groupBy: GroupByOption = GroupByOption.MAIN_CATEGORY,
     val entries: List<BarChartEntry> = emptyList(),
     val totalIncome: Double = 0.0,
-    val totalExpense: Double = 0.0
+    val totalExpense: Double = 0.0,
+    val accounts: List<Account> = emptyList(),
+    val selectedAccountId: Long? = null
 )
 
 private data class OverviewFilters(
     val periodOption: PeriodOption,
     val customRange: Pair<Long, Long>?,
-    val groupBy: GroupByOption
+    val groupBy: GroupByOption,
+    val selectedAccountId: Long?
 )
 
 class CategoryOverviewViewModel(private val repository: FinanceRepository) : ViewModel() {
@@ -37,15 +41,27 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
     private val _periodOption = MutableStateFlow(PeriodOption.THIS_MONTH)
     private val _customRange = MutableStateFlow<Pair<Long, Long>?>(null)
     private val _groupBy = MutableStateFlow(GroupByOption.MAIN_CATEGORY)
+    private val _selectedAccountId = MutableStateFlow<Long?>(null)
 
     val uiState: StateFlow<CategoryOverviewUiState> = combine(
         repository.observeTransactions(),
-        combine(_periodOption, _customRange, _groupBy) { periodOption, customRange, groupBy ->
-            OverviewFilters(periodOption, customRange, groupBy)
+        repository.observeAccounts(),
+        combine(
+            _periodOption,
+            _customRange,
+            _groupBy,
+            _selectedAccountId
+        ) { periodOption, customRange, groupBy, selectedAccountId ->
+            OverviewFilters(periodOption, customRange, groupBy, selectedAccountId)
         },
         BudgetSettings.shiftSalaryToNextMonth
-    ) { transactions, filters, shiftSalary ->
-        val (periodOption, customRange, groupBy) = filters
+    ) { allTransactions, accounts, filters, shiftSalary ->
+        val (periodOption, customRange, groupBy, selectedAccountId) = filters
+        val transactions = if (selectedAccountId != null) {
+            allTransactions.filter { it.accountId == selectedAccountId }
+        } else {
+            allTransactions
+        }
         val (from, to) = periodRange(periodOption, customRange)
         val inPeriod = transactions.filter {
             val effectiveDate =
@@ -71,7 +87,9 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
             groupBy = groupBy,
             entries = entries,
             totalIncome = inPeriod.filter { it.type == TransactionType.INCOME }.sumOf { it.amount },
-            totalExpense = inPeriod.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
+            totalExpense = inPeriod.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount },
+            accounts = accounts,
+            selectedAccountId = selectedAccountId
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CategoryOverviewUiState())
 
@@ -86,5 +104,9 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
 
     fun selectGroupBy(option: GroupByOption) {
         _groupBy.value = option
+    }
+
+    fun selectAccount(accountId: Long?) {
+        _selectedAccountId.value = accountId
     }
 }

@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.ui.components.AccountSelectorChip
 import com.financetracker.app.ui.components.EmptyState
 import com.financetracker.app.ui.components.IncomeExpenseTrendChart
 import com.financetracker.app.ui.components.NetTrendChart
@@ -76,6 +77,13 @@ fun TrendsScreen(viewModel: TrendsViewModel, onBack: () -> Unit) {
                         )
                     }
                 }
+            }
+            item {
+                AccountSelectorChip(
+                    accounts = state.accounts,
+                    selectedAccountId = state.selectedAccountId,
+                    onAccountSelected = viewModel::selectAccount
+                )
             }
             if (!hasData) {
                 item { EmptyState(message = "No transactions in this period yet.") }

@@ -3,6 +3,7 @@ package com.financetracker.app.ui.screens.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.data.db.entity.TransactionType
@@ -44,12 +45,15 @@ data class DashboardUiState(
     val categoryBreakdown: List<CategorySpend> = emptyList(),
     val periodOption: PeriodOption = PeriodOption.THIS_MONTH,
     val customRange: Pair<Long, Long>? = null,
-    val budgetStatus: BudgetStatus = BudgetStatus()
+    val budgetStatus: BudgetStatus = BudgetStatus(),
+    val accounts: List<Account> = emptyList(),
+    val selectedAccountId: Long? = null
 )
 
 private data class DashboardFilters(
     val periodOption: PeriodOption,
-    val customRange: Pair<Long, Long>?
+    val customRange: Pair<Long, Long>?,
+    val selectedAccountId: Long?
 )
 
 private data class DashboardExtras(
@@ -63,12 +67,13 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
 
     private val _periodOption = MutableStateFlow(PeriodOption.THIS_MONTH)
     private val _customRange = MutableStateFlow<Pair<Long, Long>?>(null)
+    private val _selectedAccountId = MutableStateFlow<Long?>(null)
 
     val uiState: StateFlow<DashboardUiState> = combine(
         repository.observeTransactions(),
-        repository.observeNetBalance(),
-        combine(_periodOption, _customRange) { periodOption, customRange ->
-            DashboardFilters(periodOption, customRange)
+        repository.observeAccounts(),
+        combine(_periodOption, _customRange, _selectedAccountId) { periodOption, customRange, selectedAccountId ->
+            DashboardFilters(periodOption, customRange, selectedAccountId)
         },
         combine(
             BudgetSettings.shiftSalaryToNextMonth,
@@ -78,9 +83,21 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
         ) { shiftSalary, categories, overallBudget, categoryBudgets ->
             DashboardExtras(shiftSalary, categories, overallBudget, categoryBudgets)
         }
-    ) { transactions, netBalance, filters, extras ->
-        val (periodOption, customRange) = filters
+    ) { allTransactions, accounts, filters, extras ->
+        val (periodOption, customRange, selectedAccountId) = filters
         val (shiftSalary, categories, overallBudget, categoryBudgets) = extras
+        val transactions = if (selectedAccountId != null) {
+            allTransactions.filter { it.accountId == selectedAccountId }
+        } else {
+            allTransactions
+        }
+        val netBalance = if (selectedAccountId != null) {
+            val initial = accounts.firstOrNull { it.id == selectedAccountId }?.initialBalance ?: 0.0
+            initial + transactions.sumOf { if (it.type == TransactionType.INCOME) it.amount else -it.amount }
+        } else {
+            accounts.sumOf { it.initialBalance } +
+                allTransactions.sumOf { if (it.type == TransactionType.INCOME) it.amount else -it.amount }
+        }
         val (from, to) = periodRange(periodOption, customRange)
         val inPeriod = transactions.filter {
             val effectiveDate =
@@ -140,7 +157,9 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
                 overallBudget = overallBudget,
                 overallSpent = monthExpenses.sumOf { it.amount },
                 categoryStatuses = categoryStatuses
-            )
+            ),
+            accounts = accounts,
+            selectedAccountId = selectedAccountId
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 
@@ -151,6 +170,10 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
     fun selectCustomRange(start: Long, endExclusive: Long) {
         _customRange.value = start to endExclusive
         _periodOption.value = PeriodOption.CUSTOM
+    }
+
+    fun selectAccount(accountId: Long?) {
+        _selectedAccountId.value = accountId
     }
 
     private val _isGeneratingInsights = MutableStateFlow(false)

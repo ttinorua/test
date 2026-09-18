@@ -2,6 +2,7 @@ package com.financetracker.app.ui.screens.trends
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.repository.FinanceRepository
@@ -37,19 +38,29 @@ data class TrendsUiState(
     val avgIncome: Double = 0.0,
     val avgExpense: Double = 0.0,
     val bestMonth: MonthlyTrend? = null,
-    val worstMonth: MonthlyTrend? = null
+    val worstMonth: MonthlyTrend? = null,
+    val accounts: List<Account> = emptyList(),
+    val selectedAccountId: Long? = null
 )
 
-/** Whole-portfolio (all accounts) monthly income/expense/net for the last N calendar months. */
-class TrendsViewModel(repository: FinanceRepository) : ViewModel() {
+/** Monthly income/expense/net for the last N calendar months, across all accounts or one. */
+class TrendsViewModel(private val repository: FinanceRepository) : ViewModel() {
 
     private val _window = MutableStateFlow(TrendsWindow.SIX)
+    private val _selectedAccountId = MutableStateFlow<Long?>(null)
 
     val uiState: StateFlow<TrendsUiState> = combine(
         repository.observeTransactions(),
+        repository.observeAccounts(),
         BudgetSettings.shiftSalaryToNextMonth,
-        _window
-    ) { transactions, shiftSalary, window ->
+        _window,
+        _selectedAccountId
+    ) { allTransactions, accounts, shiftSalary, window, selectedAccountId ->
+        val transactions = if (selectedAccountId != null) {
+            allTransactions.filter { it.accountId == selectedAccountId }
+        } else {
+            allTransactions
+        }
         val trends = lastNMonths(window.months).map { (year, month, label) ->
             val (from, to) = monthRange(year, month)
             val inMonth = transactions.filter {
@@ -72,12 +83,18 @@ class TrendsViewModel(repository: FinanceRepository) : ViewModel() {
             avgIncome = trends.map { it.income }.average().takeIf { it.isFinite() } ?: 0.0,
             avgExpense = trends.map { it.expense }.average().takeIf { it.isFinite() } ?: 0.0,
             bestMonth = trends.maxByOrNull { it.net },
-            worstMonth = trends.minByOrNull { it.net }
+            worstMonth = trends.minByOrNull { it.net },
+            accounts = accounts,
+            selectedAccountId = selectedAccountId
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TrendsUiState())
 
     fun selectWindow(window: TrendsWindow) {
         _window.value = window
+    }
+
+    fun selectAccount(accountId: Long?) {
+        _selectedAccountId.value = accountId
     }
 
     /** Oldest to newest, ending with the current calendar month. */

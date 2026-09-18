@@ -32,6 +32,7 @@ import com.financetracker.app.data.ai.ClaudeService
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.ui.components.AccountSelectorChip
 import com.financetracker.app.ui.components.BudgetProgressRow
 import com.financetracker.app.ui.components.CategoryBreakdownList
 import com.financetracker.app.ui.components.EmptyState
@@ -86,12 +87,22 @@ fun DashboardScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                PeriodSelectorChip(
-                    option = state.periodOption,
-                    customRange = state.customRange,
-                    onOptionSelected = viewModel::selectPeriod,
-                    onCustomRangeSelected = viewModel::selectCustomRange
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PeriodSelectorChip(
+                        option = state.periodOption,
+                        customRange = state.customRange,
+                        onOptionSelected = viewModel::selectPeriod,
+                        onCustomRangeSelected = viewModel::selectCustomRange
+                    )
+                    AccountSelectorChip(
+                        accounts = state.accounts,
+                        selectedAccountId = state.selectedAccountId,
+                        onAccountSelected = viewModel::selectAccount
+                    )
+                }
             }
             item {
                 SummaryCard(

@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.ui.components.AccountSelectorChip
 import com.financetracker.app.ui.components.EmptyState
 import com.financetracker.app.ui.components.IncomeExpenseBarChart
 import com.financetracker.app.ui.components.PeriodSelectorChip
@@ -55,12 +56,22 @@ fun CategoryOverviewScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                PeriodSelectorChip(
-                    option = state.periodOption,
-                    customRange = state.customRange,
-                    onOptionSelected = viewModel::selectPeriod,
-                    onCustomRangeSelected = viewModel::selectCustomRange
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PeriodSelectorChip(
+                        option = state.periodOption,
+                        customRange = state.customRange,
+                        onOptionSelected = viewModel::selectPeriod,
+                        onCustomRangeSelected = viewModel::selectCustomRange
+                    )
+                    AccountSelectorChip(
+                        accounts = state.accounts,
+                        selectedAccountId = state.selectedAccountId,
+                        onAccountSelected = viewModel::selectAccount
+                    )
+                }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

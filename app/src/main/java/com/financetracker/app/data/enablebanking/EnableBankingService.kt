@@ -32,6 +32,10 @@ object EnableBankingService {
     private const val ASPSP_COUNTRY = "DK"
     private const val CONSENT_VALIDITY_DAYS = 180L
 
+    /** Stand-in for "no lower bound" when fetching transactions, since the API needs an
+     * explicit date_from to actually return full history (see fetchTransactions()). */
+    private val FULL_HISTORY_SINCE_MILLIS: Long by lazy { parseDateOnly("1990-01-01") ?: 0L }
+
     val isConfigured: Boolean get() = EnableBankingJwt.isConfigured
 
     /** Starts a new consent flow: POSTs /auth and returns the URL to send the user to (their
@@ -99,13 +103,19 @@ object EnableBankingService {
             }
         }
 
-    /** Fetches every transaction booked on or after [sinceEpochMillis] (or all history if
-     * null) for one linked account, mapped into the same row shape spreadsheet import uses so
-     * the existing duplicate-detection and insert pipeline can be reused as-is. */
+    /** Fetches every transaction booked on or after [sinceEpochMillis] (or the account's full
+     * history if null) for one linked account, mapped into the same row shape spreadsheet
+     * import uses so the existing duplicate-detection and insert pipeline can be reused as-is.
+     *
+     * Confirmed live against Sydbank: omitting date_from entirely does NOT return full history —
+     * it silently defaults to a recent window (observed: only the last ~90 days). Passing an
+     * explicit old date does return everything the bank has (observed: back to 2015 for a real
+     * account), so "all history" is implemented as an explicit far-past date_from, never as
+     * leaving the parameter out. */
     suspend fun fetchTransactions(accountUid: String, sinceEpochMillis: Long?): Result<List<ParsedTransactionRow>> =
         withContext(Dispatchers.IO) {
             try {
-                val dateFromParam = sinceEpochMillis?.let { "?date_from=${formatDate(Date(it))}" }.orEmpty()
+                val dateFromParam = "?date_from=${formatDate(Date(sinceEpochMillis ?: FULL_HISTORY_SINCE_MILLIS))}"
                 val rows = mutableListOf<ParsedTransactionRow>()
                 var continuationKey: String? = null
                 var rowNumber = 0

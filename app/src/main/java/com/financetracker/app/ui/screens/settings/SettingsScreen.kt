@@ -71,6 +71,7 @@ import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.LinkedBankAccount
 import com.financetracker.app.data.prefs.SUPPORTED_CURRENCIES
+import com.financetracker.app.ui.components.AccountSelectorChip
 import com.financetracker.app.ui.components.CategoryColorDot
 import com.financetracker.app.ui.screens.importexport.ImportExportScreen
 import com.financetracker.app.ui.screens.importexport.ImportExportViewModel
@@ -277,6 +278,7 @@ fun SettingsScreen(
 
                 2 -> BudgetsTab(
                     categories = state.categories.filter { it.type == TransactionType.EXPENSE },
+                    accounts = state.accounts.map { it.account },
                     currencyCode = currencyCode
                 )
 
@@ -378,11 +380,18 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun BudgetsTab(categories: List<Category>, currencyCode: String) {
-    val overallBudget by BudgetLimits.overallMonthlyBudget.collectAsState()
-    val categoryBudgets by BudgetLimits.categoryBudgets.collectAsState()
-    var overallText by remember { mutableStateOf(overallBudget?.let { Formatters.amount(it) } ?: "") }
-    var pendingCategoryIds by remember { mutableStateOf(setOf<Long>()) }
+private fun BudgetsTab(categories: List<Category>, accounts: List<Account>, currencyCode: String) {
+    var selectedAccountId by remember { mutableStateOf<Long?>(null) }
+    val overallBudgets by BudgetLimits.overallBudgets.collectAsState()
+    val allCategoryBudgets by BudgetLimits.categoryBudgets.collectAsState()
+    val overallBudget = overallBudgets[selectedAccountId]
+    val categoryBudgets = remember(allCategoryBudgets, selectedAccountId) {
+        allCategoryBudgets.filterKeys { it.second == selectedAccountId }.mapKeys { it.key.first }
+    }
+    var overallText by remember(selectedAccountId) {
+        mutableStateOf(overallBudget?.let { Formatters.amount(it) } ?: "")
+    }
+    var pendingCategoryIds by remember(selectedAccountId) { mutableStateOf(setOf<Long>()) }
 
     val categoryById = categories.associateBy { it.id }
     val activeCategories = (categoryBudgets.keys + pendingCategoryIds)
@@ -398,7 +407,24 @@ private fun BudgetsTab(categories: List<Category>, currencyCode: String) {
         contentPadding = PaddingValues(16.dp)
     ) {
         item {
-            Text("Overall monthly budget", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Budgets are set per account (or for \"All accounts\" combined).",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            AccountSelectorChip(
+                accounts = accounts,
+                selectedAccountId = selectedAccountId,
+                onAccountSelected = { selectedAccountId = it }
+            )
+        }
+        item {
+            Text(
+                "Overall monthly budget",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 16.dp)
+            )
             Text(
                 "A single spending limit across all expenses combined, compared against " +
                     "this calendar month's spending so far.",
@@ -411,7 +437,7 @@ private fun BudgetsTab(categories: List<Category>, currencyCode: String) {
                 onValueChange = { text ->
                     overallText = text
                     val amount = text.replace(",", "").toDoubleOrNull()
-                    BudgetLimits.setOverallMonthlyBudget(if (text.isBlank()) null else amount)
+                    BudgetLimits.setOverallBudget(selectedAccountId, if (text.isBlank()) null else amount)
                 },
                 label = { Text("Amount") },
                 placeholder = { Text("No limit set") },
@@ -453,9 +479,9 @@ private fun BudgetsTab(categories: List<Category>, currencyCode: String) {
                     category = category,
                     currentBudget = categoryBudgets[category.id],
                     currencyCode = currencyCode,
-                    onBudgetChanged = { amount -> BudgetLimits.setCategoryBudget(category.id, amount) },
+                    onBudgetChanged = { amount -> BudgetLimits.setCategoryBudget(category.id, selectedAccountId, amount) },
                     onRemove = {
-                        BudgetLimits.setCategoryBudget(category.id, null)
+                        BudgetLimits.setCategoryBudget(category.id, selectedAccountId, null)
                         pendingCategoryIds = pendingCategoryIds - category.id
                     }
                 )

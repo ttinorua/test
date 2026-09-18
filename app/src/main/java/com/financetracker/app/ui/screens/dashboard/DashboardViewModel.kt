@@ -59,8 +59,8 @@ private data class DashboardFilters(
 private data class DashboardExtras(
     val shiftSalary: Boolean,
     val categories: List<Category>,
-    val overallBudget: Double?,
-    val categoryBudgets: Map<Long, Double>
+    val overallBudgets: Map<Long?, Double>,
+    val categoryBudgets: Map<Pair<Long, Long?>, Double>
 )
 
 class DashboardViewModel(private val repository: FinanceRepository) : ViewModel() {
@@ -78,14 +78,18 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
         combine(
             BudgetSettings.shiftSalaryToNextMonth,
             repository.observeCategories(),
-            BudgetLimits.overallMonthlyBudget,
+            BudgetLimits.overallBudgets,
             BudgetLimits.categoryBudgets
-        ) { shiftSalary, categories, overallBudget, categoryBudgets ->
-            DashboardExtras(shiftSalary, categories, overallBudget, categoryBudgets)
+        ) { shiftSalary, categories, overallBudgets, categoryBudgets ->
+            DashboardExtras(shiftSalary, categories, overallBudgets, categoryBudgets)
         }
     ) { allTransactions, accounts, filters, extras ->
         val (periodOption, customRange, selectedAccountId) = filters
-        val (shiftSalary, categories, overallBudget, categoryBudgets) = extras
+        val (shiftSalary, categories, overallBudgets, allCategoryBudgets) = extras
+        val overallBudget = overallBudgets[selectedAccountId]
+        val categoryBudgets = allCategoryBudgets
+            .filterKeys { it.second == selectedAccountId }
+            .mapKeys { it.key.first }
         val transactions = if (selectedAccountId != null) {
             allTransactions.filter { it.accountId == selectedAccountId }
         } else {

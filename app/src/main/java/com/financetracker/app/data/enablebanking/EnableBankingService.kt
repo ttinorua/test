@@ -7,6 +7,7 @@ import com.financetracker.app.data.prefs.LinkedBankAccount
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -111,7 +112,9 @@ object EnableBankingService {
                 var rowNumber = 0
                 do {
                     val separator = if (dateFromParam.isEmpty()) "?" else "&"
-                    val query = dateFromParam + (continuationKey?.let { "${separator}continuation_key=$it" } ?: "")
+                    val query = dateFromParam + (continuationKey?.let {
+                        "${separator}continuation_key=${URLEncoder.encode(it, "UTF-8")}"
+                    } ?: "")
                     val response = EnableBankingApi.get("/accounts/$accountUid/transactions$query")
                     if (response.status !in 200..299) throw EnableBankingRequestException(apiErrorMessage(response))
                     val json = JSONObject(response.body)

@@ -56,3 +56,12 @@
 
 -keepattributes *Annotation*
 -keep class com.financetracker.app.data.db.entity.** { *; }
+
+# describeError() (used for import and Enable Banking sync error messages) reports
+# t.javaClass.simpleName for the deepest cause. Without this, R8 renames these custom
+# exception classes to single-letter names in release builds, so a real error like
+# "continuation_key parameter is invalid" showed up to the user prefixed with "e:"
+# instead of "EnableBankingRequestException:" — still correct, just unreadable.
+-keepnames class com.financetracker.app.data.enablebanking.EnableBankingRequestException
+-keepnames class com.financetracker.app.data.enablebanking.EnableBankingNotConfiguredException
+-keepnames class com.financetracker.app.data.enablebanking.EnableBankingApiException

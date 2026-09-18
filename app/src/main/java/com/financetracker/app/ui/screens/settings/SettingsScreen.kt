@@ -821,8 +821,12 @@ private fun BankAccountRow(account: LinkedBankAccount, selected: Boolean, onTogg
         ) {
             Checkbox(checked = selected, onCheckedChange = onToggle)
             Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
+                // Sydbank reuses the same product label (e.g. "Privatkonto") across more than
+                // one account, so a suffix is included here too, not just in the underlying
+                // local account name, or two accounts would look identical in this list.
+                val suffix = account.iban?.takeLast(4) ?: account.uid.take(6)
                 Text(
-                    account.product ?: account.name,
+                    "${account.product ?: account.name} ••$suffix",
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

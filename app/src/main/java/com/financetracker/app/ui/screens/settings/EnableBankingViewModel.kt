@@ -178,10 +178,19 @@ class EnableBankingViewModel(private val repository: FinanceRepository) : ViewMo
         }
     }
 
+    /** Sydbank reuses the same product label (e.g. "Privatkonto") across more than one real
+     * account, so the label alone isn't a safe local-account key — always disambiguate with a
+     * suffix that's actually unique per account (the IBAN, falling back to the account uid). */
     private suspend fun resolveLocalAccount(bankAccount: LinkedBankAccount): Long {
-        val name = "Sydbank ${bankAccount.product ?: bankAccount.iban ?: bankAccount.uid}"
+        val name = localAccountName(bankAccount)
         val existing = repository.getAccounts().firstOrNull { it.name == name }
         if (existing != null) return existing.id
         return repository.upsertAccount(Account(name = name, currencyCode = bankAccount.currency))
+    }
+
+    private fun localAccountName(bankAccount: LinkedBankAccount): String {
+        val label = bankAccount.product ?: "Account"
+        val suffix = bankAccount.iban?.takeLast(4) ?: bankAccount.uid.take(6)
+        return "Sydbank $label ••$suffix"
     }
 }

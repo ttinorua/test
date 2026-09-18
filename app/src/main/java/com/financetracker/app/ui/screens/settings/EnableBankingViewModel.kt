@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 private const val REDIRECT_URL = "https://ttinorua.github.io/enablebanking-redirect/"
-private const val SYNC_LOOKBACK_DAYS = 90L
 
 private data class PrefsSnapshot(
     val sessionId: String?,
@@ -115,9 +114,10 @@ class EnableBankingViewModel(private val repository: FinanceRepository) : ViewMo
         _statusMessage.value = null
     }
 
-    /** Pulls the last [SYNC_LOOKBACK_DAYS] of transactions for every selected linked account,
-     * skips anything already imported (same dedup rule as spreadsheet import), and reconciles
-     * each account's balance against the bank's own running total. */
+    /** Pulls every transaction the bank makes available (no date_from means Enable Banking
+     * returns the account's full history, not just a recent window) for every selected linked
+     * account, skips anything already imported (same dedup rule as spreadsheet import), and
+     * reconciles each account's balance against the bank's own running total. */
     fun syncNow() {
         if (_isSyncing.value) return
         val accountsToSync = EnableBankingPrefs.linkedAccounts.value
@@ -136,9 +136,8 @@ class EnableBankingViewModel(private val repository: FinanceRepository) : ViewMo
 
             for (bankAccount in accountsToSync) {
                 val accountId = resolveLocalAccount(bankAccount)
-                val sinceEpochMillis = System.currentTimeMillis() - SYNC_LOOKBACK_DAYS * 24 * 60 * 60 * 1000
 
-                val rowsResult = EnableBankingService.fetchTransactions(bankAccount.uid, sinceEpochMillis)
+                val rowsResult = EnableBankingService.fetchTransactions(bankAccount.uid, sinceEpochMillis = null)
                 if (rowsResult.isFailure) {
                     failure = "Couldn't sync \"${bankAccount.name}\": ${describeError(rowsResult.exceptionOrNull()!!)}"
                     continue
@@ -165,7 +164,7 @@ class EnableBankingViewModel(private val repository: FinanceRepository) : ViewMo
                 if (transactions.isNotEmpty()) {
                     repository.addTransactions(transactions)
                 }
-                BalanceReconciler.reconcile(repository, accountId, rows)
+                BalanceReconciler.reconcile(repository, accountId, rows, sourceOrderIsNewestFirst = false)
 
                 totalImported += transactions.size
                 totalSkipped += filterResult.duplicateCount

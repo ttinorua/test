@@ -11,14 +11,28 @@ import com.financetracker.app.data.repository.FinanceRepository
  * spreadsheet import and Enable Banking sync so both keep balances correct the same way.
  */
 object BalanceReconciler {
-    suspend fun reconcile(repository: FinanceRepository, accountId: Long, importedRows: List<ParsedTransactionRow>) {
+    /** [sourceOrderIsNewestFirst] says which end of [importedRows] is most recent among rows
+     * sharing the same date, since day-only timestamps can't break the tie themselves — bank
+     * spreadsheet exports are typically newest-first (the default), while Enable Banking's API
+     * returns transactions oldest-first, so its caller passes false. Getting this backwards
+     * silently picks an earlier same-day balance snapshot as ground truth, which is exactly
+     * what caused a real reconciled-balance mismatch (grabbing a transaction from a few hours
+     * too early on the account's most recent day). */
+    suspend fun reconcile(
+        repository: FinanceRepository,
+        accountId: Long,
+        importedRows: List<ParsedTransactionRow>,
+        sourceOrderIsNewestFirst: Boolean = true
+    ) {
         val rowsWithBalance = importedRows.filter { it.balanceAfter != null }
         if (rowsWithBalance.isEmpty()) return
 
-        // Among rows sharing the latest date, the source's own ordering (not our day-only
-        // timestamp) tells us which one is truly the most recent.
         val maxDate = rowsWithBalance.maxOf { it.date }
-        val referenceRow = rowsWithBalance.first { it.date == maxDate }
+        val referenceRow = if (sourceOrderIsNewestFirst) {
+            rowsWithBalance.first { it.date == maxDate }
+        } else {
+            rowsWithBalance.last { it.date == maxDate }
+        }
         val referenceBalance = referenceRow.balanceAfter ?: return
 
         val allTransactions = repository.getTransactionsForAccount(accountId)

@@ -79,18 +79,16 @@ object EnableBankingService {
                 val accountsJson = json.getJSONArray("accounts")
                 val accounts = (0 until accountsJson.length()).map { i ->
                     val accountObj = accountsJson.getJSONObject(i)
-                    val iban = accountObj.optJSONObject("account_id")?.let {
-                        if (it.isNull("iban")) null else it.getString("iban")
-                    }
+                    val iban = accountObj.optJSONObject("account_id")?.stringOrNull("iban")
                     LinkedBankAccount(
                         uid = accountObj.getString("uid"),
                         iban = iban,
-                        name = accountObj.optString("name").ifBlank { iban ?: "Account" },
-                        product = accountObj.optString("product").ifBlank { null },
-                        currency = accountObj.optString("currency", "DKK")
+                        name = accountObj.stringOrNull("name") ?: iban ?: "Account",
+                        product = accountObj.stringOrNull("product"),
+                        currency = accountObj.stringOrNull("currency") ?: "DKK"
                     )
                 }
-                val consentValidUntil = json.optJSONObject("access")?.optString("valid_until")
+                val consentValidUntil = json.optJSONObject("access")?.stringOrNull("valid_until")
                     ?.let { parseRfc3339ToEpochMillis(it) }
                     ?: (System.currentTimeMillis() + CONSENT_VALIDITY_DAYS * 24 * 60 * 60 * 1000)
                 EnableBankingPrefs.saveConnection(sessionId, accounts, consentValidUntil)
@@ -125,7 +123,10 @@ object EnableBankingService {
                             mapTransaction(transactionsJson.getJSONObject(i), rowNumber)?.let { rows.add(it) }
                         }
                     }
-                    continuationKey = json.optString("continuation_key").takeIf { it.isNotBlank() }
+                    // Enable Banking sends this key back as an explicit JSON null (not an
+                    // omitted field) once there's no more data — see stringOrNull() below for
+                    // why that has to be handled explicitly rather than via optString() alone.
+                    continuationKey = json.stringOrNull("continuation_key")
                 } while (continuationKey != null)
                 Result.success(rows)
             } catch (e: Exception) {
@@ -138,15 +139,13 @@ object EnableBankingService {
     }
 
     private fun mapTransaction(obj: JSONObject, rowNumber: Int): ParsedTransactionRow? {
-        val bookingDate = obj.optString("booking_date").takeIf { it.isNotBlank() }
-            ?: obj.optString("value_date").takeIf { it.isNotBlank() }
-            ?: return null
+        val bookingDate = obj.stringOrNull("booking_date") ?: obj.stringOrNull("value_date") ?: return null
         val date = parseDateOnly(bookingDate) ?: return null
 
         val amountObj = obj.optJSONObject("transaction_amount") ?: return null
-        val amount = amountObj.optString("amount").toDoubleOrNull()?.let { Math.abs(it) } ?: return null
+        val amount = amountObj.stringOrNull("amount")?.toDoubleOrNull()?.let { Math.abs(it) } ?: return null
 
-        val type = if (obj.optString("credit_debit_indicator") == "CRDT") {
+        val type = if (obj.stringOrNull("credit_debit_indicator") == "CRDT") {
             TransactionType.INCOME
         } else {
             TransactionType.EXPENSE
@@ -154,13 +153,15 @@ object EnableBankingService {
 
         val remittanceArray = obj.optJSONArray("remittance_information")
         val remittance = remittanceArray?.let { array ->
-            (0 until array.length()).map { array.optString(it) }.filter { it.isNotBlank() }.joinToString(" ")
+            (0 until array.length()).mapNotNull { i -> if (array.isNull(i)) null else array.optString(i) }
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
         }.orEmpty()
-        val counterpartyName = obj.optJSONObject("creditor")?.optString("name")
-            ?: obj.optJSONObject("debtor")?.optString("name")
+        val counterpartyName = obj.optJSONObject("creditor")?.stringOrNull("name")
+            ?: obj.optJSONObject("debtor")?.stringOrNull("name")
         val note = remittance.ifBlank { counterpartyName.orEmpty() }
 
-        val balanceAfter = obj.optJSONObject("balance_after_transaction")?.optString("amount")?.toDoubleOrNull()
+        val balanceAfter = obj.optJSONObject("balance_after_transaction")?.stringOrNull("amount")?.toDoubleOrNull()
 
         return ParsedTransactionRow(
             rowNumber = rowNumber,
@@ -176,7 +177,7 @@ object EnableBankingService {
 
     private fun apiErrorMessage(response: EnableBankingApi.ApiResponse): String {
         val detail = try {
-            JSONObject(response.body).optString("message").ifBlank { response.body }
+            JSONObject(response.body).stringOrNull("message") ?: response.body
         } catch (e: Exception) {
             response.body
         }
@@ -187,6 +188,12 @@ object EnableBankingService {
         is EnableBankingNotConfiguredException, is EnableBankingRequestException -> t
         else -> EnableBankingRequestException("Enable Banking request failed: ${t.message}", t)
     }
+
+    /** org.json's optString() doesn't treat a JSON null as absent — it stringifies it to the
+     * literal text "null" instead. Every field read from this API is optional in principle, so
+     * every string read goes through this rather than optString() directly. */
+    private fun JSONObject.stringOrNull(key: String): String? =
+        if (isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
 
     private fun isoMicros(date: Date): String {
         val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US)

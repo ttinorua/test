@@ -1,10 +1,13 @@
 package com.financetracker.app
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -23,6 +26,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.enablebanking.EnableBankingService
 import com.financetracker.app.ui.navigation.Screen
 import com.financetracker.app.ui.screens.ai.AskAiScreen
 import com.financetracker.app.ui.screens.ai.AskAiViewModel
@@ -35,6 +39,7 @@ import com.financetracker.app.ui.screens.overview.CategoryOverviewScreen
 import com.financetracker.app.ui.screens.overview.CategoryOverviewViewModel
 import com.financetracker.app.ui.screens.overview.GroupTransactionsScreen
 import com.financetracker.app.ui.screens.overview.GroupTransactionsViewModel
+import com.financetracker.app.ui.screens.settings.EnableBankingViewModel
 import com.financetracker.app.ui.screens.settings.SettingsScreen
 import com.financetracker.app.ui.screens.settings.SettingsViewModel
 import com.financetracker.app.ui.screens.transactions.TransactionsScreen
@@ -45,11 +50,13 @@ import com.financetracker.app.ui.theme.PersonalFinanceTheme
 import com.financetracker.app.util.GroupByOption
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.ViewModelFactory
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleIncomingIntent(intent)
 
         val repository = (application as FinanceApp).repository
 
@@ -207,11 +214,51 @@ class MainActivity : ComponentActivity() {
                             val importExportVm: ImportExportViewModel = viewModel(
                                 factory = ViewModelFactory { ImportExportViewModel(repository, applicationContext) }
                             )
-                            SettingsScreen(vm, importExportVm)
+                            val enableBankingVm: EnableBankingViewModel = viewModel(
+                                factory = ViewModelFactory { EnableBankingViewModel(repository) }
+                            )
+                            SettingsScreen(vm, importExportVm, enableBankingVm)
                         }
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    /** Handles the Enable Banking OAuth redirect (financetracker://enablebanking-callback?...),
+     * which the browser opens after the user finishes MitID login on our GitHub Pages bridge
+     * page. Any other intent (e.g. the normal launcher intent) is ignored. */
+    private fun handleIncomingIntent(intent: Intent) {
+        val data = intent.data ?: return
+        if (data.scheme != "financetracker" || data.host != "enablebanking-callback") return
+
+        val error = data.getQueryParameter("error")
+        if (error != null) {
+            val description = data.getQueryParameter("error_description") ?: error
+            Toast.makeText(this, "Bank connection failed: $description", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val code = data.getQueryParameter("code") ?: return
+        val state = data.getQueryParameter("state")
+        lifecycleScope.launch {
+            EnableBankingService.completeAuth(code, state)
+                .onSuccess { accounts ->
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Connected ${accounts.size} Sydbank account(s)",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                .onFailure { e ->
+                    Toast.makeText(this@MainActivity, "Bank connection failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
         }
     }
 }

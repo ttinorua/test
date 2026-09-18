@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.importexport.BalanceReconciler
 import com.financetracker.app.data.importexport.DuplicateTransactionFilter
 import com.financetracker.app.data.importexport.FileImportHelper
 import com.financetracker.app.data.importexport.ImportResult
@@ -147,7 +148,7 @@ class ImportExportViewModel(
                     )
                 }
                 repository.addTransactions(transactions)
-                reconcileAccountBalance(accountId, state.parsedRows)
+                BalanceReconciler.reconcile(repository, accountId, state.parsedRows)
                 _uiState.update {
                     it.copy(
                         isImporting = false,
@@ -169,32 +170,6 @@ class ImportExportViewModel(
                 }
             }
         }
-    }
-
-    /**
-     * A bank export's own running "Balance" column is ground truth. Use it to back out the
-     * account's opening balance so that opening balance + all deltas reproduces the bank's
-     * real current balance, instead of leaving the account's balance as whatever arbitrary
-     * starting value it had before the import (which is what was causing wildly wrong totals).
-     */
-    private suspend fun reconcileAccountBalance(accountId: Long, importedRows: List<ParsedTransactionRow>) {
-        val rowsWithBalance = importedRows.filter { it.balanceAfter != null }
-        if (rowsWithBalance.isEmpty()) return
-
-        // The file lists transactions in its own chronological direction; among rows sharing
-        // the latest date, the file's own ordering (not our day-only timestamp) tells us which
-        // one is truly the most recent.
-        val maxDate = rowsWithBalance.maxOf { it.date }
-        val referenceRow = rowsWithBalance.first { it.date == maxDate }
-        val referenceBalance = referenceRow.balanceAfter ?: return
-
-        val allTransactions = repository.getTransactionsForAccount(accountId)
-        val deltaUpToReference = allTransactions
-            .filter { it.date <= maxDate }
-            .sumOf { if (it.type == TransactionType.INCOME) it.amount else -it.amount }
-
-        val account = _uiState.value.accounts.firstOrNull { it.id == accountId } ?: return
-        repository.updateAccount(account.copy(initialBalance = referenceBalance - deltaUpToReference))
     }
 
     fun dismissResult() {

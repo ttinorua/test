@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Only used for the optional Claude AI features (chat, category suggestions, insights). -->
+    <!-- Used for the optional Claude AI features (chat, category suggestions, insights) and
+         for the optional Enable Banking bank sync (Sydbank open-banking / PSD2). -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
@@ -17,10 +18,19 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.PersonalFinanceTracker">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Enable Banking OAuth redirect: our GitHub Pages bridge page sends the browser
+                 here after MitID login completes (see enablebanking-redirect/index.html). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="financetracker" android:host="enablebanking-callback" />
             </intent-filter>
         </activity>
     </application>

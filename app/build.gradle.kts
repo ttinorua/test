@@ -17,6 +17,14 @@ val localProperties = Properties().apply {
 val anthropicApiKey: String =
     (localProperties.getProperty("ANTHROPIC_API_KEY") ?: System.getenv("ANTHROPIC_API_KEY") ?: "")
 
+// Enable Banking (Sydbank open-banking sync). Same local.properties + env var fallback pattern
+// as the Anthropic key. The private key is stored base64-encoded (of the whole PEM text) so it
+// survives as a single Properties line.
+val enableBankingApplicationId: String =
+    (localProperties.getProperty("ENABLE_BANKING_APPLICATION_ID") ?: System.getenv("ENABLE_BANKING_APPLICATION_ID") ?: "")
+val enableBankingPrivateKeyB64: String =
+    (localProperties.getProperty("ENABLE_BANKING_PRIVATE_KEY_B64") ?: System.getenv("ENABLE_BANKING_PRIVATE_KEY_B64") ?: "")
+
 android {
     namespace = "com.financetracker.app"
     compileSdk = 34
@@ -30,6 +38,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicApiKey\"")
+        buildConfigField("String", "ENABLE_BANKING_APPLICATION_ID", "\"$enableBankingApplicationId\"")
+        buildConfigField("String", "ENABLE_BANKING_PRIVATE_KEY_B64", "\"$enableBankingPrivateKeyB64\"")
     }
 
     buildTypes {

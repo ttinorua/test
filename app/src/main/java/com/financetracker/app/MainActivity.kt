@@ -209,7 +209,7 @@ class MainActivity : ComponentActivity() {
                         }
                         composable(Screen.Settings.route) {
                             val vm: SettingsViewModel = viewModel(
-                                factory = ViewModelFactory { SettingsViewModel(repository) }
+                                factory = ViewModelFactory { SettingsViewModel(repository, applicationContext) }
                             )
                             val importExportVm: ImportExportViewModel = viewModel(
                                 factory = ViewModelFactory { ImportExportViewModel(repository, applicationContext) }

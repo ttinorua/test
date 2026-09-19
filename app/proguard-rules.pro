@@ -65,3 +65,10 @@
 -keepnames class com.financetracker.app.data.enablebanking.EnableBankingRequestException
 -keepnames class com.financetracker.app.data.enablebanking.EnableBankingNotConfiguredException
 -keepnames class com.financetracker.app.data.enablebanking.EnableBankingApiException
+
+# WorkManager's default WorkerFactory instantiates a Worker subclass by its fully-qualified
+# class name via reflection (the name is stored as a string in the persisted WorkSpec).
+# Without a real -keep here, R8 renames the class and that lookup fails at runtime with
+# ClassNotFoundException — the exact same failure mode that broke POI, log4j2 and
+# commons-compress earlier in this project when only -dontwarn was in place.
+-keep class com.financetracker.app.data.ai.AiCategorizationWorker { *; }

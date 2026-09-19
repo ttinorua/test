@@ -15,7 +15,7 @@ object AiCategorizationCoordinator {
 
     suspend fun categorizeUncategorized(
         repository: FinanceRepository,
-        onProgress: (CategorizationProgress) -> Unit
+        onProgress: suspend (CategorizationProgress) -> Unit
     ): CategorizationOutcome {
         if (!ClaudeService.isConfigured) return CategorizationOutcome(0, 0)
 

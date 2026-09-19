@@ -107,6 +107,10 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // WorkManager: lets the AI categorization backfill keep running (and be observed) across
+    // navigation, screen-off, and app backgrounding instead of dying with the ViewModel.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     // Apache POI for Excel (.xlsx) import/export
     implementation("org.apache.poi:poi:5.2.5")
     implementation("org.apache.poi:poi-ooxml:5.2.5") {

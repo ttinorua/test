@@ -13,6 +13,8 @@ fun DashboardTransactionsScreen(viewModel: DashboardTransactionsViewModel, onClo
         transactions = state.transactions,
         accounts = state.accounts,
         categories = state.categories,
+        showAnticipatedSections = state.showAnticipatedSections,
+        anticipatedExpenses = state.anticipatedExpenses,
         onClose = onClose,
         onAddTransaction = viewModel::addTransaction,
         onUpdateTransaction = viewModel::updateTransaction,

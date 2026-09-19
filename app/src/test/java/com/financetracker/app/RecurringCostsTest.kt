@@ -3,7 +3,10 @@ package com.financetracker.app
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.util.anticipatedRecurringExpenseTotal
+import com.financetracker.app.util.anticipatedRecurringExpenses
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Calendar
 import java.util.TimeZone
@@ -140,5 +143,57 @@ class RecurringCostsTest {
     @Test
     fun `empty history anticipates nothing`() {
         assertEquals(0.0, anticipatedRecurringExpenseTotal(emptyList(), now), 0.001)
+    }
+
+    @Test
+    fun `a consistent day of month predicts that day this month, not flagged as estimated`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
+            expense(utcMillis(2026, 2, 15), 210.0, "Telia")
+        )
+        val items = anticipatedRecurringExpenses(transactions, now)
+        assertEquals(1, items.size)
+        val item = items.first()
+        assertEquals("Telia", item.label)
+        assertEquals(210.0, item.amount, 0.001)
+        assertFalse(item.dateIsEstimated)
+        assertEquals(utcMillis(2026, 3, 15), item.estimatedDate)
+    }
+
+    @Test
+    fun `an irregular posting day is flagged as estimated and uses the most recent day of month`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 3), 200.0, "Telia"),
+            expense(utcMillis(2026, 2, 27), 210.0, "Telia")
+        )
+        val items = anticipatedRecurringExpenses(transactions, now)
+        assertEquals(1, items.size)
+        val item = items.first()
+        assertTrue(item.dateIsEstimated)
+        assertEquals(utcMillis(2026, 3, 27), item.estimatedDate)
+    }
+
+    @Test
+    fun `multiple anticipated items are sorted by predicted date`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 27), 210.0, "Telia"),
+            expense(utcMillis(2026, 2, 27), 210.0, "Telia"),
+            expense(
+                utcMillis(2026, 1, 3),
+                7000.0,
+                "Transfer to savings",
+                category = "Other (Transfer)",
+                mainCategory = "Other"
+            ),
+            expense(
+                utcMillis(2026, 2, 3),
+                7000.0,
+                "Transfer to savings",
+                category = "Other (Transfer)",
+                mainCategory = "Other"
+            )
+        )
+        val items = anticipatedRecurringExpenses(transactions, now)
+        assertEquals(listOf("Transfer to savings", "Telia"), items.map { it.label })
     }
 }

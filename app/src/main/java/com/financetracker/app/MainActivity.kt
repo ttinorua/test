@@ -103,27 +103,28 @@ class MainActivity : ComponentActivity() {
                                 vm,
                                 onOpenAskAi = { navController.navigate("ask_ai") },
                                 onOpenTrends = { navController.navigate("trends") },
-                                onOpenTransactions = { type, categoryId, label, periodOption, customRange ->
+                                onOpenTransactions = { type, categoryId, label, periodOption, customRange, includeAnticipated ->
                                     val typeName = type?.name ?: "NONE"
                                     val catId = categoryId ?: -1L
                                     val from = customRange?.first ?: -1L
                                     val to = customRange?.second ?: -1L
                                     navController.navigate(
                                         "dashboard_transactions/$typeName/$catId/${Uri.encode(label)}/" +
-                                            "${periodOption.name}/$from/$to"
+                                            "${periodOption.name}/$from/$to/$includeAnticipated"
                                     )
                                 }
                             )
                         }
                         composable(
-                            route = "dashboard_transactions/{type}/{categoryId}/{label}/{periodOption}/{from}/{to}",
+                            route = "dashboard_transactions/{type}/{categoryId}/{label}/{periodOption}/{from}/{to}/{includeAnticipated}",
                             arguments = listOf(
                                 navArgument("type") { type = NavType.StringType },
                                 navArgument("categoryId") { type = NavType.LongType },
                                 navArgument("label") { type = NavType.StringType },
                                 navArgument("periodOption") { type = NavType.StringType },
                                 navArgument("from") { type = NavType.LongType },
-                                navArgument("to") { type = NavType.LongType }
+                                navArgument("to") { type = NavType.LongType },
+                                navArgument("includeAnticipated") { type = NavType.BoolType }
                             )
                         ) { backStackEntry ->
                             val args = backStackEntry.arguments!!
@@ -133,6 +134,7 @@ class MainActivity : ComponentActivity() {
                             val periodOption = PeriodOption.valueOf(args.getString("periodOption")!!)
                             val from = args.getLong("from")
                             val to = args.getLong("to")
+                            val includeAnticipated = args.getBoolean("includeAnticipated")
                             val customRange = if (periodOption == PeriodOption.CUSTOM && from >= 0 && to >= 0) {
                                 from to to
                             } else {
@@ -140,7 +142,15 @@ class MainActivity : ComponentActivity() {
                             }
                             val vm: DashboardTransactionsViewModel = viewModel(
                                 factory = ViewModelFactory {
-                                    DashboardTransactionsViewModel(repository, txType, categoryId, label, periodOption, customRange)
+                                    DashboardTransactionsViewModel(
+                                        repository,
+                                        txType,
+                                        categoryId,
+                                        label,
+                                        periodOption,
+                                        customRange,
+                                        includeAnticipated
+                                    )
                                 }
                             )
                             DashboardTransactionsScreen(vm, onClose = { navController.popBackStack() })

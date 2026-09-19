@@ -66,7 +66,8 @@ fun DashboardScreen(
         categoryId: Long?,
         label: String,
         periodOption: PeriodOption,
-        customRange: Pair<Long, Long>?
+        customRange: Pair<Long, Long>?,
+        includeAnticipated: Boolean
     ) -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -122,7 +123,7 @@ fun DashboardScreen(
                     title = "Net Balance",
                     amount = Formatters.currency(state.netBalance, currencyCode),
                     onClick = {
-                        onOpenTransactions(null, null, "All Transactions", state.periodOption, state.customRange)
+                        onOpenTransactions(null, null, "All Transactions", state.periodOption, state.customRange, false)
                     }
                 )
             }
@@ -143,7 +144,8 @@ fun DashboardScreen(
                                 null,
                                 "Income",
                                 state.periodOption,
-                                state.customRange
+                                state.customRange,
+                                false
                             )
                         },
                         amountStyle = MaterialTheme.typography.titleSmall,
@@ -160,14 +162,13 @@ fun DashboardScreen(
                                 null,
                                 "Expenses",
                                 state.periodOption,
-                                state.customRange
+                                state.customRange,
+                                true
                             )
                         },
                         amountStyle = MaterialTheme.typography.titleSmall,
                         contentPadding = 12.dp,
-                        subtitle = state.anticipatedRecurringExpense.takeIf { it > 0 }?.let {
-                            "incl. ${Formatters.amount(it)} upcoming"
-                        }
+                        titleBadge = "+".takeIf { state.anticipateRecurringBillsEnabled }
                     )
                     SummaryCard(
                         modifier = Modifier.weight(1f),
@@ -198,7 +199,8 @@ fun DashboardScreen(
                                             null,
                                             "Overall Budget",
                                             PeriodOption.THIS_MONTH,
-                                            null
+                                            null,
+                                            false
                                         )
                                     }
                                 )
@@ -216,7 +218,8 @@ fun DashboardScreen(
                                             catStatus.categoryId,
                                             catStatus.categoryName,
                                             PeriodOption.THIS_MONTH,
-                                            null
+                                            null,
+                                            false
                                         )
                                     }
                                 )
@@ -285,7 +288,8 @@ fun DashboardScreen(
                                     spend.categoryId,
                                     spend.categoryName,
                                     state.periodOption,
-                                    state.customRange
+                                    state.customRange,
+                                    false
                                 )
                             },
                             modifier = Modifier.padding(16.dp)

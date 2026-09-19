@@ -9,7 +9,9 @@ import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.repository.FinanceRepository
+import com.financetracker.app.util.AnticipatedExpense
 import com.financetracker.app.util.PeriodOption
+import com.financetracker.app.util.anticipatedRecurringExpenses
 import com.financetracker.app.util.countsTowardSpending
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.periodRange
@@ -23,12 +25,18 @@ data class DashboardTransactionsUiState(
     val label: String = "",
     val transactions: List<TransactionWithDetails> = emptyList(),
     val accounts: List<Account> = emptyList(),
-    val categories: List<Category> = emptyList()
+    val categories: List<Category> = emptyList(),
+    val showAnticipatedSections: Boolean = false,
+    val anticipatedExpenses: List<AnticipatedExpense> = emptyList()
 )
 
 /**
  * Shows every transaction in the dashboard's current period matching [type] and/or
- * [categoryId] (either or both null means "no filter on that field").
+ * [categoryId] (either or both null means "no filter on that field"). [includeAnticipated] is
+ * true only for the Dashboard's own Expenses tile — the one drill-down whose total the
+ * "Anticipate recurring bills" setting actually changes; Budget rows and the category breakdown
+ * also open this same screen for EXPENSE/This-Month, but their own totals never include
+ * anticipated amounts, so showing the upcoming/posted split there would be misleading.
  */
 class DashboardTransactionsViewModel(
     private val repository: FinanceRepository,
@@ -36,16 +44,23 @@ class DashboardTransactionsViewModel(
     categoryId: Long?,
     label: String,
     periodOption: PeriodOption,
-    customRange: Pair<Long, Long>?
+    customRange: Pair<Long, Long>?,
+    includeAnticipated: Boolean
 ) : ViewModel() {
 
     val uiState: StateFlow<DashboardTransactionsUiState> = combine(
         repository.observeTransactions(),
-        BudgetSettings.shiftSalaryToNextMonth,
-        BudgetSettings.excludeTransfersFromSpending,
+        combine(
+            BudgetSettings.shiftSalaryToNextMonth,
+            BudgetSettings.excludeTransfersFromSpending,
+            BudgetSettings.anticipateRecurringBills
+        ) { shiftSalary, excludeTransfers, anticipateRecurring ->
+            Triple(shiftSalary, excludeTransfers, anticipateRecurring)
+        },
         repository.observeAccounts(),
         repository.observeCategories()
-    ) { transactions, shiftSalary, excludeTransfers, accounts, categories ->
+    ) { transactions, settings, accounts, categories ->
+        val (shiftSalary, excludeTransfers, anticipateRecurring) = settings
         val (from, to) = periodRange(periodOption, customRange)
         val filtered = transactions.filter { tx ->
             val effectiveDate =
@@ -61,7 +76,17 @@ class DashboardTransactionsViewModel(
             inPeriod && matchesType && matchesCategory && countsIfRelevant
         }.sortedByDescending { it.date }
 
-        DashboardTransactionsUiState(label = label, transactions = filtered, accounts = accounts, categories = categories)
+        val showAnticipated = includeAnticipated && anticipateRecurring && periodOption == PeriodOption.THIS_MONTH
+        val anticipated = if (showAnticipated) anticipatedRecurringExpenses(transactions) else emptyList()
+
+        DashboardTransactionsUiState(
+            label = label,
+            transactions = filtered,
+            accounts = accounts,
+            categories = categories,
+            showAnticipatedSections = showAnticipated,
+            anticipatedExpenses = anticipated
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardTransactionsUiState(label = label))
 
     fun addTransaction(

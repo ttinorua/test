@@ -3,6 +3,7 @@ package com.financetracker.app.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,7 +48,7 @@ fun SummaryCard(
     onClick: (() -> Unit)? = null,
     amountStyle: TextStyle = MaterialTheme.typography.titleLarge,
     contentPadding: Dp = 16.dp,
-    subtitle: String? = null
+    titleBadge: String? = null
 ) {
     val colors = if (selected) {
         CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
@@ -56,13 +57,24 @@ fun SummaryCard(
     }
     val content: @Composable () -> Unit = {
         Column(modifier = Modifier.padding(contentPadding)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (titleBadge != null) {
+                    Text(
+                        text = titleBadge,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(4.dp))
             AutoSizeText(
                 text = amount,
@@ -71,16 +83,6 @@ fun SummaryCard(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.fillMaxWidth()
             )
-            if (subtitle != null) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-            }
         }
     }
     if (onClick != null) {

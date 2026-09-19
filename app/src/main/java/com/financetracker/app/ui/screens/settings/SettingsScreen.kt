@@ -918,19 +918,32 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
 
         if (state.isSyncing) {
             val progress = state.syncProgress
-            if (progress != null && progress.total > 0) {
-                LinearProgressIndicator(
-                    progress = { progress.done.toFloat() / progress.total },
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
-                )
-                Text(
-                    "${progress.done} of ${progress.total}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-            } else {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+            when {
+                progress != null && progress.total > 0 -> {
+                    LinearProgressIndicator(
+                        progress = { progress.done.toFloat() / progress.total },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                    )
+                    Text(
+                        "${progress.done} of ${progress.total}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+                // total == 0: still paginating through the bank's full history — this can be
+                // the slowest, least visible part of a first sync, so show it's moving even
+                // though there's no known denominator yet.
+                progress != null && progress.total == 0 && progress.done > 0 -> {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
+                    Text(
+                        "Fetching from bank… ${progress.done} transaction(s) so far",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+                else -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
             }
         }
         Spacer(modifier = Modifier.height(8.dp))

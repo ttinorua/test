@@ -72,7 +72,10 @@ class EnableBankingViewModel(private val repository: FinanceRepository, private 
             if (info == null || info.state.isFinished) return@map null
             val done = info.progress.getInt(EnableBankingSyncWorker.KEY_DONE, -1)
             val total = info.progress.getInt(EnableBankingSyncWorker.KEY_TOTAL, -1)
-            if (done >= 0 && total > 0) SyncProgressUi(done, total) else null
+            // total 0 means "still fetching from the bank, not a real total yet" (see
+            // EnableBankingSyncCoordinator) — still surfaced as progress (done, with total 0)
+            // so the UI can show that a long fetch phase is actually moving, not stuck.
+            if (done >= 0 && total >= 0) SyncProgressUi(done, total) else null
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 

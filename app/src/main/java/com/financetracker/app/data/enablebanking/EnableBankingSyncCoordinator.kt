@@ -82,15 +82,24 @@ object EnableBankingSyncCoordinator {
         var totalSkipped = 0
         var failure: String? = null
         val pending = mutableListOf<PendingAccount>()
+        // Enable Banking paginates an account's full history (years, for an old account) one
+        // network round trip per page, all of it before there's anything to report as real
+        // "done of total" progress — report a running fetched-so-far count in the meantime
+        // (total 0 is a sentinel the UI reads as "still fetching, total not known yet") so a
+        // long fetch phase doesn't look identical to being stuck.
+        var fetchedSoFar = 0
         for (bankAccount in accountsToSync) {
             val accountId = resolveLocalAccount(repository, bankAccount)
 
-            val rowsResult = EnableBankingService.fetchTransactions(bankAccount.uid, sinceEpochMillis = null)
+            val rowsResult = EnableBankingService.fetchTransactions(bankAccount.uid, sinceEpochMillis = null) { countSoFarForAccount ->
+                onProgress(SyncProgress(done = fetchedSoFar + countSoFarForAccount, total = 0))
+            }
             if (rowsResult.isFailure) {
                 failure = "Couldn't sync \"${bankAccount.name}\": ${describeError(rowsResult.exceptionOrNull()!!)}"
                 continue
             }
             val rows = rowsResult.getOrThrow()
+            fetchedSoFar += rows.size
 
             val existing = repository.getTransactionsForAccount(accountId)
             val filterResult = DuplicateTransactionFilter.filter(existing, rows)

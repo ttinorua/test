@@ -32,7 +32,13 @@ class EnableBankingSyncWorker(context: Context, params: WorkerParameters) : Coro
             maxGroups = BATCH_GROUPS,
             knownTotal = knownTotal
         ) { progress ->
-            prefs.edit().putInt(KEY_PERSISTED_TOTAL, progress.total).apply()
+            // total 0 is the fetch-phase "still fetching, not a real total yet" sentinel (see
+            // EnableBankingSyncCoordinator) — only persist a real positive total, so a retry
+            // right after an interruption mid-fetch never reads back a bogus 0 as knownTotal
+            // (which would make alreadyDone go negative once the real total is computed).
+            if (progress.total > 0) {
+                prefs.edit().putInt(KEY_PERSISTED_TOTAL, progress.total).apply()
+            }
             setProgress(workDataOf(KEY_DONE to progress.done, KEY_TOTAL to progress.total))
         } ?: return Result.success()
 

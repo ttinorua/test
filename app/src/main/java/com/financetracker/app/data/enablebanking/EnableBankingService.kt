@@ -112,7 +112,15 @@ object EnableBankingService {
      * explicit old date does return everything the bank has (observed: back to 2015 for a real
      * account), so "all history" is implemented as an explicit far-past date_from, never as
      * leaving the parameter out. */
-    suspend fun fetchTransactions(accountUid: String, sinceEpochMillis: Long?): Result<List<ParsedTransactionRow>> =
+    /** [onPage] is called after each page is fetched (with the running row count so far) so a
+     * caller can show that a long paginated fetch — the full history of a years-old account can
+     * be dozens of pages, each its own network round trip, done before this function returns
+     * anything at all — is actually progressing, not stuck. */
+    suspend fun fetchTransactions(
+        accountUid: String,
+        sinceEpochMillis: Long?,
+        onPage: suspend (Int) -> Unit = {}
+    ): Result<List<ParsedTransactionRow>> =
         withContext(Dispatchers.IO) {
             try {
                 val dateFromParam = "?date_from=${formatDate(Date(sinceEpochMillis ?: FULL_HISTORY_SINCE_MILLIS))}"
@@ -134,6 +142,7 @@ object EnableBankingService {
                             mapTransaction(transactionsJson.getJSONObject(i), rowNumber)?.let { rows.add(it) }
                         }
                     }
+                    onPage(rows.size)
                     // Enable Banking sends this key back as an explicit JSON null (not an
                     // omitted field) once there's no more data — see stringOrNull() below for
                     // why that has to be handled explicitly rather than via optString() alone.

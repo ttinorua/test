@@ -27,6 +27,7 @@ object EnableBankingPrefs {
     private const val KEY_CONSENT_VALID_UNTIL = "enablebanking_consent_valid_until"
     private const val KEY_LAST_SYNCED_AT = "enablebanking_last_synced_at"
     private const val KEY_PENDING_AUTH_STATE = "enablebanking_pending_auth_state"
+    private const val KEY_ACCOUNT_LINK_MAP = "enablebanking_account_link_map"
 
     private lateinit var prefs: android.content.SharedPreferences
 
@@ -45,6 +46,13 @@ object EnableBankingPrefs {
     private val _lastSyncedAt = MutableStateFlow<Long?>(null)
     val lastSyncedAt: StateFlow<Long?> get() = _lastSyncedAt
 
+    /** Bank account uid -> local [com.financetracker.app.data.db.entity.Account] id, once a sync
+     * has resolved which local account a linked bank account maps to. Lets later syncs find the
+     * right local account directly instead of re-matching by name every time, so renaming an
+     * account in Settings never causes sync to lose track of it and create a duplicate. */
+    private val _accountLinkMap = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val accountLinkMap: StateFlow<Map<String, Long>> get() = _accountLinkMap
+
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _sessionId.value = prefs.getString(KEY_SESSION_ID, null)
@@ -52,6 +60,7 @@ object EnableBankingPrefs {
         _selectedAccountUids.value = prefs.getStringSet(KEY_SELECTED_ACCOUNT_UIDS, emptySet()).orEmpty()
         _consentValidUntil.value = prefs.getLong(KEY_CONSENT_VALID_UNTIL, -1L).takeIf { it >= 0 }
         _lastSyncedAt.value = prefs.getLong(KEY_LAST_SYNCED_AT, -1L).takeIf { it >= 0 }
+        _accountLinkMap.value = deserializeAccountLinkMap(prefs.getString(KEY_ACCOUNT_LINK_MAP, null))
     }
 
     /** Called once a `code` has been exchanged for a live session. Selects all returned
@@ -76,6 +85,14 @@ object EnableBankingPrefs {
         _selectedAccountUids.value = uids
         if (::prefs.isInitialized) {
             prefs.edit().putStringSet(KEY_SELECTED_ACCOUNT_UIDS, uids).apply()
+        }
+    }
+
+    fun setAccountLink(uid: String, accountId: Long) {
+        val updated = _accountLinkMap.value + (uid to accountId)
+        _accountLinkMap.value = updated
+        if (::prefs.isInitialized) {
+            prefs.edit().putString(KEY_ACCOUNT_LINK_MAP, serializeAccountLinkMap(updated)).apply()
         }
     }
 
@@ -108,6 +125,7 @@ object EnableBankingPrefs {
         _selectedAccountUids.value = emptySet()
         _consentValidUntil.value = null
         _lastSyncedAt.value = null
+        _accountLinkMap.value = emptyMap()
         if (::prefs.isInitialized) {
             prefs.edit()
                 .remove(KEY_SESSION_ID)
@@ -115,6 +133,7 @@ object EnableBankingPrefs {
                 .remove(KEY_SELECTED_ACCOUNT_UIDS)
                 .remove(KEY_CONSENT_VALID_UNTIL)
                 .remove(KEY_LAST_SYNCED_AT)
+                .remove(KEY_ACCOUNT_LINK_MAP)
                 .apply()
         }
     }
@@ -151,6 +170,22 @@ object EnableBankingPrefs {
             }
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    private fun serializeAccountLinkMap(map: Map<String, Long>): String {
+        val obj = JSONObject()
+        map.forEach { (uid, accountId) -> obj.put(uid, accountId) }
+        return obj.toString()
+    }
+
+    private fun deserializeAccountLinkMap(raw: String?): Map<String, Long> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return try {
+            val obj = JSONObject(raw)
+            obj.keys().asSequence().associateWith { obj.getLong(it) }
+        } catch (e: Exception) {
+            emptyMap()
         }
     }
 }

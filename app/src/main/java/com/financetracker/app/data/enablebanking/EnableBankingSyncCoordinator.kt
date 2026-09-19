@@ -83,12 +83,26 @@ object EnableBankingSyncCoordinator {
 
     /** Sydbank reuses the same product label (e.g. "Privatkonto") across more than one real
      * account, so the label alone isn't a safe local-account key — always disambiguate with a
-     * suffix that's actually unique per account (the IBAN, falling back to the account uid). */
+     * suffix that's actually unique per account (the IBAN, falling back to the account uid).
+     *
+     * Once a bank uid has been resolved to a local account once, that mapping is persisted
+     * ([EnableBankingPrefs.accountLinkMap]) and reused directly on every later sync — so if the
+     * user renames the account afterward in Settings, sync keeps finding the same account by its
+     * stored id instead of re-deriving the name and failing to match, which would otherwise
+     * create a duplicate account. The name match below only runs as a one-time bootstrap (a
+     * fresh link, or an install from before this mapping existed) and immediately persists the
+     * id it finds so it's never needed again for that uid. */
     private suspend fun resolveLocalAccount(repository: FinanceRepository, bankAccount: LinkedBankAccount): Long {
+        val accounts = repository.getAccounts()
+        val linkedId = EnableBankingPrefs.accountLinkMap.value[bankAccount.uid]
+        if (linkedId != null && accounts.any { it.id == linkedId }) return linkedId
+
         val name = localAccountName(bankAccount)
-        val existing = repository.getAccounts().firstOrNull { it.name == name }
-        if (existing != null) return existing.id
-        return repository.upsertAccount(Account(name = name, currencyCode = bankAccount.currency))
+        val existing = accounts.firstOrNull { it.name == name }
+        val accountId = existing?.id
+            ?: repository.upsertAccount(Account(name = name, currencyCode = bankAccount.currency))
+        EnableBankingPrefs.setAccountLink(bankAccount.uid, accountId)
+        return accountId
     }
 
     private fun localAccountName(bankAccount: LinkedBankAccount): String {

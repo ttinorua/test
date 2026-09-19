@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
@@ -98,6 +99,7 @@ fun SettingsScreen(
     var showAddAccount by remember { mutableStateOf(false) }
     var showAddCategory by remember { mutableStateOf(false) }
     var deleteAccountTarget by remember { mutableStateOf<Account?>(null) }
+    var editAccountTarget by remember { mutableStateOf<Account?>(null) }
     var deleteCategoryTarget by remember { mutableStateOf<Category?>(null) }
     var collapsedMains by remember { mutableStateOf(setOf<String>()) }
 
@@ -175,6 +177,9 @@ fun SettingsScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                }
+                                IconButton(onClick = { editAccountTarget = accountUi.account }) {
+                                    Icon(Icons.Filled.Edit, contentDescription = "Rename account")
                                 }
                                 IconButton(onClick = { deleteAccountTarget = accountUi.account }) {
                                     Icon(Icons.Filled.Delete, contentDescription = "Delete account")
@@ -412,6 +417,17 @@ fun SettingsScreen(
             onConfirm = { mainCategory, name, type ->
                 viewModel.addCategory(mainCategory, name, type)
                 showAddCategory = false
+            }
+        )
+    }
+
+    editAccountTarget?.let { account ->
+        RenameAccountDialog(
+            currentName = account.name,
+            onDismiss = { editAccountTarget = null },
+            onConfirm = { newName ->
+                viewModel.updateAccount(account.copy(name = newName))
+                editAccountTarget = null
             }
         )
     }
@@ -725,6 +741,29 @@ private fun AddAccountDialog(onDismiss: () -> Unit, onConfirm: (String, Double) 
                     if (name.isNotBlank()) onConfirm(name.trim(), balance)
                 }
             ) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+/** Renaming only ever changes the account's display name (its id stays the same), so its
+ * transactions, budgets and Enable Banking link are all unaffected — nothing else in the app
+ * keys off this name. */
+@Composable
+private fun RenameAccountDialog(currentName: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var name by remember { mutableStateOf(currentName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename account") },
+        text = {
+            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") })
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
+                enabled = name.isNotBlank() && name.trim() != currentName
+            ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )

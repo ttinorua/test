@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.financetracker.app.data.ai.AiCategorizationWorker
@@ -30,7 +29,7 @@ data class SettingsUiState(
     val categories: List<Category> = emptyList()
 )
 
-class SettingsViewModel(private val repository: FinanceRepository, appContext: Context) : ViewModel() {
+class SettingsViewModel(private val repository: FinanceRepository, private val appContext: Context) : ViewModel() {
 
     val uiState: StateFlow<SettingsUiState> = combine(
         repository.observeAccounts(),
@@ -57,12 +56,12 @@ class SettingsViewModel(private val repository: FinanceRepository, appContext: C
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val isCategorizing: StateFlow<Boolean> = categorizationWorkInfo
-        .map { it != null && !isReallyFinished(it) }
+        .map { it != null && !it.state.isFinished }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     val categorizationProgress: StateFlow<CategorizationProgress?> = categorizationWorkInfo
         .map { info ->
-            if (info == null || isReallyFinished(info)) return@map null
+            if (info == null || info.state.isFinished) return@map null
             val done = info.progress.getInt(AiCategorizationWorker.KEY_DONE, -1)
             val total = info.progress.getInt(AiCategorizationWorker.KEY_TOTAL, -1)
             if (done >= 0 && total > 0) CategorizationProgress(done, total) else null
@@ -75,7 +74,10 @@ class SettingsViewModel(private val repository: FinanceRepository, appContext: C
     init {
         viewModelScope.launch {
             categorizationWorkInfo.collect { info ->
-                if (info == null || !isReallyFinished(info)) return@collect
+                // A batch that still has work left returns Result.retry(), which WorkManager
+                // reports as ENQUEUED again (never SUCCEEDED) until the chain's actual last
+                // batch finishes — so any terminal state seen here really is the run's end.
+                if (info == null || !info.state.isFinished) return@collect
                 _categorizationMessage.value = when (info.state) {
                     WorkInfo.State.SUCCEEDED -> {
                         val categorized = info.outputData.getInt(AiCategorizationWorker.KEY_CATEGORIZED, 0)
@@ -97,18 +99,6 @@ class SettingsViewModel(private val repository: FinanceRepository, appContext: C
         }
     }
 
-    /** A batch finishing with work still [AiCategorizationWorker.KEY_REMAINING] isn't really
-     * done — the worker already chained its own continuation under the same unique work name
-     * before returning, so this is just a boundary between batches, not the run's real end. */
-    private fun isReallyFinished(info: WorkInfo): Boolean {
-        if (!info.state.isFinished) return false
-        if (info.state == WorkInfo.State.SUCCEEDED) {
-            val remaining = info.outputData.getInt(AiCategorizationWorker.KEY_REMAINING, 0)
-            if (remaining > 0) return false
-        }
-        return true
-    }
-
     /** One-time AI backfill for every transaction that has no real category (mainly Enable
      * Banking's history, since it sends no category data). Can take a while for a large
      * history — progress is reported as it goes, and the run keeps going even if this screen
@@ -120,8 +110,12 @@ class SettingsViewModel(private val repository: FinanceRepository, appContext: C
             return
         }
         _categorizationMessage.value = null
-        val request = OneTimeWorkRequestBuilder<AiCategorizationWorker>().build()
-        workManager.enqueueUniqueWork(AiCategorizationWorker.UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+        AiCategorizationWorker.clearPersistedState(appContext)
+        workManager.enqueueUniqueWork(
+            AiCategorizationWorker.UNIQUE_WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            AiCategorizationWorker.buildRequest()
+        )
     }
 
     fun dismissCategorizationMessage() {

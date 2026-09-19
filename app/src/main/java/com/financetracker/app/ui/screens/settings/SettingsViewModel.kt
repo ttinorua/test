@@ -57,12 +57,12 @@ class SettingsViewModel(private val repository: FinanceRepository, appContext: C
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val isCategorizing: StateFlow<Boolean> = categorizationWorkInfo
-        .map { it != null && !it.state.isFinished }
+        .map { it != null && !isReallyFinished(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     val categorizationProgress: StateFlow<CategorizationProgress?> = categorizationWorkInfo
         .map { info ->
-            if (info == null || info.state.isFinished) return@map null
+            if (info == null || isReallyFinished(info)) return@map null
             val done = info.progress.getInt(AiCategorizationWorker.KEY_DONE, -1)
             val total = info.progress.getInt(AiCategorizationWorker.KEY_TOTAL, -1)
             if (done >= 0 && total > 0) CategorizationProgress(done, total) else null
@@ -75,7 +75,7 @@ class SettingsViewModel(private val repository: FinanceRepository, appContext: C
     init {
         viewModelScope.launch {
             categorizationWorkInfo.collect { info ->
-                if (info == null || !info.state.isFinished) return@collect
+                if (info == null || !isReallyFinished(info)) return@collect
                 _categorizationMessage.value = when (info.state) {
                     WorkInfo.State.SUCCEEDED -> {
                         val categorized = info.outputData.getInt(AiCategorizationWorker.KEY_CATEGORIZED, 0)
@@ -95,6 +95,18 @@ class SettingsViewModel(private val repository: FinanceRepository, appContext: C
                 workManager.pruneWork()
             }
         }
+    }
+
+    /** A batch finishing with work still [AiCategorizationWorker.KEY_REMAINING] isn't really
+     * done — the worker already chained its own continuation under the same unique work name
+     * before returning, so this is just a boundary between batches, not the run's real end. */
+    private fun isReallyFinished(info: WorkInfo): Boolean {
+        if (!info.state.isFinished) return false
+        if (info.state == WorkInfo.State.SUCCEEDED) {
+            val remaining = info.outputData.getInt(AiCategorizationWorker.KEY_REMAINING, 0)
+            if (remaining > 0) return false
+        }
+        return true
     }
 
     /** One-time AI backfill for every transaction that has no real category (mainly Enable

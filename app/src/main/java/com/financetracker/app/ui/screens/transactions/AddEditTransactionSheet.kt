@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.financetracker.app.data.ai.CategorySuggester
 import com.financetracker.app.data.ai.ClaudeService
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
@@ -81,24 +82,8 @@ fun AddEditTransactionSheet(
         isSuggesting = true
         suggestError = null
         coroutineScope.launch {
-            val categoryList = categories.joinToString("\n") { "${it.mainCategory}|${it.name}|${it.type}" }
-            val systemPrompt =
-                "You categorize personal finance transactions. Here are the user's existing " +
-                    "categories as MainCategory|Subcategory|Type (Type is INCOME or EXPENSE):\n" +
-                    categoryList +
-                    "\n\nGiven a transaction description, reply with ONLY the best matching " +
-                    "MainCategory|Subcategory from the list above, exactly as written, on a single " +
-                    "line. Do not invent new categories. If nothing fits well, reply with " +
-                    "Uncategorized|Uncategorized."
-            ClaudeService.ask(systemPrompt, note, maxTokens = 60L)
-                .onSuccess { reply ->
-                    val parts = reply.trim().lines().first().split("|").map { it.trim() }
-                    val match = if (parts.size == 2) {
-                        categories.firstOrNull {
-                            it.mainCategory.equals(parts[0], ignoreCase = true) &&
-                                it.name.equals(parts[1], ignoreCase = true)
-                        }
-                    } else null
+            CategorySuggester.suggest(note, categories)
+                .onSuccess { match ->
                     if (match != null) {
                         type = match.type
                         selectedCategoryId = match.id

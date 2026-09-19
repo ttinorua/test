@@ -1,6 +1,9 @@
 package com.financetracker.app.data.enablebanking
 
+import com.financetracker.app.data.ai.CategorySuggester
+import com.financetracker.app.data.ai.ClaudeService
 import com.financetracker.app.data.db.entity.Account
+import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.importexport.BalanceReconciler
@@ -28,6 +31,11 @@ object EnableBankingSyncCoordinator {
             .filter { it.uid in EnableBankingPrefs.selectedAccountUids.value }
         if (accountsToSync.isEmpty()) return null
 
+        val categories = repository.getCategories()
+        // One cache per sync run, keyed by normalized note, so repeated merchants (very common
+        // across a real transaction history) only cost one AI call each instead of one per row.
+        val suggestionCache = mutableMapOf<String, Category?>()
+
         var totalImported = 0
         var totalSkipped = 0
         var failure: String? = null
@@ -45,9 +53,10 @@ object EnableBankingSyncCoordinator {
             val existing = repository.getTransactionsForAccount(accountId)
             val filterResult = DuplicateTransactionFilter.filter(existing, rows)
 
-            val categoryCache = mutableMapOf<TransactionType, Long>()
+            val uncategorizedCache = mutableMapOf<TransactionType, Long>()
             val transactions = filterResult.uniqueRows.map { row ->
-                val categoryId = categoryCache.getOrPut(row.type) {
+                val suggested = suggestCategory(row.note, categories, suggestionCache)
+                val categoryId = suggested?.id ?: uncategorizedCache.getOrPut(row.type) {
                     repository.getOrCreateCategory(row.mainCategoryName, row.categoryName, row.type).id
                 }
                 Transaction(
@@ -86,5 +95,22 @@ object EnableBankingSyncCoordinator {
         val label = bankAccount.product ?: "Account"
         val suffix = bankAccount.iban?.takeLast(4) ?: bankAccount.uid.take(6)
         return "Sydbank $label ••$suffix"
+    }
+
+    /** Enable Banking sends no category data at all, so every new transaction is AI-suggested
+     * against the user's real categories when Claude is configured — silently skipped (falls
+     * back to Uncategorized) otherwise, since this is a background sync, not a user action. */
+    private suspend fun suggestCategory(
+        note: String,
+        categories: List<Category>,
+        cache: MutableMap<String, Category?>
+    ): Category? {
+        if (!ClaudeService.isConfigured) return null
+        val key = note.trim().lowercase()
+        if (key.isBlank()) return null
+        if (cache.containsKey(key)) return cache.getValue(key)
+        val match = CategorySuggester.suggest(note, categories).getOrNull()
+        cache[key] = match
+        return match
     }
 }

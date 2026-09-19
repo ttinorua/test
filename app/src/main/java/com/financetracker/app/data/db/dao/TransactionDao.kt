@@ -66,4 +66,7 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE accountId = :accountId")
     suspend fun getByAccountId(accountId: Long): List<Transaction>
 
+    @Query("SELECT * FROM transactions")
+    suspend fun getAll(): List<Transaction>
+
 }

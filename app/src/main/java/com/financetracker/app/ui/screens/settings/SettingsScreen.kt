@@ -3,6 +3,8 @@ package com.financetracker.app.ui.screens.settings
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,6 +39,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
@@ -286,7 +289,11 @@ fun SettingsScreen(
 
                 5 -> BankTab(enableBankingViewModel)
 
-                else -> Column(modifier = Modifier.padding(16.dp)) {
+                else -> Column(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
                     Text("Display currency", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "Amounts are shown in this currency. This doesn't convert existing values.",
@@ -322,6 +329,67 @@ fun SettingsScreen(
                             text = if (shiftSalaryToNextMonth) "On" else "Off",
                             modifier = Modifier.padding(start = 8.dp)
                         )
+                    }
+
+                    Text(
+                        "AI categorization",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
+                    Text(
+                        "One-time cleanup for transactions with no real category (mainly bank " +
+                            "sync history, since it carries no category data at all). Uses your " +
+                            "Anthropic API key and can take a while for a large history.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
+                    )
+
+                    val isCategorizing by viewModel.isCategorizing.collectAsState()
+                    val categorizationProgress by viewModel.categorizationProgress.collectAsState()
+                    val categorizationMessage by viewModel.categorizationMessage.collectAsState()
+
+                    categorizationMessage?.let { message ->
+                        Card(modifier = Modifier.padding(bottom = 8.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                                IconButton(
+                                    onClick = { viewModel.dismissCategorizationMessage() },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Dismiss", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    if (isCategorizing) {
+                        val progress = categorizationProgress
+                        if (progress != null && progress.total > 0) {
+                            LinearProgressIndicator(
+                                progress = { progress.done.toFloat() / progress.total },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 4.dp)
+                            )
+                            Text(
+                                "${progress.done} of ${progress.total}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                        } else {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+                        }
+                    }
+                    Button(onClick = { viewModel.categorizeWithAi() }, enabled = !isCategorizing) {
+                        Text(if (isCategorizing) "Categorizing…" else "Categorize with AI")
                     }
                 }
             }

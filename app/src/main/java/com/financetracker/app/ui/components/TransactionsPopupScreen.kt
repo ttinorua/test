@@ -42,6 +42,7 @@ import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.ui.screens.transactions.AddEditTransactionSheet
 import com.financetracker.app.util.AnticipatedExpense
 import com.financetracker.app.util.Formatters
+import com.financetracker.app.util.SimilarTransactionsPrompt
 
 /**
  * A drill-down window: a title, an editable transaction list (tap to edit, long-press to
@@ -82,7 +83,10 @@ fun TransactionsPopupScreen(
     onDeleteTransaction: (TransactionWithDetails) -> Unit,
     showAnticipatedSections: Boolean = false,
     anticipatedExpenses: List<AnticipatedExpense> = emptyList(),
-    onDismissAnticipated: (AnticipatedExpense) -> Unit = {}
+    onDismissAnticipated: (AnticipatedExpense) -> Unit = {},
+    similarPrompt: SimilarTransactionsPrompt? = null,
+    onApplySimilarUpdate: () -> Unit = {},
+    onDismissSimilarPrompt: () -> Unit = {}
 ) {
     var editingTransaction by remember { mutableStateOf<TransactionWithDetails?>(null) }
     var showAddEditDialog by remember { mutableStateOf(false) }
@@ -221,6 +225,14 @@ fun TransactionsPopupScreen(
                 }) { Text("Remove") }
             },
             dismissButton = { TextButton(onClick = { dismissTarget = null }) { Text("Cancel") } }
+        )
+    }
+
+    similarPrompt?.let { prompt ->
+        SimilarTransactionsPromptDialog(
+            prompt = prompt,
+            onApply = onApplySimilarUpdate,
+            onDismiss = onDismissSimilarPrompt
         )
     }
 }

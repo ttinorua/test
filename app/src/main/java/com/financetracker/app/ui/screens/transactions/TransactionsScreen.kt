@@ -42,12 +42,14 @@ import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.ui.components.EmptyState
 import com.financetracker.app.ui.components.PeriodSelectorChip
+import com.financetracker.app.ui.components.SimilarTransactionsPromptDialog
 import com.financetracker.app.ui.components.TransactionRow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionsScreen(viewModel: TransactionsViewModel) {
     val state by viewModel.uiState.collectAsState()
+    val similarPrompt by viewModel.similarPrompt.collectAsState()
 
     var editingTransaction by remember { mutableStateOf<TransactionWithDetails?>(null) }
     var showAddEditDialog by remember { mutableStateOf(false) }
@@ -202,6 +204,14 @@ fun TransactionsScreen(viewModel: TransactionsViewModel) {
             dismissButton = {
                 TextButton(onClick = { deleteTarget = null }) { Text("Cancel") }
             }
+        )
+    }
+
+    similarPrompt?.let { prompt ->
+        SimilarTransactionsPromptDialog(
+            prompt = prompt,
+            onApply = viewModel::applySimilarCategoryUpdate,
+            onDismiss = viewModel::dismissSimilarPrompt
         )
     }
 }

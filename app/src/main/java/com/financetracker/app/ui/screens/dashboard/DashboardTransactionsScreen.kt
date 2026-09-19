@@ -8,6 +8,7 @@ import com.financetracker.app.ui.components.TransactionsPopupScreen
 @Composable
 fun DashboardTransactionsScreen(viewModel: DashboardTransactionsViewModel, onClose: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
+    val similarPrompt by viewModel.similarPrompt.collectAsState()
     TransactionsPopupScreen(
         title = state.label,
         transactions = state.transactions,
@@ -19,6 +20,9 @@ fun DashboardTransactionsScreen(viewModel: DashboardTransactionsViewModel, onClo
         onAddTransaction = viewModel::addTransaction,
         onUpdateTransaction = viewModel::updateTransaction,
         onDeleteTransaction = viewModel::deleteTransaction,
-        onDismissAnticipated = viewModel::dismissAnticipated
+        onDismissAnticipated = viewModel::dismissAnticipated,
+        similarPrompt = similarPrompt,
+        onApplySimilarUpdate = viewModel::applySimilarCategoryUpdate,
+        onDismissSimilarPrompt = viewModel::dismissSimilarPrompt
     )
 }

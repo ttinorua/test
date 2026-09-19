@@ -10,12 +10,15 @@ import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.Formatters
 import com.financetracker.app.util.PeriodOption
+import com.financetracker.app.util.SimilarTransactionsPrompt
+import com.financetracker.app.util.findSimilarTransactions
 import com.financetracker.app.util.periodRange
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -47,6 +50,9 @@ class TransactionsViewModel(private val repository: FinanceRepository) : ViewMod
 
     private val _filter = MutableStateFlow(TransactionFilterState())
     val filter: StateFlow<TransactionFilterState> = _filter.asStateFlow()
+
+    private val _similarPrompt = MutableStateFlow<SimilarTransactionsPrompt?>(null)
+    val similarPrompt: StateFlow<SimilarTransactionsPrompt?> = _similarPrompt.asStateFlow()
 
     val uiState: StateFlow<TransactionsUiState> = combine(
         repository.observeTransactions(),
@@ -181,6 +187,8 @@ class TransactionsViewModel(private val repository: FinanceRepository) : ViewMod
         note: String
     ) {
         viewModelScope.launch {
+            val allBefore = repository.observeTransactions().first()
+            val original = allBefore.firstOrNull { it.id == id }
             repository.updateTransaction(
                 Transaction(
                     id = id,
@@ -192,7 +200,40 @@ class TransactionsViewModel(private val repository: FinanceRepository) : ViewMod
                     note = note
                 )
             )
+            if (original != null && categoryId != original.categoryId) {
+                val similar = findSimilarTransactions(allBefore, original, categoryId)
+                if (similar.isNotEmpty()) {
+                    val categoryName = repository.observeCategories().first()
+                        .firstOrNull { it.id == categoryId }?.name ?: "Uncategorized"
+                    _similarPrompt.value = SimilarTransactionsPrompt(categoryId, categoryName, similar)
+                }
+            }
         }
+    }
+
+    /** Applies the pending [similarPrompt]'s new category to every transaction it listed. */
+    fun applySimilarCategoryUpdate() {
+        val prompt = _similarPrompt.value ?: return
+        viewModelScope.launch {
+            prompt.similar.forEach { tx ->
+                repository.updateTransaction(
+                    Transaction(
+                        id = tx.id,
+                        amount = tx.amount,
+                        type = tx.type,
+                        accountId = tx.accountId,
+                        categoryId = prompt.newCategoryId,
+                        date = tx.date,
+                        note = tx.note
+                    )
+                )
+            }
+            _similarPrompt.value = null
+        }
+    }
+
+    fun dismissSimilarPrompt() {
+        _similarPrompt.value = null
     }
 
     fun deleteTransaction(transaction: TransactionWithDetails) {

@@ -1,5 +1,6 @@
 package com.financetracker.app.data.ai
 
+import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.repository.FinanceRepository
 
 data class CategorizationProgress(val done: Int, val total: Int)
@@ -23,10 +24,14 @@ data class CategorizationOutcome(val categorizedCount: Int, val totalConsidered:
  * uncategorized right now, so anything already categorized in an earlier batch is naturally
  * excluded, and [knownTotal] (pass back whatever a previous call returned as
  * [CategorizationOutcome.totalConsidered]) keeps the reported progress counting up across the
- * whole run instead of resetting each batch. Merchants are also AI-suggested
- * [CategorySuggester.BATCH_SIZE] at a time in a single Claude call (see [CategorySuggester.suggestBatch])
- * instead of one call per merchant — each call is a sequential network round trip, so this is
- * the main lever on how long a large backfill actually takes wall-clock.
+ * whole run instead of resetting each batch. Each merchant is first tried against
+ * [LocalCategoryMatcher] (free, instant, no network call) before ever asking Claude — real
+ * histories are usually dominated by a handful of recurring merchants (groceries, fuel,
+ * subscriptions, salary), so this alone resolves a meaningful share of a large backfill for
+ * free. Whatever's left unmatched is AI-suggested [CategorySuggester.BATCH_SIZE] at a time in a
+ * single Claude call (see [CategorySuggester.suggestBatch]) instead of one call per merchant —
+ * each call is a sequential network round trip, so together these are the main lever on how
+ * long a large backfill actually takes wall-clock.
  */
 object AiCategorizationCoordinator {
 
@@ -58,20 +63,28 @@ object AiCategorizationCoordinator {
         var doneThisRun = 0
         onProgress(CategorizationProgress(alreadyDone, total))
 
-        for (chunk in groupsToProcess.chunked(CategorySuggester.BATCH_SIZE)) {
-            val notes = chunk.map { it.first().note }
+        // Resolve whatever LocalCategoryMatcher can for free first; only the leftover unmatched
+        // groups go into the batched AI call below.
+        val localMatches = groupsToProcess.map { group -> LocalCategoryMatcher.suggest(group.first().note, categories) }
+        val unresolvedIndices = localMatches.withIndex().filter { it.value == null }.map { it.index }
+
+        val aiMatches = mutableMapOf<Int, Category?>()
+        for (chunk in unresolvedIndices.chunked(CategorySuggester.BATCH_SIZE)) {
+            val notes = chunk.map { groupsToProcess[it].first().note }
             val matches = CategorySuggester.suggestBatch(notes, categories).getOrNull()
-            chunk.forEachIndexed { i, group ->
-                val match = matches?.getOrNull(i)
-                if (match != null && match.id !in uncategorizedIds) {
-                    for (transaction in group) {
-                        repository.updateTransaction(transaction.copy(categoryId = match.id))
-                        categorizedCount++
-                    }
+            chunk.forEachIndexed { i, index -> aiMatches[index] = matches?.getOrNull(i) }
+        }
+
+        groupsToProcess.forEachIndexed { index, group ->
+            val match = localMatches[index] ?: aiMatches[index]
+            if (match != null && match.id !in uncategorizedIds) {
+                for (transaction in group) {
+                    repository.updateTransaction(transaction.copy(categoryId = match.id))
+                    categorizedCount++
                 }
-                doneThisRun += group.size
-                onProgress(CategorizationProgress(alreadyDone + doneThisRun, total))
             }
+            doneThisRun += group.size
+            onProgress(CategorizationProgress(alreadyDone + doneThisRun, total))
         }
 
         return CategorizationOutcome(categorizedCount, total, remaining = targets.size - doneThisRun)

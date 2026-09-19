@@ -2,6 +2,7 @@ package com.financetracker.app.data.enablebanking
 
 import com.financetracker.app.data.ai.CategorySuggester
 import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.LocalCategoryMatcher
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.Transaction
@@ -38,10 +39,14 @@ data class SyncOutcome(
  * against what's already saved locally ([DuplicateTransactionFilter]) to know what's actually
  * new. Day to day that's only a handful of transactions, but the very first sync (or any sync
  * after local data was wiped, e.g. an app reinstall) treats the *entire* history as new, and
- * every unique merchant needs an AI categorization suggestion — the same cost as the AI
- * categorization backfill. Merchants are AI-suggested [CategorySuggester.BATCH_SIZE] at a time
- * in a single Claude call (see [CategorySuggester.suggestBatch], deduped by note across
- * accounts) instead of one sequential call per merchant, the main lever on how long a large sync
+ * every unique merchant needs a categorization suggestion — the same cost as the AI
+ * categorization backfill. Each merchant is first tried against [LocalCategoryMatcher] (free,
+ * instant, no network call) before ever asking Claude — real Danish bank histories are usually
+ * dominated by a handful of recurring merchants (groceries, fuel, subscriptions, salary), so
+ * this alone resolves a meaningful share of a large first sync for free. Whatever's left
+ * unmatched is AI-suggested [CategorySuggester.BATCH_SIZE] at a time in a single Claude call
+ * (see [CategorySuggester.suggestBatch], deduped by note across accounts) instead of one
+ * sequential call per merchant — together these are the main lever on how long a large sync
  * actually takes wall-clock. This is also designed to be called repeatedly in bounded batches
  * ([maxGroups] merchant groups at a time, across however many accounts that spans) rather than
  * run to completion in one call, the same way [com.financetracker.app.data.ai.AiCategorizationCoordinator]
@@ -124,10 +129,16 @@ object EnableBankingSyncCoordinator {
             val key = w.group.first().note.trim().lowercase()
             noteByKey.putIfAbsent(key, w.group.first().note)
         }
+        // Resolve whatever LocalCategoryMatcher can for free first (no network call); only the
+        // leftover unmatched notes go into the batched AI call below.
         val suggestionByKey = mutableMapOf<String, Category?>()
+        val unresolvedKeys = mutableListOf<String>()
+        for ((key, note) in noteByKey) {
+            val local = LocalCategoryMatcher.suggest(note, categories)
+            if (local != null) suggestionByKey[key] = local else unresolvedKeys += key
+        }
         if (ClaudeService.isConfigured) {
-            val keys = noteByKey.keys.toList()
-            for (chunk in keys.chunked(CategorySuggester.BATCH_SIZE)) {
+            for (chunk in unresolvedKeys.chunked(CategorySuggester.BATCH_SIZE)) {
                 val notes = chunk.map { noteByKey.getValue(it) }
                 val matches = CategorySuggester.suggestBatch(notes, categories).getOrNull()
                 chunk.forEachIndexed { i, key -> suggestionByKey[key] = matches?.getOrNull(i) }

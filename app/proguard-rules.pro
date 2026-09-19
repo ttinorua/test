@@ -72,3 +72,29 @@
 # ClassNotFoundException — the exact same failure mode that broke POI, log4j2 and
 # commons-compress earlier in this project when only -dontwarn was in place.
 -keep class com.financetracker.app.data.ai.AiCategorizationWorker { *; }
+
+# Anthropic Java SDK serializes/deserializes its request and response model classes (Tool,
+# CacheControlEphemeral, JsonMissing/JsonField wrapper types, etc.) via Jackson reflecting over
+# their fields and methods at runtime, not via any compile-time codegen R8 can see — the same
+# reflection-vs-shrinker gap that broke POI, log4j2, commons-compress and WorkManager above.
+# The SDK ships its own consumer proguard rules (anthropic-java-core.pro, auto-applied), but
+# those only keep classes/members carrying specific Jackson annotations — JsonMissing itself
+# (the "field not set" sentinel referenced directly by the SDK's own hand-written serializer
+# code, not annotation-driven) isn't covered by them, so a real signed build failed every AI
+# chat/tool-use call with "JsonMissing cannot be serialized" the moment R8 renamed one of these
+# classes' fields, even though the identical call worked fine in an unminified debug
+# build/unit test. Scoped to com.anthropic.** only (not a blanket Jackson keep, which is a much
+# larger library and was enough on its own to make R8 run out of heap during minification).
+-dontwarn com.anthropic.**
+-keep class com.anthropic.** { *; }
+-keepclassmembers class com.anthropic.** { *; }
+
+# The SDK's "structured outputs" helper (com.anthropic.core.StructuredOutputsKt, unused by this
+# app — tool schemas are built by hand via Tool.InputSchema.builder(), never auto-generated from
+# a type) pulls in com.github.victools:jsonschema-generator, which references JDK reflection
+# types (AnnotatedType/AnnotatedParameterizedType) not present on Android's platform classpath.
+# That code path is never reached at runtime, but the -keep above forces R8 to still fully
+# verify it, which otherwise hard-fails the build — exactly the two lines R8 itself suggested
+# in missing_rules.txt.
+-dontwarn java.lang.reflect.AnnotatedParameterizedType
+-dontwarn java.lang.reflect.AnnotatedType

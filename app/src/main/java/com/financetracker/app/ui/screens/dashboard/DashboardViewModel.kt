@@ -15,6 +15,7 @@ import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
+import com.financetracker.app.util.countsTowardSpending
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.periodRange
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,6 +61,7 @@ private data class DashboardFilters(
 
 private data class DashboardExtras(
     val shiftSalary: Boolean,
+    val excludeTransfers: Boolean,
     val categories: List<Category>,
     val overallBudgets: Map<Long?, Double>,
     val categoryBudgets: Map<Pair<Long, Long?>, Double>
@@ -79,15 +81,16 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
         },
         combine(
             BudgetSettings.shiftSalaryToNextMonth,
+            BudgetSettings.excludeTransfersFromSpending,
             repository.observeCategories(),
             BudgetLimits.overallBudgets,
             BudgetLimits.categoryBudgets
-        ) { shiftSalary, categories, overallBudgets, categoryBudgets ->
-            DashboardExtras(shiftSalary, categories, overallBudgets, categoryBudgets)
+        ) { shiftSalary, excludeTransfers, categories, overallBudgets, categoryBudgets ->
+            DashboardExtras(shiftSalary, excludeTransfers, categories, overallBudgets, categoryBudgets)
         }
     ) { allTransactions, accounts, filters, extras ->
         val (periodOption, customRange, selectedAccountId) = filters
-        val (shiftSalary, categories, overallBudgets, allCategoryBudgets) = extras
+        val (shiftSalary, excludeTransfers, categories, overallBudgets, allCategoryBudgets) = extras
         val overallBudget = resolveOverallBudget(overallBudgets, selectedAccountId)
         val categoryBudgets = resolveCategoryBudgets(allCategoryBudgets, selectedAccountId)
         val transactions = if (selectedAccountId != null) {
@@ -110,10 +113,13 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
         }
 
         val income = inPeriod.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
-        val expense = inPeriod.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
+        val expenseTx = inPeriod.filter {
+            it.type == TransactionType.EXPENSE &&
+                countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
+        }
+        val expense = expenseTx.sumOf { it.amount }
 
-        val breakdown = inPeriod
-            .filter { it.type == TransactionType.EXPENSE }
+        val breakdown = expenseTx
             .groupBy { it.categoryId }
             .map { (categoryId, txs) ->
                 val sample = txs.first()
@@ -131,7 +137,8 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
         val monthExpenses = transactions.filter {
             val effectiveDate =
                 effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
-            it.type == TransactionType.EXPENSE && effectiveDate >= monthFrom && effectiveDate < monthTo
+            it.type == TransactionType.EXPENSE && effectiveDate >= monthFrom && effectiveDate < monthTo &&
+                countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
         }
         val spentByCategory = monthExpenses
             .filter { it.categoryId != null }

@@ -11,6 +11,7 @@ import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.GroupByOption
 import com.financetracker.app.util.PeriodOption
+import com.financetracker.app.util.countsTowardSpending
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.groupKeyOf
 import com.financetracker.app.util.periodRange
@@ -39,14 +40,16 @@ class GroupTransactionsViewModel(
     val uiState: StateFlow<GroupTransactionsUiState> = combine(
         repository.observeTransactions(),
         BudgetSettings.shiftSalaryToNextMonth,
+        BudgetSettings.excludeTransfersFromSpending,
         repository.observeAccounts(),
         repository.observeCategories()
-    ) { transactions, shiftSalary, accounts, categories ->
+    ) { transactions, shiftSalary, excludeTransfers, accounts, categories ->
         val (from, to) = periodRange(periodOption, customRange)
         val filtered = transactions.filter {
             val effectiveDate =
                 effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
-            effectiveDate >= from && effectiveDate < to && groupKeyOf(it, groupBy) == key
+            val inPeriod = effectiveDate >= from && effectiveDate < to && groupKeyOf(it, groupBy) == key
+            inPeriod && countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
         }.sortedByDescending { it.date }
 
         GroupTransactionsUiState(groupLabel = key, transactions = filtered, accounts = accounts, categories = categories)

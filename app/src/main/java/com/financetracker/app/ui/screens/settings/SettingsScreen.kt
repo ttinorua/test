@@ -95,6 +95,7 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsState()
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
     val shiftSalaryToNextMonth by BudgetSettings.shiftSalaryToNextMonth.collectAsState()
+    val excludeTransfersFromSpending by BudgetSettings.excludeTransfersFromSpending.collectAsState()
     var tabIndex by remember { mutableIntStateOf(0) }
 
     var showAddAccount by remember { mutableStateOf(false) }
@@ -333,6 +334,32 @@ fun SettingsScreen(
                         )
                         Text(
                             text = if (shiftSalaryToNextMonth) "On" else "Off",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+
+                    Text(
+                        "Exclude transfers from spending",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
+                    Text(
+                        "Expenses categorized as Other • \"Other (Transfer)\" (moving money to " +
+                            "another of your own accounts, e.g. savings) are left out of income/" +
+                            "expense totals, budgets, and the spending breakdown, since they " +
+                            "aren't real spending. The account register still shows every " +
+                            "transaction as normal.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(
+                            checked = excludeTransfersFromSpending,
+                            onCheckedChange = { BudgetSettings.setExcludeTransfersFromSpending(it) }
+                        )
+                        Text(
+                            text = if (excludeTransfersFromSpending) "On" else "Off",
                             modifier = Modifier.padding(start = 8.dp)
                         )
                     }

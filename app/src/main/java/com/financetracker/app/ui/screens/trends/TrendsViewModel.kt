@@ -6,6 +6,7 @@ import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.repository.FinanceRepository
+import com.financetracker.app.util.countsTowardSpending
 import com.financetracker.app.util.effectiveReportingDate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -53,9 +54,10 @@ class TrendsViewModel(private val repository: FinanceRepository) : ViewModel() {
         repository.observeTransactions(),
         repository.observeAccounts(),
         BudgetSettings.shiftSalaryToNextMonth,
-        _window,
-        _selectedAccountId
-    ) { allTransactions, accounts, shiftSalary, window, selectedAccountId ->
+        BudgetSettings.excludeTransfersFromSpending,
+        combine(_window, _selectedAccountId) { window, selectedAccountId -> window to selectedAccountId }
+    ) { allTransactions, accounts, shiftSalary, excludeTransfers, windowAndAccount ->
+        val (window, selectedAccountId) = windowAndAccount
         val transactions = if (selectedAccountId != null) {
             allTransactions.filter { it.accountId == selectedAccountId }
         } else {
@@ -73,7 +75,10 @@ class TrendsViewModel(private val repository: FinanceRepository) : ViewModel() {
                 month = month,
                 monthLabel = label,
                 income = inMonth.filter { it.type == TransactionType.INCOME }.sumOf { it.amount },
-                expense = inMonth.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
+                expense = inMonth.filter {
+                    it.type == TransactionType.EXPENSE &&
+                        countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
+                }.sumOf { it.amount }
             )
         }
 

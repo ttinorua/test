@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.ui.components.BarChartEntry
 import com.financetracker.app.util.GroupByOption
 import com.financetracker.app.util.PeriodOption
+import com.financetracker.app.util.countsTowardSpending
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.groupKeyOf
 import com.financetracker.app.util.periodRange
@@ -54,8 +56,9 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
         ) { periodOption, customRange, groupBy, selectedAccountId ->
             OverviewFilters(periodOption, customRange, groupBy, selectedAccountId)
         },
-        BudgetSettings.shiftSalaryToNextMonth
-    ) { allTransactions, accounts, filters, shiftSalary ->
+        BudgetSettings.shiftSalaryToNextMonth,
+        BudgetSettings.excludeTransfersFromSpending
+    ) { allTransactions, accounts, filters, shiftSalary, excludeTransfers ->
         val (periodOption, customRange, groupBy, selectedAccountId) = filters
         val transactions = if (selectedAccountId != null) {
             allTransactions.filter { it.accountId == selectedAccountId }
@@ -69,6 +72,10 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
             effectiveDate >= from && effectiveDate < to
         }
 
+        fun countsAsExpense(tx: TransactionWithDetails) =
+            tx.type == TransactionType.EXPENSE &&
+                countsTowardSpending(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers)
+
         val entries = inPeriod
             .groupBy { groupKeyOf(it, groupBy) }
             .map { (key, txs) ->
@@ -76,7 +83,7 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
                     key = key,
                     label = key,
                     income = txs.filter { it.type == TransactionType.INCOME }.sumOf { it.amount },
-                    expense = txs.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
+                    expense = txs.filter { countsAsExpense(it) }.sumOf { it.amount }
                 )
             }
             .sortedByDescending { it.income + it.expense }
@@ -87,7 +94,7 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
             groupBy = groupBy,
             entries = entries,
             totalIncome = inPeriod.filter { it.type == TransactionType.INCOME }.sumOf { it.amount },
-            totalExpense = inPeriod.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount },
+            totalExpense = inPeriod.filter { countsAsExpense(it) }.sumOf { it.amount },
             accounts = accounts,
             selectedAccountId = selectedAccountId
         )

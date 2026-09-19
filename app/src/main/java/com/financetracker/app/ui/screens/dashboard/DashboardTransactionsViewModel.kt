@@ -10,6 +10,7 @@ import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
+import com.financetracker.app.util.countsTowardSpending
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.periodRange
 import kotlinx.coroutines.flow.SharingStarted
@@ -41,9 +42,10 @@ class DashboardTransactionsViewModel(
     val uiState: StateFlow<DashboardTransactionsUiState> = combine(
         repository.observeTransactions(),
         BudgetSettings.shiftSalaryToNextMonth,
+        BudgetSettings.excludeTransfersFromSpending,
         repository.observeAccounts(),
         repository.observeCategories()
-    ) { transactions, shiftSalary, accounts, categories ->
+    ) { transactions, shiftSalary, excludeTransfers, accounts, categories ->
         val (from, to) = periodRange(periodOption, customRange)
         val filtered = transactions.filter { tx ->
             val effectiveDate =
@@ -51,7 +53,12 @@ class DashboardTransactionsViewModel(
             val inPeriod = effectiveDate >= from && effectiveDate < to
             val matchesType = type == null || tx.type == type
             val matchesCategory = categoryId == null || tx.categoryId == categoryId
-            inPeriod && matchesType && matchesCategory
+            // Only applied when this list is specifically the "Expenses" drill-down (type ==
+            // EXPENSE) — "All Transactions"/"Income" must stay unfiltered so they still sum to
+            // the (never-filtered) net balance and income totals shown on the tiles above them.
+            val countsIfRelevant = type != TransactionType.EXPENSE ||
+                countsTowardSpending(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers)
+            inPeriod && matchesType && matchesCategory && countsIfRelevant
         }.sortedByDescending { it.date }
 
         DashboardTransactionsUiState(label = label, transactions = filtered, accounts = accounts, categories = categories)

@@ -393,8 +393,16 @@ fun SettingsScreen(
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
                         }
                     }
-                    Button(onClick = { viewModel.categorizeWithAi() }, enabled = !isCategorizing) {
-                        Text(if (isCategorizing) "Categorizing…" else "Categorize with AI")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = { viewModel.categorizeWithAi() }, enabled = !isCategorizing) {
+                            Text(if (isCategorizing) "Categorizing…" else "Categorize with AI")
+                        }
+                        if (isCategorizing) {
+                            TextButton(
+                                onClick = { viewModel.cancelCategorization() },
+                                modifier = Modifier.padding(start = 8.dp)
+                            ) { Text("Cancel") }
+                        }
                     }
                 }
             }

@@ -52,7 +52,13 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
 
     private val categorizationWorkInfo: StateFlow<WorkInfo?> = workManager
         .getWorkInfosForUniqueWorkFlow(AiCategorizationWorker.UNIQUE_WORK_NAME)
-        .map { it.firstOrNull() }
+        // A build from before this fix could leave more than one WorkInfo entry behind under
+        // this same unique name (it used to replace its own still-running unique work from
+        // inside doWork(), a known way to leave WorkManager's bookkeeping inconsistent) — always
+        // prefer whichever entry is actually still active over just taking the list's first
+        // entry, so this never ends up watching a dead, orphaned one while real work (if any)
+        // runs under another.
+        .map { infos -> infos.firstOrNull { !it.state.isFinished } ?: infos.firstOrNull() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val isCategorizing: StateFlow<Boolean> = categorizationWorkInfo
@@ -111,11 +117,24 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
         }
         _categorizationMessage.value = null
         AiCategorizationWorker.clearPersistedState(appContext)
+        // REPLACE (not KEEP): this call only ever happens from here, guarded by the
+        // isCategorizing check above, so it can't race with a currently-running worker — it's a
+        // deliberate, explicit restart, always giving a clean single work item instead of risking
+        // reuse of a leftover/stuck one from a previous run.
         workManager.enqueueUniqueWork(
             AiCategorizationWorker.UNIQUE_WORK_NAME,
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.REPLACE,
             AiCategorizationWorker.buildRequest()
         )
+    }
+
+    /** Escape hatch for a run that's stuck (e.g. leftover state from a previous app version) —
+     * cancels whatever's registered under this unique work name and clears its persisted total,
+     * so the next "Categorize with AI" tap is guaranteed a clean start. */
+    fun cancelCategorization() {
+        workManager.cancelUniqueWork(AiCategorizationWorker.UNIQUE_WORK_NAME)
+        AiCategorizationWorker.clearPersistedState(appContext)
+        _categorizationMessage.value = null
     }
 
     fun dismissCategorizationMessage() {

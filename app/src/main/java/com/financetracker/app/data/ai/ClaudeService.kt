@@ -16,8 +16,16 @@ import kotlinx.coroutines.withContext
 
 private const val MODEL_ID = "claude-opus-5"
 private const val PROPOSE_BUDGET_TOOL_NAME = "propose_budget"
+private const val PRESENT_INSIGHTS_TOOL_NAME = "present_insights"
 
 data class ChatTurn(val isUser: Boolean, val text: String)
+
+enum class InsightTone { POSITIVE, NEUTRAL, WARNING }
+
+/** One dashboard insight card. [value] is the headline figure, already formatted (with currency
+ * unit or "%" as appropriate) since Claude has the real numbers and formatting conventions in
+ * its context — the UI just displays it verbatim. */
+data class InsightCard(val label: String, val value: String, val detail: String, val tone: InsightTone)
 
 data class BudgetCategoryProposal(val mainCategory: String, val category: String, val amount: Double)
 
@@ -67,6 +75,31 @@ object ClaudeService {
                     .addUserMessage(userMessage)
                     .build()
                 Result.success(extractText(anthropic.messages().create(params)))
+            } catch (e: Exception) {
+                Result.failure(mapError(e))
+            }
+        }
+    }
+
+    /**
+     * One-shot request that forces Claude to answer via the "present_insights" tool instead of
+     * prose, so the dashboard can render each observation as its own stat card rather than a
+     * wall of text. Returns an empty list (never a failure) if Claude's tool call didn't parse
+     * into anything usable — the caller decides how to surface that.
+     */
+    suspend fun generateInsights(systemPrompt: String, userMessage: String, maxTokens: Long = 1024L): Result<List<InsightCard>> {
+        val anthropic = client ?: return Result.failure(AiNotConfiguredException())
+        return withContext(Dispatchers.IO) {
+            try {
+                val params = MessageCreateParams.builder()
+                    .model(MODEL_ID)
+                    .maxTokens(maxTokens)
+                    .system(systemPrompt)
+                    .addUserMessage(userMessage)
+                    .addTool(presentInsightsTool())
+                    .toolToolChoice(PRESENT_INSIGHTS_TOOL_NAME)
+                    .build()
+                Result.success(extractInsightCards(anthropic.messages().create(params)))
             } catch (e: Exception) {
                 Result.failure(mapError(e))
             }
@@ -215,6 +248,93 @@ object ClaudeService {
             )
             .inputSchema(inputSchema)
             .build()
+    }
+
+    private fun presentInsightsTool(): Tool {
+        val properties = Tool.InputSchema.Properties.builder()
+            .putAdditionalProperty(
+                "insights",
+                JsonValue.from(
+                    mapOf(
+                        "type" to "array",
+                        "description" to "2 to 4 short, concrete insights, most important first.",
+                        "items" to mapOf(
+                            "type" to "object",
+                            "properties" to mapOf(
+                                "label" to mapOf(
+                                    "type" to "string",
+                                    "description" to "Short headline, 2-4 words, e.g. \"Media spending\"."
+                                ),
+                                "value" to mapOf(
+                                    "type" to "string",
+                                    "description" to "The headline figure, already formatted with " +
+                                        "the display currency or unit, e.g. \"3,319.99 kr\" or \"37% of outflows\"."
+                                ),
+                                "detail" to mapOf(
+                                    "type" to "string",
+                                    "description" to "One short sentence of concrete context, e.g. " +
+                                        "what it's made up of or compared to."
+                                ),
+                                "tone" to mapOf(
+                                    "type" to "string",
+                                    "enum" to listOf("positive", "neutral", "warning"),
+                                    "description" to "\"positive\" for good news (money left over, " +
+                                        "spending down), \"warning\" for something worth the user's " +
+                                        "attention (overspending, an unusually large outflow), " +
+                                        "otherwise \"neutral\"."
+                                )
+                            ),
+                            "required" to listOf("label", "value", "detail", "tone")
+                        )
+                    )
+                )
+            )
+            .build()
+
+        val inputSchema = Tool.InputSchema.builder()
+            .type(JsonValue.from("object"))
+            .properties(properties)
+            .build()
+
+        return Tool.builder()
+            .name(PRESENT_INSIGHTS_TOOL_NAME)
+            .description(
+                "Present 2-4 concise, concrete insights about the user's spending as structured " +
+                    "stat cards for a quick-glance dashboard widget, instead of a paragraph of prose."
+            )
+            .inputSchema(inputSchema)
+            .build()
+    }
+
+    private fun extractInsightCards(message: Message): List<InsightCard> {
+        for (block in message.content()) {
+            if (block.isToolUse()) {
+                val toolUse = block.asToolUse()
+                if (toolUse.name() == PRESENT_INSIGHTS_TOOL_NAME) {
+                    return parseInsightCards(toolUse)
+                }
+            }
+        }
+        return emptyList()
+    }
+
+    private fun parseInsightCards(toolUse: ToolUseBlock): List<InsightCard> = try {
+        @Suppress("UNCHECKED_CAST")
+        val input = toolUse._input().convert(Map::class.java) as? Map<String, Any?>
+        (input?.get("insights") as? List<*>).orEmpty().mapNotNull { entry ->
+            val fields = entry as? Map<*, *> ?: return@mapNotNull null
+            val label = fields["label"] as? String ?: return@mapNotNull null
+            val value = fields["value"] as? String ?: return@mapNotNull null
+            val detail = fields["detail"] as? String ?: return@mapNotNull null
+            val tone = when ((fields["tone"] as? String)?.lowercase()) {
+                "positive" -> InsightTone.POSITIVE
+                "warning" -> InsightTone.WARNING
+                else -> InsightTone.NEUTRAL
+            }
+            InsightCard(label, value, detail, tone)
+        }
+    } catch (e: Exception) {
+        emptyList()
     }
 
     private fun extractChatResult(message: Message): AiChatResult {

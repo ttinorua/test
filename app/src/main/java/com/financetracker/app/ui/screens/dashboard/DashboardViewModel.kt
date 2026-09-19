@@ -3,6 +3,8 @@ package com.financetracker.app.ui.screens.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.InsightCard
+import com.financetracker.app.data.ai.InsightTone
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.CategorySpend
@@ -190,9 +192,10 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
             val currencyCode = CurrencySettings.currencyCode.value
             val systemPrompt =
                 "You are a friendly personal finance assistant embedded in the user's finance-tracking app. " +
-                    "In 2-3 short sentences, give one specific, useful observation about their spending this " +
-                    "period using the numbers provided. Be concrete with amounts and category names. Avoid " +
-                    "generic advice like 'track your spending' or 'create a budget'."
+                    "Identify 2-4 specific, useful observations about their spending this period using the " +
+                    "numbers provided, and present them via the present_insights tool. Be concrete with " +
+                    "amounts and category names. Avoid generic advice like 'track your spending' or " +
+                    "'create a budget'."
             val summary = buildString {
                 appendLine("Currency: $currencyCode")
                 appendLine("Period income: ${current.periodIncome}")
@@ -203,9 +206,33 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
                 }
             }
 
-            ClaudeService.ask(systemPrompt, summary, maxTokens = 300L)
-                .onSuccess { AiInsightsCache.save(it) }
-                .onFailure { AiInsightsCache.save("Couldn't generate insights: ${it.message}") }
+            ClaudeService.generateInsights(systemPrompt, summary, maxTokens = 600L)
+                .onSuccess { cards ->
+                    AiInsightsCache.save(
+                        cards.ifEmpty {
+                            listOf(
+                                InsightCard(
+                                    label = "Insights",
+                                    value = "—",
+                                    detail = "Couldn't generate insights this time — try again.",
+                                    tone = InsightTone.NEUTRAL
+                                )
+                            )
+                        }
+                    )
+                }
+                .onFailure { error ->
+                    AiInsightsCache.save(
+                        listOf(
+                            InsightCard(
+                                label = "Insights",
+                                value = "—",
+                                detail = "Couldn't generate insights: ${error.message}",
+                                tone = InsightTone.WARNING
+                            )
+                        )
+                    )
+                }
             _isGeneratingInsights.value = false
         }
     }

@@ -1,5 +1,7 @@
 package com.financetracker.app.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -79,11 +81,13 @@ fun TransactionsPopupScreen(
     ) -> Unit,
     onDeleteTransaction: (TransactionWithDetails) -> Unit,
     showAnticipatedSections: Boolean = false,
-    anticipatedExpenses: List<AnticipatedExpense> = emptyList()
+    anticipatedExpenses: List<AnticipatedExpense> = emptyList(),
+    onDismissAnticipated: (AnticipatedExpense) -> Unit = {}
 ) {
     var editingTransaction by remember { mutableStateOf<TransactionWithDetails?>(null) }
     var showAddEditDialog by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<TransactionWithDetails?>(null) }
+    var dismissTarget by remember { mutableStateOf<AnticipatedExpense?>(null) }
 
     Scaffold(
         topBar = {
@@ -123,8 +127,14 @@ fun TransactionsPopupScreen(
                 if (showAnticipatedSections) {
                     if (anticipatedExpenses.isNotEmpty()) {
                         item { SectionHeader("Upcoming expenses", anticipatedExpenses.size) }
-                        items(anticipatedExpenses, key = { "anticipated-${it.label}-${it.mainCategory}-${it.category}" }) { item ->
-                            Card { AnticipatedExpenseRow(item, modifier = Modifier.padding(horizontal = 12.dp)) }
+                        items(anticipatedExpenses, key = { it.dismissKey }) { item ->
+                            Card {
+                                AnticipatedExpenseRow(
+                                    item = item,
+                                    onLongClick = { dismissTarget = item },
+                                    modifier = Modifier.padding(horizontal = 12.dp)
+                                )
+                            }
                         }
                     }
                     if (transactions.isNotEmpty()) {
@@ -193,6 +203,26 @@ fun TransactionsPopupScreen(
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } }
         )
     }
+
+    dismissTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { dismissTarget = null },
+            title = { Text("Remove from Upcoming expenses?") },
+            text = {
+                Text(
+                    "\"${target.label}\" won't count toward this month's Expenses total anymore. " +
+                        "It comes back automatically once it actually posts, or again next month."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDismissAnticipated(target)
+                    dismissTarget = null
+                }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { dismissTarget = null }) { Text("Cancel") } }
+        )
+    }
 }
 
 @Composable
@@ -205,15 +235,21 @@ private fun SectionHeader(label: String, count: Int) {
     )
 }
 
-/** A read-only row for a not-yet-posted recurring expense — same visual shape as [TransactionRow]
- * (category dot, label, category, amount) but never clickable, since there's no real transaction
- * behind it yet to edit or delete. The date is prefixed with "~" when it's a rough guess rather
- * than a date backed by a consistent historical pattern (see [AnticipatedExpense.dateIsEstimated]). */
+/** A row for a not-yet-posted recurring expense — same visual shape as [TransactionRow]
+ * (category dot, label, category, amount) but never tap-to-edit, since there's no real
+ * transaction behind it yet: nothing has come from Sydbank for this one, it's only a projection.
+ * Long-press still works, to remove it from this month's "Upcoming expenses" (see
+ * [onLongClick]/[com.financetracker.app.data.prefs.DismissedRecurringExpenses]) — unlike a real,
+ * posted transaction, this is the only kind of row a user can ever remove this way. The date is
+ * prefixed with "~" when it's a rough guess rather than a date backed by a consistent historical
+ * pattern (see [AnticipatedExpense.dateIsEstimated]). */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AnticipatedExpenseRow(item: AnticipatedExpense, modifier: Modifier = Modifier) {
+private fun AnticipatedExpenseRow(item: AnticipatedExpense, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .combinedClickable(onClick = {}, onLongClick = onLongClick)
             .padding(vertical = 12.dp, horizontal = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically

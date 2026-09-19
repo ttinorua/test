@@ -196,4 +196,75 @@ class RecurringCostsTest {
         val items = anticipatedRecurringExpenses(transactions, now)
         assertEquals(listOf("Transfer to savings", "Telia"), items.map { it.label })
     }
+
+    @Test
+    fun `a trusted main category is anticipated off a single occurrence within the last 2 months`() {
+        val transactions = listOf(
+            expense(
+                utcMillis(2026, 2, 20),
+                450.0,
+                "Tryg forsikring",
+                category = "Union and unemployment insurance",
+                mainCategory = "Insurance"
+            )
+        )
+        val items = anticipatedRecurringExpenses(transactions, now)
+        assertEquals(1, items.size)
+        assertEquals(450.0, items.first().amount, 0.001)
+    }
+
+    @Test
+    fun `a trusted category more than 2 months old is not anticipated`() {
+        val transactions = listOf(
+            expense(
+                utcMillis(2025, 12, 20),
+                450.0,
+                "Tryg forsikring",
+                category = "Union and unemployment insurance",
+                mainCategory = "Insurance"
+            )
+        )
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+    }
+
+    @Test
+    fun `consumer loan, interest and fees, loan and debt (other), and electricity are all trusted categories`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 2, 5), 1200.0, "Santander loan", category = "Consumer loan", mainCategory = "Loan and debt"),
+            expense(utcMillis(2026, 2, 5), 50.0, "Card interest", category = "Interest and fees", mainCategory = "Loan and debt"),
+            expense(utcMillis(2026, 2, 5), 300.0, "Misc debt", category = "Loan and debt (Other)", mainCategory = "Loan and debt"),
+            expense(utcMillis(2026, 2, 5), 600.0, "Norlys", category = "Electricity", mainCategory = "Home")
+        )
+        val items = anticipatedRecurringExpenses(transactions, now)
+        assertEquals(4, items.size)
+        assertEquals(setOf(1200.0, 50.0, 300.0, 600.0), items.map { it.amount }.toSet())
+    }
+
+    @Test
+    fun `credit cards is not a trusted category (only Loan and debt (Other) is)`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 2, 5), 800.0, "Card payment", category = "Credit cards", mainCategory = "Loan and debt")
+        )
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+    }
+
+    @Test
+    fun `a non-trusted category still needs the general 2-of-3-months rule, not just 1 recent occurrence`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 2, 5), 500.0, "Ikea", category = "Furniture and home accessories", mainCategory = "Home")
+        )
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+    }
+
+    @Test
+    fun `a dismissed key is excluded and does not count toward the total`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
+            expense(utcMillis(2026, 2, 15), 210.0, "Telia")
+        )
+        val dismissKey = anticipatedRecurringExpenses(transactions, now).first().dismissKey
+        val afterDismiss = anticipatedRecurringExpenses(transactions, now, dismissedKeys = setOf(dismissKey))
+        assertTrue(afterDismiss.isEmpty())
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, dismissedKeys = setOf(dismissKey)), 0.001)
+    }
 }

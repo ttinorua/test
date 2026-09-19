@@ -13,6 +13,7 @@ import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.anticipatedRecurringExpenses
@@ -75,7 +76,8 @@ private data class DashboardExtras(
     val anticipateRecurring: Boolean,
     val categories: List<Category>,
     val overallBudgets: Map<Long?, Double>,
-    val categoryBudgets: Map<Pair<Long, Long?>, Double>
+    val categoryBudgets: Map<Pair<Long, Long?>, Double>,
+    val dismissedRecurring: Set<String>
 )
 
 class DashboardViewModel(private val repository: FinanceRepository) : ViewModel() {
@@ -100,20 +102,22 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
             ) { shiftSalary, excludeTransfers, anticipateRecurring, categories, overallBudgets ->
                 DashboardSettingsAndCategories(shiftSalary, excludeTransfers, anticipateRecurring, categories, overallBudgets)
             },
-            BudgetLimits.categoryBudgets
-        ) { partial, categoryBudgets ->
+            BudgetLimits.categoryBudgets,
+            DismissedRecurringExpenses.dismissed
+        ) { partial, categoryBudgets, dismissedRecurring ->
             DashboardExtras(
                 partial.shiftSalary,
                 partial.excludeTransfers,
                 partial.anticipateRecurring,
                 partial.categories,
                 partial.overallBudgets,
-                categoryBudgets
+                categoryBudgets,
+                dismissedRecurring
             )
         }
     ) { allTransactions, accounts, filters, extras ->
         val (periodOption, customRange, selectedAccountId) = filters
-        val (shiftSalary, excludeTransfers, anticipateRecurring, categories, overallBudgets, allCategoryBudgets) = extras
+        val (shiftSalary, excludeTransfers, anticipateRecurring, categories, overallBudgets, allCategoryBudgets, dismissedRecurring) = extras
         val overallBudget = resolveOverallBudget(overallBudgets, selectedAccountId)
         val categoryBudgets = resolveCategoryBudgets(allCategoryBudgets, selectedAccountId)
         val transactions = if (selectedAccountId != null) {
@@ -142,7 +146,7 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
         }
         val expense = expenseTx.sumOf { it.amount }
         val anticipatedTotal = if (anticipateRecurring && periodOption == PeriodOption.THIS_MONTH) {
-            anticipatedRecurringExpenses(transactions).sumOf { it.amount }
+            anticipatedRecurringExpenses(transactions, dismissedKeys = dismissedRecurring).sumOf { it.amount }
         } else {
             0.0
         }

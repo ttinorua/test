@@ -18,6 +18,7 @@ fun DashboardTransactionsScreen(viewModel: DashboardTransactionsViewModel, onClo
         onClose = onClose,
         onAddTransaction = viewModel::addTransaction,
         onUpdateTransaction = viewModel::updateTransaction,
-        onDeleteTransaction = viewModel::deleteTransaction
+        onDeleteTransaction = viewModel::deleteTransaction,
+        onDismissAnticipated = viewModel::dismissAnticipated
     )
 }

@@ -12,6 +12,7 @@ import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.repository.FinanceRepository
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,7 @@ class FinanceApp : Application() {
         BudgetSettings.init(this)
         BudgetLimits.init(this)
         AiInsightsCache.init(this)
+        DismissedRecurringExpenses.init(this)
         EnableBankingPrefs.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
 

@@ -8,6 +8,7 @@ import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.BudgetSettings
+import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.AnticipatedExpense
 import com.financetracker.app.util.PeriodOption
@@ -58,8 +59,9 @@ class DashboardTransactionsViewModel(
             Triple(shiftSalary, excludeTransfers, anticipateRecurring)
         },
         repository.observeAccounts(),
-        repository.observeCategories()
-    ) { transactions, settings, accounts, categories ->
+        repository.observeCategories(),
+        DismissedRecurringExpenses.dismissed
+    ) { transactions, settings, accounts, categories, dismissedRecurring ->
         val (shiftSalary, excludeTransfers, anticipateRecurring) = settings
         val (from, to) = periodRange(periodOption, customRange)
         val filtered = transactions.filter { tx ->
@@ -77,7 +79,11 @@ class DashboardTransactionsViewModel(
         }.sortedByDescending { it.date }
 
         val showAnticipated = includeAnticipated && anticipateRecurring && periodOption == PeriodOption.THIS_MONTH
-        val anticipated = if (showAnticipated) anticipatedRecurringExpenses(transactions) else emptyList()
+        val anticipated = if (showAnticipated) {
+            anticipatedRecurringExpenses(transactions, dismissedKeys = dismissedRecurring)
+        } else {
+            emptyList()
+        }
 
         DashboardTransactionsUiState(
             label = label,
@@ -118,6 +124,13 @@ class DashboardTransactionsViewModel(
                 Transaction(id = id, amount = amount, type = type, accountId = accountId, categoryId = categoryId, date = date, note = note)
             )
         }
+    }
+
+    /** Removes an anticipated (not-yet-posted) expense from "Upcoming expenses" — there's no
+     * real transaction to delete, so this just remembers not to anticipate that specific bill
+     * again until it actually posts or the month rolls over. See [DismissedRecurringExpenses]. */
+    fun dismissAnticipated(expense: AnticipatedExpense) {
+        DismissedRecurringExpenses.dismiss(expense.dismissKey)
     }
 
     fun deleteTransaction(transaction: TransactionWithDetails) {

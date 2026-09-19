@@ -65,8 +65,11 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
 
             ClaudeService.chatWithBudgetTool(context, history, trimmed)
                 .onSuccess { result ->
-                    val text = result.text.ifBlank {
-                        result.proposal?.summary ?: "Here's a proposed budget:"
+                    val text = when {
+                        result.text.isNotBlank() -> result.text
+                        result.proposal != null -> result.proposal.summary ?: "Here's a proposed budget:"
+                        else -> "I couldn't put together a useful answer for that — try rephrasing, " +
+                            "or ask about a specific category or time period."
                     }
                     _messages.update { it + AiChatMessage(isUser = false, text = text, proposal = result.proposal) }
                 }
@@ -147,12 +150,21 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
                     "If the data doesn't support an answer, say so instead of guessing."
             )
             appendLine(
-                "If the user asks for a budget recommendation, analyze the TRANSACTIONS data " +
-                    "below for whatever time range and categories they mention (or a sensible " +
-                    "recent window if they don't specify one — never assume a fixed period like " +
-                    "12 months) and call the propose_budget tool with your recommendation. Use " +
-                    "exact account and category names from the lists below. This only shows the " +
-                    "user a proposal to confirm — never claim you've already set a budget."
+                "Only call the propose_budget tool when the user explicitly asks you to set up, " +
+                    "create, or recommend a specific numeric budget (e.g. \"set a budget for me\", " +
+                    "\"recommend a monthly budget\", \"how much should I budget for groceries\"). " +
+                    "Analyze the TRANSACTIONS data below for whatever time range and categories " +
+                    "they mention (or a sensible recent window if they don't specify one — never " +
+                    "assume a fixed period like 12 months), and use exact account and category " +
+                    "names from the lists below. This only shows the user a proposal to confirm " +
+                    "— never claim you've already set a budget."
+            )
+            appendLine(
+                "For open-ended questions like \"where can I cut back\", \"where am I " +
+                    "overspending\", or \"how do I save more\", answer directly in plain text " +
+                    "instead: name specific categories and real amounts from the TRANSACTIONS " +
+                    "data below. Only use propose_budget once the user wants that turned into " +
+                    "actual numeric limits."
             )
             appendLine()
             appendLine("ACCOUNTS (name, current balance as of today):")

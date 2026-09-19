@@ -3,10 +3,18 @@ package com.financetracker.app.data.bank
 import com.financetracker.app.data.db.entity.TransactionType
 
 /**
- * Sydbank's own category taxonomy — extracted directly from a real Sydbank account's
- * transaction history (a spreadsheet export carrying the bank's own MainCategory and Category
- * columns), not a guessed list. Enable Banking's live sync API sends no category data at all
- * (see [com.financetracker.app.data.enablebanking.EnableBankingService.fetchTransactions]), so
+ * The category taxonomy shared by every bank on the Bankdata platform (a shared Danish
+ * banking-IT co-op) whose online banking's categorization feature is powered by Meniga, a
+ * Nordic PFM vendor — extracted directly from a real Sydbank account's transaction history (a
+ * spreadsheet export carrying the bank's own MainCategory and Category columns), not a guessed
+ * list, but not actually Sydbank-specific either: Bankdata's other member banks are Jyske Bank,
+ * Ringkjøbing Landbobank, SJF Bank (Sparekassen Sjælland-Fyn), Skjern Bank, Djurslands Bank and
+ * Kreditbanken, and — per Meniga/Bankdata's own published case study — this same categorization
+ * is what powers all of their online banking too, so a new [Bank] entry for any of them can
+ * reuse this list as a real, correct starting point rather than another guess.
+ *
+ * Enable Banking's live sync API sends no category data at all (see
+ * [com.financetracker.app.data.enablebanking.EnableBankingService.fetchTransactions]), so
  * without a category list this rich to pick from, both the AI and
  * [com.financetracker.app.data.ai.LocalCategoryMatcher] were correctly leaving a large share of
  * real transactions (furniture and general retail, fuel specifically, transfers, insurance/union
@@ -14,7 +22,7 @@ import com.financetracker.app.data.db.entity.TransactionType
  * "categorization barely does anything" even though the matching itself was working fine; there
  * was simply nothing good to match to.
  */
-object SydbankDefaultCategories {
+object BankdataDefaultCategories {
 
     val ALL = listOf(
         DefaultCategorySeed("Groceries", "Food", TransactionType.EXPENSE, "#2E7D32"),

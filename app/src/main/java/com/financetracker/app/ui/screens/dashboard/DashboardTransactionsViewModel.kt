@@ -35,9 +35,10 @@ data class DashboardTransactionsUiState(
  * Shows every transaction in the dashboard's current period matching [type] and/or
  * [categoryId] (either or both null means "no filter on that field"). [includeAnticipated] is
  * true only for the Dashboard's own Expenses tile — the one drill-down whose total the
- * "Anticipate recurring bills" setting actually changes; Budget rows and the category breakdown
- * also open this same screen for EXPENSE/This-Month, but their own totals never include
- * anticipated amounts, so showing the upcoming/posted split there would be misleading.
+ * "Anticipate recurring bills" setting actually changes, for This month or Next month alike;
+ * Budget rows and the category breakdown also open this same screen for EXPENSE/This-Month, but
+ * their own totals never include anticipated amounts, so showing the upcoming/posted split there
+ * would be misleading.
  */
 class DashboardTransactionsViewModel(
     private val repository: FinanceRepository,
@@ -78,9 +79,14 @@ class DashboardTransactionsViewModel(
             inPeriod && matchesType && matchesCategory && countsIfRelevant
         }.sortedByDescending { it.date }
 
-        val showAnticipated = includeAnticipated && anticipateRecurring && periodOption == PeriodOption.THIS_MONTH
+        val monthsAhead = when (periodOption) {
+            PeriodOption.THIS_MONTH -> 0
+            PeriodOption.NEXT_MONTH -> 1
+            else -> null
+        }
+        val showAnticipated = includeAnticipated && anticipateRecurring && monthsAhead != null
         val anticipated = if (showAnticipated) {
-            anticipatedRecurringExpenses(transactions, dismissedKeys = dismissedRecurring)
+            anticipatedRecurringExpenses(transactions, monthsAhead = monthsAhead!!, dismissedKeys = dismissedRecurring)
         } else {
             emptyList()
         }

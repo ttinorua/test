@@ -372,11 +372,12 @@ fun SettingsScreen(
                     )
                     Text(
                         "Bills that show up most months (phone, utilities, a monthly transfer " +
-                            "to another account, etc.) but haven't posted yet this month are " +
-                            "added to the Dashboard's Expenses tile at their last known amount, " +
-                            "so Remaining reflects what's left once they go out — not just what " +
-                            "you've spent so far. Only affects that one tile; budgets, the " +
-                            "spending breakdown, and every other screen are unaffected.",
+                            "to another account, insurance, loan interest, electricity, etc.) " +
+                            "but haven't posted yet are added to the Dashboard's Expenses tile " +
+                            "at their last known amount, so Remaining reflects what's left once " +
+                            "they go out — not just what you've spent so far. Works for This " +
+                            "month and Next month alike. Only affects that one tile; budgets, " +
+                            "the spending breakdown, and every other screen are unaffected.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)

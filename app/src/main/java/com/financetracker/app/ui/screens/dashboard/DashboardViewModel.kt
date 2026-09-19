@@ -145,8 +145,13 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
                 countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
         }
         val expense = expenseTx.sumOf { it.amount }
-        val anticipatedTotal = if (anticipateRecurring && periodOption == PeriodOption.THIS_MONTH) {
-            anticipatedRecurringExpenses(transactions, dismissedKeys = dismissedRecurring).sumOf { it.amount }
+        val monthsAhead = when (periodOption) {
+            PeriodOption.THIS_MONTH -> 0
+            PeriodOption.NEXT_MONTH -> 1
+            else -> null
+        }
+        val anticipatedTotal = if (anticipateRecurring && monthsAhead != null) {
+            anticipatedRecurringExpenses(transactions, monthsAhead = monthsAhead, dismissedKeys = dismissedRecurring).sumOf { it.amount }
         } else {
             0.0
         }

@@ -108,7 +108,8 @@ fun DashboardScreen(
                         option = state.periodOption,
                         customRange = state.customRange,
                         onOptionSelected = viewModel::selectPeriod,
-                        onCustomRangeSelected = viewModel::selectCustomRange
+                        onCustomRangeSelected = viewModel::selectCustomRange,
+                        options = PeriodOption.entries
                     )
                     AccountSelectorChip(
                         accounts = state.accounts,

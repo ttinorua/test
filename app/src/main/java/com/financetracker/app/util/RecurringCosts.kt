@@ -18,10 +18,9 @@ private const val TRUSTED_CATEGORY_RECENT_MONTHS = 2
  * known, consistent day of month (e.g. always the 27th-29th) rather than a rough estimate. */
 private const val DAY_OF_MONTH_CONSISTENCY_THRESHOLD = 4
 
-/** Main categories that are inherently recurring/contractual in nature — trusted as recurring
- * off a single occurrence within [TRUSTED_CATEGORY_RECENT_MONTHS], unlike everything else, which
- * needs to actually repeat ([MIN_OCCURRENCES] times in [LOOKBACK_MONTHS] months) before it's
- * trusted. */
+/** Main categories that are inherently recurring/contractual in nature. "Insurance" additionally
+ * gets cadence detection (see [Cadence]) rather than this flat single-occurrence trust, since an
+ * insurance premium is just as often billed yearly or quarterly as monthly. */
 private val TRUSTED_MAIN_CATEGORIES = setOf("insurance")
 
 /** Individual categories (regardless of main category) with the same single-occurrence trust as
@@ -30,14 +29,21 @@ private val TRUSTED_MAIN_CATEGORIES = setOf("insurance")
  * anticipated. */
 private val TRUSTED_CATEGORIES = setOf("interest and fees", "consumer loan", "loan and debt (other)", "electricity")
 
-/** One recurring expense that hasn't posted yet this month, projected at its most recent
- * occurrence's amount. [estimatedDate] is this month's predicted posting date — a real
- * prediction (the historical day of month, when it's been consistent across 2+ occurrences)
- * when [dateIsEstimated] is false, otherwise a rough guess (the most recent occurrence's day of
- * month) when there's only one occurrence to go on, or the history is too irregular to pin down
- * a day with any confidence. [dismissKey] identifies this specific bill for this specific month —
- * pass it to [com.financetracker.app.data.prefs.DismissedRecurringExpenses.dismiss] to remove it
- * from "Upcoming expenses" (and the Dashboard Expenses tile total) until it actually posts or the
+/** Categories that recur by habit, not by contract, and so are never anticipated no matter how
+ * regularly they repeat — parking at the same garage every workday isn't a scheduled bill, even
+ * though the note+category can look identical for months in a row the same way a real bill does. */
+private val EXCLUDED_CATEGORIES = setOf("parking")
+
+private enum class Cadence { MONTHLY, QUARTERLY, YEARLY, UNKNOWN }
+
+/** One recurring expense that hasn't posted yet in the month being projected for, projected at
+ * its most recent occurrence's amount. [estimatedDate] is that month's predicted posting date —
+ * a real prediction (a consistent historical day of month, or a detected monthly/quarterly/
+ * yearly cadence) when [dateIsEstimated] is false, otherwise a rough guess when there's too
+ * little history to be confident. [dismissKey] identifies this specific bill for this specific
+ * projected month — pass it to
+ * [com.financetracker.app.data.prefs.DismissedRecurringExpenses.dismiss] to remove it from
+ * "Upcoming expenses" (and the Dashboard Expenses tile total) until it actually posts or that
  * month rolls over. */
 data class AnticipatedExpense(
     val label: String,
@@ -52,25 +58,30 @@ data class AnticipatedExpense(
 
 private data class MonthBucket(val year: Int, val month: Int)
 
-private fun monthBucketOf(date: Long): MonthBucket {
-    val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = date }
+private fun utcCalendar(): Calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+
+/** [date]'s own calendar month, [monthsOffset] months forward (0 = the month [date] falls in). */
+private fun monthBucketOf(date: Long, monthsOffset: Int = 0): MonthBucket {
+    val cal = utcCalendar().apply {
+        timeInMillis = date
+        if (monthsOffset != 0) add(Calendar.MONTH, monthsOffset)
+    }
     return MonthBucket(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH))
 }
 
 private fun dayOfMonthOf(date: Long): Int {
-    val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = date }
+    val cal = utcCalendar().apply { timeInMillis = date }
     return cal.get(Calendar.DAY_OF_MONTH)
 }
 
-/** [now]'s own month, with the day of month set to [day] (clamped to that month's real length,
- * e.g. day 31 in a 30-day month lands on the 30th). */
-private fun dateForDayInCurrentMonth(now: Long, day: Int): Long {
-    val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-        timeInMillis = now
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
+private fun daysBetween(a: Long, b: Long): Long = (b - a) / (24L * 60 * 60 * 1000)
+
+/** [bucket]'s own month, with the day of month set to [day] (clamped to that month's real
+ * length, e.g. day 31 in a 30-day month lands on the 30th). */
+private fun dateForDayInBucket(bucket: MonthBucket, day: Int): Long {
+    val cal = utcCalendar().apply {
+        clear()
+        set(bucket.year, bucket.month, 1, 0, 0, 0)
     }
     val lastDayOfMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
     cal.set(Calendar.DAY_OF_MONTH, day.coerceIn(1, lastDayOfMonth))
@@ -78,13 +89,41 @@ private fun dateForDayInCurrentMonth(now: Long, day: Int): Long {
 }
 
 /** The [count] calendar months strictly before [now]'s month — never includes the current month
- * itself, since that's what we're deciding whether to anticipate for. */
+ * itself, since that's what we're deciding whether a bill is still "recent" relative to. */
 private fun priorMonthBuckets(now: Long, count: Int): Set<MonthBucket> {
-    val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = now }
+    val cal = utcCalendar().apply { timeInMillis = now }
     return (1..count).map {
         cal.add(Calendar.MONTH, -1)
         MonthBucket(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH))
     }.toSet()
+}
+
+/** The typical gap between [sortedDates]' consecutive entries, classified into a cadence a
+ * bill/premium commonly follows. Needs at least 2 dates to say anything at all. */
+private fun detectCadence(sortedDates: List<Long>): Cadence {
+    if (sortedDates.size < 2) return Cadence.UNKNOWN
+    val gaps = sortedDates.zipWithNext { a, b -> daysBetween(a, b) }.sorted()
+    val medianGap = gaps[gaps.size / 2]
+    return when {
+        medianGap in 20..45 -> Cadence.MONTHLY
+        medianGap in 75..105 -> Cadence.QUARTERLY
+        medianGap in 300..400 -> Cadence.YEARLY
+        else -> Cadence.UNKNOWN
+    }
+}
+
+/** The next date [cadence] predicts after [lastDate] — calendar-unit arithmetic (not a fixed day
+ * count), so a monthly bill lands on the same day next month regardless of month length, and a
+ * yearly one isn't thrown off by leap years. [Cadence.UNKNOWN] conservatively assumes monthly,
+ * the safest default when the history is too irregular to classify. */
+private fun predictNextByCadence(lastDate: Long, cadence: Cadence): Long {
+    val cal = utcCalendar().apply { timeInMillis = lastDate }
+    when (cadence) {
+        Cadence.MONTHLY, Cadence.UNKNOWN -> cal.add(Calendar.MONTH, 1)
+        Cadence.QUARTERLY -> cal.add(Calendar.MONTH, 3)
+        Cadence.YEARLY -> cal.add(Calendar.YEAR, 1)
+    }
+    return cal.timeInMillis
 }
 
 /** Same identity a recurring bill/transfer keeps month to month: the account it's paid from,
@@ -100,34 +139,84 @@ private fun recurringKeyOf(tx: TransactionWithDetails) = RecurringKey(
     note = tx.note.trim().lowercase()
 )
 
-private fun isTrustedCategory(key: RecurringKey): Boolean =
-    key.mainCategory in TRUSTED_MAIN_CATEGORIES || key.category in TRUSTED_CATEGORIES
+private fun dismissKeyFor(bucket: MonthBucket, key: RecurringKey): String =
+    "${bucket.year}-${bucket.month}|${key.accountId}|${key.mainCategory}|${key.category}|${key.note}"
 
-private fun dismissKeyFor(currentBucket: MonthBucket, key: RecurringKey): String =
-    "${currentBucket.year}-${currentBucket.month}|${key.accountId}|${key.mainCategory}|${key.category}|${key.note}"
+private data class Qualification(val qualifies: Boolean, val predictedDate: Long, val dateIsEstimated: Boolean)
+
+/** Insurance premiums are as often yearly or quarterly as monthly, so rather than the flat
+ * single-occurrence trust the other [TRUSTED_CATEGORIES] get, this detects the actual cadence
+ * from every occurrence on record and only anticipates it in the one month that cadence predicts
+ * next — never every month by default. */
+private fun qualifyInsurance(sortedTxs: List<TransactionWithDetails>, targetBucket: MonthBucket): Qualification {
+    val cadence = detectCadence(sortedTxs.map { it.date })
+    val last = sortedTxs.last()
+    val predicted = predictNextByCadence(last.date, cadence)
+    return Qualification(monthBucketOf(predicted) == targetBucket, predicted, cadence == Cadence.UNKNOWN)
+}
+
+/** The other trusted categories: anticipated off a single occurrence as long as it happened
+ * within [TRUSTED_CATEGORY_RECENT_MONTHS] real months of [now] — always assumed monthly, unlike
+ * insurance. */
+private fun qualifyTrustedCategory(
+    sortedTxs: List<TransactionWithDetails>,
+    byMonth: Map<MonthBucket, List<TransactionWithDetails>>,
+    now: Long,
+    targetBucket: MonthBucket
+): Qualification {
+    val recent = priorMonthBuckets(now, TRUSTED_CATEGORY_RECENT_MONTHS)
+    val qualifies = byMonth.keys.any { it in recent }
+    val last = sortedTxs.last()
+    return Qualification(qualifies, dateForDayInBucket(targetBucket, dayOfMonthOf(last.date)), true)
+}
+
+/** Everything else: needs to have actually repeated — present in at least [MIN_OCCURRENCES] of
+ * the last [LOOKBACK_MONTHS] real months — before it's trusted as recurring at all. */
+private fun qualifyByFrequency(
+    sortedTxs: List<TransactionWithDetails>,
+    byMonth: Map<MonthBucket, List<TransactionWithDetails>>,
+    now: Long,
+    targetBucket: MonthBucket
+): Qualification {
+    val lookbackMonths = byMonth.filterKeys { it in priorMonthBuckets(now, LOOKBACK_MONTHS) }
+    if (lookbackMonths.size < MIN_OCCURRENCES) return Qualification(false, 0L, true)
+
+    val last = sortedTxs.last()
+    val historicalDays = lookbackMonths.values.map { monthTxs -> dayOfMonthOf(monthTxs.maxBy { it.date }.date) }
+    val isConsistentDay = (historicalDays.max() - historicalDays.min()) <= DAY_OF_MONTH_CONSISTENCY_THRESHOLD
+    val predictedDay = if (isConsistentDay) historicalDays.average().roundToInt() else dayOfMonthOf(last.date)
+    return Qualification(true, dateForDayInBucket(targetBucket, predictedDay), !isConsistentDay)
+}
 
 /**
- * Every recurring expense that hasn't posted yet this month, either:
+ * Every recurring expense not yet posted in the month being projected for — [monthsAhead] months
+ * after [now]'s own month (0 = this month, 1 = next month, and so on) — either:
+ * - under "Insurance" (any category), whose actual billing cadence (monthly, quarterly, or
+ *   yearly) is detected from its full history and only anticipated in the one month that predicts
+ *   next;
+ * - under another category trusted as inherently recurring/contractual ([TRUSTED_CATEGORIES]:
+ *   Interest and fees, Consumer loan, Loan and debt (Other), Electricity), which only needs a
+ *   single occurrence within the last [TRUSTED_CATEGORY_RECENT_MONTHS] real months to be trusted,
+ *   assumed monthly; or
  * - the same account+category+note appearing in at least [MIN_OCCURRENCES] of the last
- *   [LOOKBACK_MONTHS] calendar months (e.g. a phone bill, a monthly transfer to savings), or
- * - under a category trusted as inherently recurring/contractual ([TRUSTED_MAIN_CATEGORIES]:
- *   Insurance; [TRUSTED_CATEGORIES]: Interest and fees, Consumer loan, Loan and debt (Other),
- *   Electricity), which only needs a single occurrence within the last
- *   [TRUSTED_CATEGORY_RECENT_MONTHS] months to be trusted, since the category itself already
- *   implies a scheduled cost.
+ *   [LOOKBACK_MONTHS] real calendar months (e.g. a phone bill, a monthly transfer to savings).
+ *
+ * [EXCLUDED_CATEGORIES] (e.g. Parking) are never anticipated regardless of how often they repeat
+ * — they recur by habit, not by contract, so the same note+category showing up in back-to-back
+ * months doesn't mean a bill is coming due.
  *
  * Settings' "Anticipate recurring bills" toggle adds these to the Dashboard's Expenses tile total
- * (see [anticipatedRecurringExpenseTotal]) and lists them individually in that tile's transaction
- * drill-down, so Remaining reflects what's left once the month's known fixed costs actually go
- * out, not just what's already posted. Only ever projects one month ahead (the current one) —
- * this doesn't attempt to anticipate a bill due next month or later.
+ * (see [anticipatedRecurringExpenseTotal]) for whichever month is currently selected — This month
+ * or Next month — and lists them individually in that tile's transaction drill-down, so Remaining
+ * reflects what's left (or, a month ahead, what's expected) once known fixed costs actually go
+ * out, not just what's already posted.
  *
  * Each qualifying, not-yet-posted group projects its most recent occurrence's amount (reacts to
  * a real change — a plan upgrade, a rent increase — faster than averaging would). A group that
- * already has a transaction this month is left alone: it's already counted in the real total,
- * adding an estimate on top would double-count it. [dismissedKeys] (see
+ * already has a transaction in the projected month is left alone: it's already counted in the
+ * real total there, adding an estimate on top would double-count it. [dismissedKeys] (see
  * [com.financetracker.app.data.prefs.DismissedRecurringExpenses]) excludes anything the user has
- * explicitly removed from this month's list.
+ * explicitly removed from that month's list.
  *
  * [transactions] should already be scoped to whichever account (or all accounts) the caller
  * cares about — this only groups and projects, it doesn't filter by account itself.
@@ -135,44 +224,40 @@ private fun dismissKeyFor(currentBucket: MonthBucket, key: RecurringKey): String
 fun anticipatedRecurringExpenses(
     transactions: List<TransactionWithDetails>,
     now: Long = System.currentTimeMillis(),
+    monthsAhead: Int = 0,
     dismissedKeys: Set<String> = emptySet()
 ): List<AnticipatedExpense> {
     val expenses = transactions.filter { it.type == TransactionType.EXPENSE }
     if (expenses.isEmpty()) return emptyList()
 
-    val currentBucket = monthBucketOf(now)
-    val lookback = priorMonthBuckets(now, LOOKBACK_MONTHS)
-    val recentForTrustedCategory = priorMonthBuckets(now, TRUSTED_CATEGORY_RECENT_MONTHS)
+    val targetBucket = monthBucketOf(now, monthsAhead)
 
     return expenses.groupBy { recurringKeyOf(it) }.mapNotNull { (key, txs) ->
-        val byMonth = txs.groupBy { monthBucketOf(it.date) }
-        if (byMonth.containsKey(currentBucket)) return@mapNotNull null
+        if (key.category in EXCLUDED_CATEGORIES) return@mapNotNull null
 
-        val lookbackMonths = byMonth.filterKeys { it in lookback }
-        val qualifiesByFrequency = lookbackMonths.size >= MIN_OCCURRENCES
-        val qualifiesByTrustedCategory = isTrustedCategory(key) && lookbackMonths.keys.any { it in recentForTrustedCategory }
-        if (!qualifiesByFrequency && !qualifiesByTrustedCategory) return@mapNotNull null
+        val sortedTxs = txs.sortedBy { it.date }
+        val byMonth = sortedTxs.groupBy { monthBucketOf(it.date) }
+        if (byMonth.containsKey(targetBucket)) return@mapNotNull null
 
-        val dismissKey = dismissKeyFor(currentBucket, key)
+        val qualification = when {
+            key.mainCategory in TRUSTED_MAIN_CATEGORIES -> qualifyInsurance(sortedTxs, targetBucket)
+            key.category in TRUSTED_CATEGORIES -> qualifyTrustedCategory(sortedTxs, byMonth, now, targetBucket)
+            else -> qualifyByFrequency(sortedTxs, byMonth, now, targetBucket)
+        }
+        if (!qualification.qualifies) return@mapNotNull null
+
+        val dismissKey = dismissKeyFor(targetBucket, key)
         if (dismissKey in dismissedKeys) return@mapNotNull null
 
-        val mostRecent = txs.maxBy { it.date }
-        val historicalDays = lookbackMonths.values.map { monthTxs -> dayOfMonthOf(monthTxs.maxBy { it.date }.date) }
-        val isConsistentDay = historicalDays.size >= 2 && (historicalDays.max() - historicalDays.min()) <= DAY_OF_MONTH_CONSISTENCY_THRESHOLD
-        val predictedDay = if (isConsistentDay) {
-            historicalDays.average().roundToInt()
-        } else {
-            dayOfMonthOf(mostRecent.date)
-        }
-
+        val mostRecent = sortedTxs.last()
         AnticipatedExpense(
             label = mostRecent.note.ifBlank { mostRecent.categoryName ?: "Recurring expense" },
             mainCategory = mostRecent.mainCategoryName ?: "Uncategorized",
             category = mostRecent.categoryName ?: "Uncategorized",
             colorHex = mostRecent.categoryColorHex ?: "#9E9E9E",
             amount = mostRecent.amount,
-            estimatedDate = dateForDayInCurrentMonth(now, predictedDay),
-            dateIsEstimated = !isConsistentDay,
+            estimatedDate = qualification.predictedDate,
+            dateIsEstimated = qualification.dateIsEstimated,
             dismissKey = dismissKey
         )
     }.sortedBy { it.estimatedDate }
@@ -183,5 +268,6 @@ fun anticipatedRecurringExpenses(
 fun anticipatedRecurringExpenseTotal(
     transactions: List<TransactionWithDetails>,
     now: Long = System.currentTimeMillis(),
+    monthsAhead: Int = 0,
     dismissedKeys: Set<String> = emptySet()
-): Double = anticipatedRecurringExpenses(transactions, now, dismissedKeys).sumOf { it.amount }
+): Double = anticipatedRecurringExpenses(transactions, now, monthsAhead, dismissedKeys).sumOf { it.amount }

@@ -31,6 +31,10 @@ import com.financetracker.app.util.todayUtcMidnight
 
 private const val ONE_DAY_MILLIS = 24L * 60 * 60 * 1000
 
+/** [options] defaults to every period except "Next month" — that one's only meaningful on the
+ * Dashboard (it drives the recurring-bill forecast on the Expenses tile); elsewhere it would
+ * just be a filter that always shows an empty result, since no real transactions exist yet for
+ * a future month. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PeriodSelectorChip(
@@ -38,7 +42,8 @@ fun PeriodSelectorChip(
     customRange: Pair<Long, Long>?,
     onOptionSelected: (PeriodOption) -> Unit,
     onCustomRangeSelected: (Long, Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    options: List<PeriodOption> = PeriodOption.entries.filterNot { it == PeriodOption.NEXT_MONTH }
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showCustomPicker by remember { mutableStateOf(false) }
@@ -56,7 +61,7 @@ fun PeriodSelectorChip(
             leadingIcon = { Icon(Icons.Filled.DateRange, contentDescription = null) }
         )
         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-            PeriodOption.entries.forEach { opt ->
+            options.forEach { opt ->
                 DropdownMenuItem(
                     text = { Text(opt.label) },
                     onClick = {

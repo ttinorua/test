@@ -5,6 +5,7 @@ import java.util.TimeZone
 
 enum class PeriodOption(val label: String) {
     THIS_MONTH("This month"),
+    NEXT_MONTH("Next month"),
     LAST_MONTH("Last month"),
     LAST_3_MONTHS("Last 3 months"),
     THIS_YEAR("This year"),
@@ -27,6 +28,14 @@ fun periodRange(option: PeriodOption, customRange: Pair<Long, Long>?): Pair<Long
     return when (option) {
         PeriodOption.THIS_MONTH -> {
             val start = startOfDay(now).apply { set(Calendar.DAY_OF_MONTH, 1) }
+            val end = (start.clone() as Calendar).apply { add(Calendar.MONTH, 1) }
+            start.timeInMillis to end.timeInMillis
+        }
+        PeriodOption.NEXT_MONTH -> {
+            val start = startOfDay(now).apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                add(Calendar.MONTH, 1)
+            }
             val end = (start.clone() as Calendar).apply { add(Calendar.MONTH, 1) }
             start.timeInMillis to end.timeInMillis
         }

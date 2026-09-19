@@ -267,4 +267,63 @@ class RecurringCostsTest {
         assertTrue(afterDismiss.isEmpty())
         assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, dismissedKeys = setOf(dismissKey)), 0.001)
     }
+
+    @Test
+    fun `parking is never anticipated, even when it repeats like a real bill would`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 10), 50.0, "City Parkering", category = "Parking", mainCategory = "Transportation"),
+            expense(utcMillis(2026, 2, 10), 50.0, "City Parkering", category = "Parking", mainCategory = "Transportation")
+        )
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+    }
+
+    @Test
+    fun `a detected yearly insurance cadence is anticipated only in the month it predicts next`() {
+        val transactions = listOf(
+            expense(utcMillis(2024, 3, 3), 5000.0, "Tryg forsikring", category = "Union and unemployment insurance", mainCategory = "Insurance"),
+            expense(utcMillis(2025, 3, 5), 5200.0, "Tryg forsikring", category = "Union and unemployment insurance", mainCategory = "Insurance")
+        )
+        val thisMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 0)
+        assertEquals(1, thisMonth.size)
+        assertEquals(5200.0, thisMonth.first().amount, 0.001)
+        assertFalse(thisMonth.first().dateIsEstimated)
+        assertEquals(utcMillis(2026, 3, 5), thisMonth.first().estimatedDate)
+
+        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1)
+        assertTrue(nextMonth.isEmpty())
+    }
+
+    @Test
+    fun `a detected quarterly insurance cadence predicts 3 months after the last occurrence`() {
+        val transactions = listOf(
+            expense(utcMillis(2025, 9, 5), 300.0, "Alka forsikring", category = "Union and unemployment insurance", mainCategory = "Insurance"),
+            expense(utcMillis(2025, 12, 5), 310.0, "Alka forsikring", category = "Union and unemployment insurance", mainCategory = "Insurance")
+        )
+        val items = anticipatedRecurringExpenses(transactions, now, monthsAhead = 0)
+        assertEquals(1, items.size)
+        assertFalse(items.first().dateIsEstimated)
+        assertEquals(utcMillis(2026, 3, 5), items.first().estimatedDate)
+    }
+
+    @Test
+    fun `anticipating next month includes a monthly bill that hasn't posted this month either`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
+            expense(utcMillis(2026, 2, 15), 210.0, "Telia")
+        )
+        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1)
+        assertEquals(1, nextMonth.size)
+        assertEquals(utcMillis(2026, 4, 15), nextMonth.first().estimatedDate)
+    }
+
+    @Test
+    fun `a bill already posted next month is not anticipated again for next month`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
+            expense(utcMillis(2026, 2, 15), 210.0, "Telia"),
+            expense(utcMillis(2026, 4, 1), 220.0, "Telia")
+        )
+        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1)
+        assertTrue(nextMonth.isEmpty())
+    }
 }

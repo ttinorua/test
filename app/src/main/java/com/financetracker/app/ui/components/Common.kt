@@ -178,7 +178,8 @@ fun CategoryBreakdownList(
     }
 }
 
-/** A labeled progress bar comparing [spent] against [budget], color-coded by how close it is. */
+/** A labeled progress bar comparing [spent] against [budget], color-coded by how close it is.
+ * Tappable when [onClick] is given, to drill into the transactions it's made up of. */
 @Composable
 fun BudgetProgressRow(
     label: String,
@@ -186,7 +187,8 @@ fun BudgetProgressRow(
     budget: Double,
     currencyCode: String,
     modifier: Modifier = Modifier,
-    colorHex: String? = null
+    colorHex: String? = null,
+    onClick: (() -> Unit)? = null
 ) {
     val ratio = if (budget > 0) spent / budget else 0.0
     val isDark = isSystemInDarkTheme()
@@ -196,7 +198,11 @@ fun BudgetProgressRow(
         else -> MaterialTheme.colorScheme.primary
     }
 
-    Column(modifier = modifier.padding(vertical = 6.dp)) {
+    Column(
+        modifier = modifier
+            .padding(vertical = 6.dp)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,

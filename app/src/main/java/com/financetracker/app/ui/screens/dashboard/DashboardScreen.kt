@@ -188,7 +188,16 @@ fun DashboardScreen(
                                     spent = budgetStatus.overallSpent,
                                     budget = overallBudget,
                                     currencyCode = currencyCode,
-                                    modifier = Modifier.padding(top = 8.dp)
+                                    modifier = Modifier.padding(top = 8.dp),
+                                    onClick = {
+                                        onOpenTransactions(
+                                            TransactionType.EXPENSE,
+                                            null,
+                                            "Overall Budget",
+                                            PeriodOption.THIS_MONTH,
+                                            null
+                                        )
+                                    }
                                 )
                             }
                             budgetStatus.categoryStatuses.forEach { catStatus ->
@@ -197,7 +206,16 @@ fun DashboardScreen(
                                     spent = catStatus.spent,
                                     budget = catStatus.budget,
                                     currencyCode = currencyCode,
-                                    colorHex = catStatus.colorHex
+                                    colorHex = catStatus.colorHex,
+                                    onClick = {
+                                        onOpenTransactions(
+                                            TransactionType.EXPENSE,
+                                            catStatus.categoryId,
+                                            catStatus.categoryName,
+                                            PeriodOption.THIS_MONTH,
+                                            null
+                                        )
+                                    }
                                 )
                             }
                         }

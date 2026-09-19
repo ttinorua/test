@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.dao.AccountDao
 import com.financetracker.app.data.db.dao.CategoryDao
 import com.financetracker.app.data.db.dao.TransactionDao
@@ -53,7 +54,11 @@ abstract class AppDatabase : RoomDatabase() {
             db.execSQL(
                 "INSERT INTO accounts (name, initialBalance, currencyCode) VALUES ('Cash', 0.0, 'DKK')"
             )
-            DefaultCategories.ALL.forEach { seed ->
+            // Seeded with the default bank's ([SupportedBanks.DEFAULT], Sydbank today) own
+            // category taxonomy — the only real backing this app has before the user ever opens
+            // Settings > Bank to pick/connect one. See BankCategories.ensure for how an existing
+            // install picks up another bank's categories after switching.
+            SupportedBanks.DEFAULT.defaultCategories.forEach { seed ->
                 db.execSQL(
                     "INSERT INTO categories (name, mainCategory, type, colorHex) VALUES (" +
                         "'${seed.name.replace("'", "''")}', " +

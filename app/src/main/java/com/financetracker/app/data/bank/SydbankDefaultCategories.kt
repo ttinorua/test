@@ -1,32 +1,20 @@
-package com.financetracker.app.data.db
+package com.financetracker.app.data.bank
 
 import com.financetracker.app.data.db.entity.TransactionType
-import com.financetracker.app.data.repository.FinanceRepository
-
-data class DefaultCategorySeed(
-    val name: String,
-    val mainCategory: String,
-    val type: TransactionType,
-    val colorHex: String
-)
 
 /**
- * The starter category set — used both to seed a brand-new database ([AppDatabase]'s
- * [androidx.room.RoomDatabase.Callback]) and, via [ensure], to retroactively add any of these
- * an *existing* install is still missing, without touching its existing data.
- *
- * This is the real Enable Banking / Sydbank category taxonomy — extracted from a real Sydbank
- * account's transaction history (a spreadsheet export carrying the bank's own MainCategory and
- * Category columns), not a guessed list. Enable Banking's live sync API sends no category data
- * at all (see [com.financetracker.app.data.enablebanking.EnableBankingService.fetchTransactions]),
- * so without a category list this rich to pick from, both the AI and
+ * Sydbank's own category taxonomy — extracted directly from a real Sydbank account's
+ * transaction history (a spreadsheet export carrying the bank's own MainCategory and Category
+ * columns), not a guessed list. Enable Banking's live sync API sends no category data at all
+ * (see [com.financetracker.app.data.enablebanking.EnableBankingService.fetchTransactions]), so
+ * without a category list this rich to pick from, both the AI and
  * [com.financetracker.app.data.ai.LocalCategoryMatcher] were correctly leaving a large share of
  * real transactions (furniture and general retail, fuel specifically, transfers, insurance/union
  * fees, and more) Uncategorized rather than force them into the wrong bucket — which looked like
  * "categorization barely does anything" even though the matching itself was working fine; there
  * was simply nothing good to match to.
  */
-object DefaultCategories {
+object SydbankDefaultCategories {
 
     val ALL = listOf(
         DefaultCategorySeed("Groceries", "Food", TransactionType.EXPENSE, "#2E7D32"),
@@ -117,13 +105,4 @@ object DefaultCategories {
         DefaultCategorySeed("Rent", "Home", TransactionType.EXPENSE, "#8D6E63"),
         DefaultCategorySeed("Uncategorized", "Uncategorized", TransactionType.EXPENSE, "#9E9E9E")
     )
-
-    /** Adds any of [ALL] the database doesn't already have (exact mainCategory+name+type match,
-     * the same dedup [FinanceRepository.getOrCreateCategory] always uses) — safe and cheap to
-     * call on every app launch, never creates a duplicate or touches an existing category. */
-    suspend fun ensure(repository: FinanceRepository) {
-        ALL.forEach { seed ->
-            repository.getOrCreateCategory(seed.mainCategory, seed.name, seed.type, seed.colorHex)
-        }
-    }
 }

@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.financetracker.app.data.bank.Bank
+import com.financetracker.app.data.bank.BankCategories
+import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.enablebanking.EnableBankingService
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.importexport.describeError
@@ -27,7 +30,8 @@ private data class PrefsSnapshot(
     val linkedAccounts: List<LinkedBankAccount>,
     val selectedAccountUids: Set<String>,
     val consentValidUntil: Long?,
-    val lastSyncedAt: Long?
+    val lastSyncedAt: Long?,
+    val selectedBankId: String
 )
 
 private data class SyncState(val isSyncing: Boolean, val progress: SyncProgressUi?)
@@ -45,7 +49,9 @@ data class EnableBankingUiState(
     val isSyncing: Boolean = false,
     val syncProgress: SyncProgressUi? = null,
     val statusMessage: String? = null,
-    val authUrl: String? = null
+    val authUrl: String? = null,
+    val availableBanks: List<Bank> = SupportedBanks.ALL,
+    val selectedBankId: String = SupportedBanks.DEFAULT.id
 )
 
 class EnableBankingViewModel(private val repository: FinanceRepository, private val appContext: Context) : ViewModel() {
@@ -81,13 +87,19 @@ class EnableBankingViewModel(private val repository: FinanceRepository, private 
 
     val uiState: StateFlow<EnableBankingUiState> = combine(
         combine(
-            EnableBankingPrefs.sessionId,
-            EnableBankingPrefs.linkedAccounts,
-            EnableBankingPrefs.selectedAccountUids,
-            EnableBankingPrefs.consentValidUntil,
-            EnableBankingPrefs.lastSyncedAt
-        ) { sessionId, linkedAccounts, selectedAccountUids, consentValidUntil, lastSyncedAt ->
-            PrefsSnapshot(sessionId, linkedAccounts, selectedAccountUids, consentValidUntil, lastSyncedAt)
+            combine(
+                EnableBankingPrefs.sessionId,
+                EnableBankingPrefs.linkedAccounts,
+                EnableBankingPrefs.selectedAccountUids,
+                EnableBankingPrefs.consentValidUntil
+            ) { sessionId, linkedAccounts, selectedAccountUids, consentValidUntil ->
+                Triple(sessionId, linkedAccounts, selectedAccountUids) to consentValidUntil
+            },
+            EnableBankingPrefs.lastSyncedAt,
+            EnableBankingPrefs.selectedBankId
+        ) { (base, consentValidUntil), lastSyncedAt, selectedBankId ->
+            val (sessionId, linkedAccounts, selectedAccountUids) = base
+            PrefsSnapshot(sessionId, linkedAccounts, selectedAccountUids, consentValidUntil, lastSyncedAt, selectedBankId)
         },
         combine(isSyncing, syncProgress) { syncing, progress -> SyncState(syncing, progress) },
         _isStartingAuth,
@@ -105,7 +117,8 @@ class EnableBankingViewModel(private val repository: FinanceRepository, private 
             isSyncing = syncState.isSyncing,
             syncProgress = syncState.progress,
             statusMessage = statusMessage,
-            authUrl = authUrl
+            authUrl = authUrl,
+            selectedBankId = prefs.selectedBankId
         )
     }.stateIn(
         viewModelScope,
@@ -139,14 +152,16 @@ class EnableBankingViewModel(private val repository: FinanceRepository, private 
         }
     }
 
-    /** Starts a new consent flow. The screen observes [EnableBankingUiState.authUrl] and opens
-     * it in the browser, then calls [consumeAuthUrl]. */
+    /** Starts a new consent flow for whichever bank is currently selected
+     * ([EnableBankingPrefs.selectedBankId], set via [selectBank]). The screen observes
+     * [EnableBankingUiState.authUrl] and opens it in the browser, then calls [consumeAuthUrl]. */
     fun connect() {
         if (_isStartingAuth.value) return
         _isStartingAuth.value = true
         _statusMessage.value = null
+        val bank = SupportedBanks.byId(EnableBankingPrefs.selectedBankId.value)
         viewModelScope.launch {
-            EnableBankingService.startAuth(REDIRECT_URL)
+            EnableBankingService.startAuth(REDIRECT_URL, bank)
                 .onSuccess { authStart -> _authUrl.value = authStart.url }
                 .onFailure { e -> _statusMessage.value = "Couldn't start bank login: ${describeError(e)}" }
             _isStartingAuth.value = false
@@ -155,6 +170,17 @@ class EnableBankingViewModel(private val repository: FinanceRepository, private 
 
     fun consumeAuthUrl() {
         _authUrl.value = null
+    }
+
+    /** Changes which bank a future [connect] will link — only matters before connecting; an
+     * already-active connection is unaffected until disconnected and reconnected. Also seeds
+     * that bank's own starter categories right away, rather than waiting for the next app
+     * launch. */
+    fun selectBank(id: String) {
+        EnableBankingPrefs.setSelectedBankId(id)
+        viewModelScope.launch {
+            BankCategories.ensure(repository, SupportedBanks.byId(id))
+        }
     }
 
     fun setAccountSelected(uid: String, selected: Boolean) {

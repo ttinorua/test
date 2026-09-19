@@ -1,5 +1,6 @@
 package com.financetracker.app.data.enablebanking
 
+import com.financetracker.app.data.bank.Bank
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.importexport.ParsedTransactionRow
 import com.financetracker.app.data.prefs.EnableBankingPrefs
@@ -28,8 +29,6 @@ data class AuthStart(val url: String, val state: String)
  */
 object EnableBankingService {
 
-    private const val ASPSP_NAME = "Sydbank"
-    private const val ASPSP_COUNTRY = "DK"
     private const val CONSENT_VALIDITY_DAYS = 180L
 
     /** Stand-in for "no lower bound" when fetching transactions, since the API needs an
@@ -38,9 +37,9 @@ object EnableBankingService {
 
     val isConfigured: Boolean get() = EnableBankingJwt.isConfigured
 
-    /** Starts a new consent flow: POSTs /auth and returns the URL to send the user to (their
-     * bank's MitID login), plus the `state` value to verify once the redirect comes back. */
-    suspend fun startAuth(redirectUrl: String): Result<AuthStart> = withContext(Dispatchers.IO) {
+    /** Starts a new consent flow: POSTs /auth and returns the URL to send the user to ([bank]'s
+     * MitID/login), plus the `state` value to verify once the redirect comes back. */
+    suspend fun startAuth(redirectUrl: String, bank: Bank): Result<AuthStart> = withContext(Dispatchers.IO) {
         try {
             val state = UUID.randomUUID().toString()
             val validUntil = Date(System.currentTimeMillis() + CONSENT_VALIDITY_DAYS * 24 * 60 * 60 * 1000)
@@ -53,7 +52,7 @@ object EnableBankingService {
                         put("transactions", true)
                     }
                 )
-                put("aspsp", JSONObject().apply { put("name", ASPSP_NAME); put("country", ASPSP_COUNTRY) })
+                put("aspsp", JSONObject().apply { put("name", bank.aspspName); put("country", bank.aspspCountry) })
                 put("state", state)
                 put("redirect_url", redirectUrl)
                 put("psu_type", "personal")

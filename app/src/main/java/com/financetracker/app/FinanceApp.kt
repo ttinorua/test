@@ -3,8 +3,9 @@ package com.financetracker.app
 import android.app.Application
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
+import com.financetracker.app.data.bank.BankCategories
+import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.AppDatabase
-import com.financetracker.app.data.db.DefaultCategories
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BudgetLimits
@@ -31,12 +32,13 @@ class FinanceApp : Application() {
         EnableBankingPrefs.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
 
-        // Retroactively adds any starter category an existing install is still missing (the
-        // starter set has grown since some installs were first created) — cheap, idempotent,
-        // never touches an existing category. Best done before sync/categorization run so they
-        // have the fuller category list to match against from the start.
+        // Retroactively adds any starter category the currently selected/connected bank has
+        // that an existing install is still missing (the starter set has grown since some
+        // installs were first created) — cheap, idempotent, never touches an existing category.
+        // Best done before sync/categorization run so they have the fuller category list to
+        // match against from the start.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            DefaultCategories.ensure(repository)
+            BankCategories.ensure(repository, SupportedBanks.byId(EnableBankingPrefs.selectedBankId.value))
         }
 
         // Best-effort sync once per app launch; a no-op inside the worker if not connected.

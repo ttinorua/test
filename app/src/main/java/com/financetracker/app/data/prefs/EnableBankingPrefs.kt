@@ -1,6 +1,7 @@
 package com.financetracker.app.data.prefs
 
 import android.content.Context
+import com.financetracker.app.data.bank.SupportedBanks
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONArray
@@ -28,6 +29,7 @@ object EnableBankingPrefs {
     private const val KEY_LAST_SYNCED_AT = "enablebanking_last_synced_at"
     private const val KEY_PENDING_AUTH_STATE = "enablebanking_pending_auth_state"
     private const val KEY_ACCOUNT_LINK_MAP = "enablebanking_account_link_map"
+    private const val KEY_SELECTED_BANK_ID = "enablebanking_selected_bank_id"
 
     private lateinit var prefs: android.content.SharedPreferences
 
@@ -53,6 +55,13 @@ object EnableBankingPrefs {
     private val _accountLinkMap = MutableStateFlow<Map<String, Long>>(emptyMap())
     val accountLinkMap: StateFlow<Map<String, Long>> get() = _accountLinkMap
 
+    /** Which [com.financetracker.app.data.bank.Bank] the user has selected to connect —
+     * defaults to [SupportedBanks.DEFAULT] (Sydbank, the only one that exists today). Not
+     * cleared by [disconnect]: disconnecting and reconnecting to the same bank shouldn't lose
+     * the selection. */
+    private val _selectedBankId = MutableStateFlow(SupportedBanks.DEFAULT.id)
+    val selectedBankId: StateFlow<String> get() = _selectedBankId
+
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _sessionId.value = prefs.getString(KEY_SESSION_ID, null)
@@ -61,6 +70,14 @@ object EnableBankingPrefs {
         _consentValidUntil.value = prefs.getLong(KEY_CONSENT_VALID_UNTIL, -1L).takeIf { it >= 0 }
         _lastSyncedAt.value = prefs.getLong(KEY_LAST_SYNCED_AT, -1L).takeIf { it >= 0 }
         _accountLinkMap.value = deserializeAccountLinkMap(prefs.getString(KEY_ACCOUNT_LINK_MAP, null))
+        _selectedBankId.value = prefs.getString(KEY_SELECTED_BANK_ID, null) ?: SupportedBanks.DEFAULT.id
+    }
+
+    fun setSelectedBankId(id: String) {
+        _selectedBankId.value = id
+        if (::prefs.isInitialized) {
+            prefs.edit().putString(KEY_SELECTED_BANK_ID, id).apply()
+        }
     }
 
     /** Called once a `code` has been exchanged for a live session. Selects all returned

@@ -3,6 +3,7 @@ package com.financetracker.app.data.enablebanking
 import com.financetracker.app.data.ai.CategorySuggester
 import com.financetracker.app.data.ai.ClaudeService
 import com.financetracker.app.data.ai.LocalCategoryMatcher
+import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.Transaction
@@ -226,6 +227,7 @@ object EnableBankingSyncCoordinator {
     private fun localAccountName(bankAccount: LinkedBankAccount): String {
         val label = bankAccount.product ?: "Account"
         val suffix = bankAccount.iban?.takeLast(4) ?: bankAccount.uid.take(6)
-        return "Sydbank $label ••$suffix"
+        val bankName = SupportedBanks.byId(EnableBankingPrefs.selectedBankId.value).displayName
+        return "$bankName $label ••$suffix"
     }
 }

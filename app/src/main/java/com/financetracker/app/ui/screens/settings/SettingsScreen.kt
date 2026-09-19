@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.financetracker.app.data.bank.Bank
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
@@ -724,6 +725,41 @@ private fun CurrencyDropdown(selected: String, onSelected: (String) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BankDropdown(
+    banks: List<Bank>,
+    selected: Bank,
+    onSelected: (Bank) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = selected.displayName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Bank") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            banks.forEach { bank ->
+                DropdownMenuItem(
+                    text = { Text(bank.displayName) },
+                    onClick = {
+                        onSelected(bank)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun AddAccountDialog(onDismiss: () -> Unit, onConfirm: (String, Double) -> Unit) {
     var name by remember { mutableStateOf("") }
@@ -840,9 +876,9 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text("Sydbank sync", style = MaterialTheme.typography.titleMedium)
+        Text("Bank sync", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Link your Sydbank account via Enable Banking (open banking / PSD2) to pull in " +
+            "Link a bank account via Enable Banking (open banking / PSD2) to pull in " +
                 "transactions automatically instead of exporting and importing a spreadsheet.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -877,11 +913,19 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
         }
 
         if (!state.isConnected) {
+            val selectedBank = state.availableBanks.firstOrNull { it.id == state.selectedBankId }
+                ?: state.availableBanks.first()
+            BankDropdown(
+                banks = state.availableBanks,
+                selected = selectedBank,
+                onSelected = { bank -> viewModel.selectBank(bank.id) },
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
             Button(onClick = { viewModel.connect() }, enabled = !state.isStartingAuth) {
                 if (state.isStartingAuth) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp))
                 } else {
-                    Text("Connect Sydbank")
+                    Text("Connect ${selectedBank.displayName}")
                 }
             }
             return@Column

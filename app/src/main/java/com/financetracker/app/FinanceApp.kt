@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
 import com.financetracker.app.data.db.AppDatabase
+import com.financetracker.app.data.db.DefaultCategories
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BudgetLimits
@@ -11,6 +12,10 @@ import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.repository.FinanceRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class FinanceApp : Application() {
 
@@ -25,6 +30,14 @@ class FinanceApp : Application() {
         AiInsightsCache.init(this)
         EnableBankingPrefs.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
+
+        // Retroactively adds any starter category an existing install is still missing (the
+        // starter set has grown since some installs were first created) — cheap, idempotent,
+        // never touches an existing category. Best done before sync/categorization run so they
+        // have the fuller category list to match against from the start.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            DefaultCategories.ensure(repository)
+        }
 
         // Best-effort sync once per app launch; a no-op inside the worker if not connected.
         // Runs as WorkManager-managed work (see EnableBankingSyncWorker) rather than a plain

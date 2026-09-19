@@ -13,6 +13,12 @@ import com.financetracker.app.data.db.entity.TransactionType
  * usually the same handful of recurring merchants — groceries, fuel, subscriptions, salary), this
  * resolves a meaningful chunk of merchants without a network call at all, leaving Claude
  * (batched, see [CategorySuggester.suggestBatch]) to only handle whatever's left unrecognized.
+ *
+ * Candidates are ordered with [com.financetracker.app.data.db.DefaultCategories]' real Enable
+ * Banking / Sydbank category names first (e.g. "Transportation"/"Fuel", "Home"/"Electricity") —
+ * extracted from a real account's own categorized history — since those are what an install that
+ * has run [com.financetracker.app.data.db.DefaultCategories.ensure] will actually have; older or
+ * hand-named equivalents are kept as fallbacks for installs that predate that starter set.
  */
 object LocalCategoryMatcher {
 
@@ -29,76 +35,158 @@ object LocalCategoryMatcher {
             listOf(
                 "NETTO", "REMA 1000", "REMA1000", "FOETEX", "FØTEX", "BILKA", "FAKTA", "LIDL",
                 "IRMA", "SUPERBRUGSEN", "DAGLI'BRUGSEN", "DAGLIBRUGSEN", "ALDI", "SPAR", "MENY",
-                "KVICKLY", "LOEVBJERG", "LØVBJERG", "MENY"
+                "KVICKLY", "LOEVBJERG", "LØVBJERG"
             ),
             TransactionType.EXPENSE,
             listOf("Food" to "Groceries", "Groceries" to "Food")
+        ),
+        // Bakery / butcher / specialty food shops
+        Rule(
+            listOf("BAGER", "BAGERI", "SLAGTER", "VINHANDEL", "OST ", "FISKEHANDEL"),
+            TransactionType.EXPENSE,
+            listOf("Food" to "Bakery, butcher, wine shop etc.", "Food" to "Groceries")
         ),
         // Fuel / gas stations
         Rule(
             listOf("SHELL", "CIRCLE K", "OK BENZIN", "OK PLUS", " OK ", "Q8", "UNO-X", "UNOX", "GO' ON", "F24"),
             TransactionType.EXPENSE,
-            listOf("Transport" to "Fuel", "Transportation" to "Fuel", "Fuel" to "Transport")
+            listOf("Transportation" to "Fuel", "Transport" to "Fuel", "Fuel" to "Transport")
         ),
-        // Public transport
+        // Parking
         Rule(
-            listOf("DSB", "REJSEKORT", "REJSEKORT.DK", "MOVIA", "METRO", "FLIXBUS", "MIDTTRAFIK", "NORDJYSKE JB"),
+            listOf("APCOA", "EASYPARK", "PARKERING", "PARKING"),
             TransactionType.EXPENSE,
-            listOf("Transport" to "Public Transport", "Transportation" to "Public Transport", "Transportation" to "Transportation")
+            listOf("Transportation" to "Parking")
         ),
-        // Ride-hailing / parking
+        // Public transport / taxis
         Rule(
-            listOf("UBER", "TAXA", "TAXI", "APCOA", "EASYPARK", "PARKERING"),
+            listOf(
+                "DSB", "REJSEKORT", "REJSEKORT.DK", "MOVIA", "METRO", "FLIXBUS", "MIDTTRAFIK",
+                "NORDJYSKE JB", "UBER", "TAXA", "TAXI"
+            ),
             TransactionType.EXPENSE,
-            listOf("Transport" to "Taxi", "Transportation" to "Transportation")
+            listOf(
+                "Transportation" to "Taxis and public transportation",
+                "Transport" to "Public Transport",
+                "Transportation" to "Transportation"
+            )
         ),
-        // Streaming / subscriptions
+        // Bridge tolls / ferry
+        Rule(
+            listOf("STOREBAELT", "STOREBÆLT", "OERESUNDSBRO", "ØRESUNDSBRO", "FAERGE", "FÆRGE"),
+            TransactionType.EXPENSE,
+            listOf("Transportation" to "Bridge tolls and ferry ticket")
+        ),
+        // Streaming / phone / internet / TV subscriptions
         Rule(
             listOf(
                 "NETFLIX", "HBO", "MAX.COM", "DISNEY+", "DISNEY PLUS", "VIAPLAY", "SPOTIFY",
-                "YOUTUBE PREMIUM", "TV 2 PLAY", "TV2 PLAY", "APPLE.COM/BILL", "AMAZON PRIME"
+                "YOUTUBE PREMIUM", "TV 2 PLAY", "TV2 PLAY", "TDC", "YOUSEE", "TELENOR", "TELIA",
+                "3 DANMARK", "CBB MOBIL", "OISTER", "LEBARA", "LYCAMOBILE"
             ),
             TransactionType.EXPENSE,
-            listOf("Entertainment" to "Streaming", "Leisure" to "Entertainment", "Entertainment" to "Entertainment")
-        ),
-        // Restaurants / fast food / delivery
-        Rule(
             listOf(
-                "MCDONALD", "BURGER KING", "SUNSET BOULEVARD", "WOLT", "JUST EAT", "FOODORA",
-                "STARBUCKS", "ESPRESSO HOUSE", "RESTAURANT", "PIZZA", "CAFE ", "CAFÉ "
-            ),
-            TransactionType.EXPENSE,
-            listOf("Food" to "Restaurants", "Leisure" to "Dining", "Dining" to "Leisure")
+                "Media" to "Phone, internet, streaming and TV",
+                "Entertainment" to "Streaming",
+                "Leisure" to "Entertainment"
+            )
         ),
-        // Pharmacy / health / personal care
+        // Digital purchases: apps, games, films, music, software
+        Rule(
+            listOf("APPLE.COM/BILL", "GOOGLE PLAY", "STEAM", "PLAYSTATION", "XBOX", "NINTENDO", "AMAZON PRIME"),
+            TransactionType.EXPENSE,
+            listOf("Media" to "Films, music, apps and software", "Entertainment" to "Streaming")
+        ),
+        // Fast food / delivery
+        Rule(
+            listOf("MCDONALD", "BURGER KING", "SUNSET BOULEVARD", "WOLT", "JUST EAT", "FOODORA"),
+            TransactionType.EXPENSE,
+            listOf("Food" to "Take away and fast food", "Food" to "Restaurants")
+        ),
+        // Café / restaurant / bar
+        Rule(
+            listOf("STARBUCKS", "ESPRESSO HOUSE", "RESTAURANT", "PIZZA", "CAFE ", "CAFÉ ", "BAR "),
+            TransactionType.EXPENSE,
+            listOf("Leisure" to "Café, restaurant and bar", "Food" to "Restaurants", "Leisure" to "Dining")
+        ),
+        // Pharmacy / doctor / dentist
         Rule(
             listOf("MATAS", "APOTEK", "TANDLAEGE", "TANDLÆGE", "LAEGE", "LÆGE"),
             TransactionType.EXPENSE,
-            listOf("Health" to "Pharmacy", "Clothing and pers. care prod." to "Healthcare", "Healthcare" to "Clothing and pers. care prod.")
+            listOf(
+                "Clothing and pers. care prod." to "Dentist, doctor and medication",
+                "Health" to "Pharmacy",
+                "Healthcare" to "Clothing and pers. care prod."
+            )
         ),
-        // Telecom / mobile
+        // Hair / skin care
         Rule(
-            listOf("TDC", "YOUSEE", "TELENOR", "TELIA", "3 DANMARK", "CBB MOBIL", "OISTER", "LEBARA", "LYCAMOBILE"),
+            listOf("FRISOER", "FRISØR", "HAIRDRESSER", "BARBER", "SALON"),
             TransactionType.EXPENSE,
-            listOf("Home" to "Utilities", "Utilities" to "Home")
+            listOf("Clothing and pers. care prod." to "Hair and skin care")
         ),
-        // Electricity / utilities
+        // Electricity
         Rule(
             listOf("OERSTED", "ØRSTED", "NORLYS", "SEAS-NVE", "ANDEL ENERGI", "N1", "VESTFORSYNING", "HOFOR"),
             TransactionType.EXPENSE,
-            listOf("Home" to "Utilities", "Utilities" to "Home")
+            listOf("Home" to "Electricity", "Home" to "Utilities", "Utilities" to "Home")
         ),
-        // Online marketplaces / general shopping
+        // Furniture / home goods / hardware / DIY
+        Rule(
+            listOf(
+                "IKEA", "SILVAN", "LUX-CASE", "JYSK", "BAUHAUS", "PLANTORAMA", "BILTEMA",
+                "ILVA", "BOLIA", "IDEMOEBLER", "IDÉMØBLER"
+            ),
+            TransactionType.EXPENSE,
+            listOf("Home" to "Furniture and home accessories", "Shopping" to "Shopping")
+        ),
+        // Electronics
+        Rule(
+            listOf("ELGIGANTEN", "POWER ", "COMPUTERSALG", "PROSHOP", "AVXPERTEN"),
+            TransactionType.EXPENSE,
+            listOf("Leisure" to "Electronics and gadgets", "Shopping" to "Shopping")
+        ),
+        // General online marketplaces / clothing
         Rule(
             listOf("AMAZON", "EBAY", "ALIEXPRESS", "ZALANDO", "H&M", "ASOS"),
             TransactionType.EXPENSE,
-            listOf("Shopping" to "Clothing", "Clothing and pers. care prod." to "Shopping", "Leisure" to "Shopping")
+            listOf(
+                "Clothing and pers. care prod." to "Clothing, shoes and accessories",
+                "Shopping" to "Clothing",
+                "Shopping" to "Shopping"
+            )
+        ),
+        // Membership / union / unemployment insurance fees
+        Rule(
+            listOf("A-KASSE", "AKASSE", "FAGFORENING"),
+            TransactionType.EXPENSE,
+            listOf("Insurance" to "Union and unemployment insurance")
+        ),
+        // General insurance
+        Rule(
+            listOf("FORSIKRING", "TRYG", "TOPDANMARK", "IF SKADEFORSIKRING", "ALKA", "CODAN"),
+            TransactionType.EXPENSE,
+            listOf("Insurance" to "Union and unemployment insurance", "Home" to "Utilities")
+        ),
+        // Transfers to another bank/account — unambiguous only for named fintech/neobank
+        // destinations, never a generic "overførsel/transfer" keyword, which is just as likely
+        // to be a specific, already-categorizable payment (e.g. "Overførsel: Husleje" = rent).
+        Rule(
+            listOf("LUNAR BANK", "REVOLUT", "BANK NORWEGIAN", "SAVING ACCOUNT", "SAVINGS ACCOUNT"),
+            TransactionType.EXPENSE,
+            listOf("Other" to "Other (Transfer)", "Transfers" to "Transfers")
+        ),
+        // Rent
+        Rule(
+            listOf("HUSLEJE", "BOLIGSELSKAB"),
+            TransactionType.EXPENSE,
+            listOf("Home" to "Rent")
         ),
         // Salary / income
         Rule(
             listOf("LOEN", "LØN", "SALARY", "PAYROLL"),
             TransactionType.INCOME,
-            listOf("Income" to "Salary", "Income" to "Pay, benefits and pension")
+            listOf("Income" to "Pay, benefits and pension", "Income" to "Salary")
         )
     )
 

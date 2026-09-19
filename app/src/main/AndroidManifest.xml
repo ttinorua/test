@@ -1,9 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Used for the optional Claude AI features (chat, category suggestions, insights) and
          for the optional Enable Banking bank sync (Sydbank open-banking / PSD2). -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- A first Enable Banking sync (or any sync after local data was wiped) can take far
+         longer than Android's ~10 minute background execution limit for ordinary work — the
+         sync worker promotes itself to a foreground service (with a visible "Syncing…"
+         notification) for the duration of the sync so the system doesn't keep killing and
+         restarting it mid-fetch. FOREGROUND_SERVICE_DATA_SYNC is required alongside the base
+         permission on Android 14+ for this specific foreground service type. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".FinanceApp"
@@ -33,6 +44,16 @@
                 <data android:scheme="financetracker" android:host="enablebanking-callback" />
             </intent-filter>
         </activity>
+
+        <!-- WorkManager's own SystemForegroundService (used by setForeground()) needs its
+             foreground service type declared here on Android 14+ whenever a worker requests
+             one — see EnableBankingSyncWorker, which promotes itself to a foreground service
+             for the duration of a sync so a large first sync survives Android's background
+             execution time limit instead of being killed and restarted mid-fetch. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 
 </manifest>

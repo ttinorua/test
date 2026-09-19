@@ -26,7 +26,13 @@ import java.util.concurrent.TimeUnit
  * instead of manually enqueuing a replacement for its own still-current unique work, which is a
  * known way to race with and cancel yourself. The run's original total (needed so progress counts
  * up across the whole chain instead of resetting every batch) is kept in SharedPreferences rather
- * than WorkRequest input data, since a retry reuses the original request's input unchanged.
+ * than WorkRequest input data, since a retry reuses the original request's input unchanged. The
+ * same goes for the categorized count: [AiCategorizationCoordinator.categorizeUncategorized]
+ * only ever counts what it categorized in *that* call, so without accumulating it here across
+ * retries too, a multi-retry run's final message would report only the last batch's count (which
+ * can easily be a small or even zero number) instead of the true total for the whole run — a
+ * real run was observed reporting "Categorized 0 of N" despite having genuinely categorized
+ * plenty of transactions in earlier batches.
  */
 class AiCategorizationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
@@ -34,6 +40,7 @@ class AiCategorizationWorker(context: Context, params: WorkerParameters) : Corou
         val repository = (applicationContext as FinanceApp).repository
         val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val knownTotal = prefs.getInt(KEY_PERSISTED_TOTAL, -1).takeIf { it >= 0 }
+        val categorizedSoFar = prefs.getInt(KEY_PERSISTED_CATEGORIZED, 0)
 
         val outcome = AiCategorizationCoordinator.categorizeUncategorized(
             repository,
@@ -43,14 +50,19 @@ class AiCategorizationWorker(context: Context, params: WorkerParameters) : Corou
             prefs.edit().putInt(KEY_PERSISTED_TOTAL, progress.total).apply()
             setProgress(workDataOf(KEY_DONE to progress.done, KEY_TOTAL to progress.total))
         }
+        // Safe to sum across retries unlike, say, a "skipped/duplicate" count would be: once a
+        // transaction is categorized it leaves the coordinator's uncategorized target set for
+        // every later call, so it's never counted here twice.
+        val cumulativeCategorized = categorizedSoFar + outcome.categorizedCount
 
         if (outcome.remaining > 0) {
+            prefs.edit().putInt(KEY_PERSISTED_CATEGORIZED, cumulativeCategorized).apply()
             return Result.retry()
         }
 
-        prefs.edit().remove(KEY_PERSISTED_TOTAL).apply()
+        prefs.edit().remove(KEY_PERSISTED_TOTAL).remove(KEY_PERSISTED_CATEGORIZED).apply()
         val output = workDataOf(
-            KEY_CATEGORIZED to outcome.categorizedCount,
+            KEY_CATEGORIZED to cumulativeCategorized,
             KEY_TOTAL_CONSIDERED to outcome.totalConsidered
         )
         return Result.success(output)
@@ -67,6 +79,7 @@ class AiCategorizationWorker(context: Context, params: WorkerParameters) : Corou
         private const val BATCH_GROUPS = 1000
         private const val PREFS_NAME = "finance_prefs"
         private const val KEY_PERSISTED_TOTAL = "ai_categorization_total"
+        private const val KEY_PERSISTED_CATEGORIZED = "ai_categorization_categorized"
 
         /** A short, constant (not exponential) backoff between batches — this can be dozens of
          * retries for a large history, and exponential backoff would quickly stretch the gaps
@@ -76,12 +89,13 @@ class AiCategorizationWorker(context: Context, params: WorkerParameters) : Corou
                 .setBackoffCriteria(BackoffPolicy.LINEAR, 10, TimeUnit.SECONDS)
                 .build()
 
-        /** Clears any total left over from a previous run so a fresh "Categorize with AI" tap
-         * always starts by computing (and reporting) a real, current total. */
+        /** Clears any total/count left over from a previous run so a fresh "Categorize with AI"
+         * tap always starts by computing (and reporting) real, current numbers. */
         fun clearPersistedState(context: Context) {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .remove(KEY_PERSISTED_TOTAL)
+                .remove(KEY_PERSISTED_CATEGORIZED)
                 .apply()
         }
     }

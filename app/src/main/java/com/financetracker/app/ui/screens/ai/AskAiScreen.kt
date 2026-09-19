@@ -1,6 +1,7 @@
 package com.financetracker.app.ui.screens.ai
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,13 +14,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -34,7 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.ui.components.EmptyState
+import com.financetracker.app.util.Formatters
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,7 +116,9 @@ fun AskAiScreen(viewModel: AskAiViewModel, onBack: () -> Unit) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(state.messages) { message -> ChatBubble(message) }
+                items(state.messages) { message ->
+                    ChatBubble(message, onRespondToProposal = { accept -> viewModel.respondToProposal(message, accept) })
+                }
                 if (state.isSending) {
                     item {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -129,7 +137,9 @@ fun AskAiScreen(viewModel: AskAiViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun ChatBubble(message: AiChatMessage) {
+private fun ChatBubble(message: AiChatMessage, onRespondToProposal: (accept: Boolean) -> Unit) {
+    val currencyCode by CurrencySettings.currencyCode.collectAsState()
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
@@ -144,11 +154,37 @@ private fun ChatBubble(message: AiChatMessage) {
             ),
             modifier = Modifier.fillMaxWidth(0.85f)
         ) {
-            Text(
-                text = message.text,
-                modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(text = message.text, style = MaterialTheme.typography.bodyMedium)
+
+                message.proposal?.let { proposal ->
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(
+                        "Proposed budget" + (proposal.accountName?.let { " · $it" } ?: ""),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    proposal.overallAmount?.let {
+                        Text(
+                            "Overall: ${Formatters.currency(it, currencyCode)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                    proposal.categoryBudgets.forEach { cb ->
+                        Text(
+                            "${cb.mainCategory} • ${cb.category}: ${Formatters.currency(cb.amount, currencyCode)}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        Button(onClick = { onRespondToProposal(true) }) { Text("Apply") }
+                        OutlinedButton(onClick = { onRespondToProposal(false) }) { Text("Dismiss") }
+                    }
+                }
+            }
         }
     }
 }

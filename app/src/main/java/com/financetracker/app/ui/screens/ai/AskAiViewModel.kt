@@ -2,9 +2,13 @@ package com.financetracker.app.ui.screens.ai
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.ai.BudgetProposal
 import com.financetracker.app.data.ai.ChatTurn
 import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.db.entity.Account
+import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.repository.FinanceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,7 +23,12 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-data class AiChatMessage(val isUser: Boolean, val text: String, val isError: Boolean = false)
+data class AiChatMessage(
+    val isUser: Boolean,
+    val text: String,
+    val isError: Boolean = false,
+    val proposal: BudgetProposal? = null
+)
 
 data class AskAiUiState(
     val messages: List<AiChatMessage> = emptyList(),
@@ -49,11 +58,15 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
             val history = _messages.value.dropLast(1).map { ChatTurn(it.isUser, it.text) }
             val transactions = repository.observeTransactions().first()
             val accounts = repository.observeAccounts().first()
-            val context = buildContext(transactions, accounts)
+            val categories = repository.observeCategories().first()
+            val context = buildContext(transactions, accounts, categories)
 
-            ClaudeService.chat(context, history, trimmed)
-                .onSuccess { reply ->
-                    _messages.update { it + AiChatMessage(isUser = false, text = reply) }
+            ClaudeService.chatWithBudgetTool(context, history, trimmed)
+                .onSuccess { result ->
+                    val text = result.text.ifBlank {
+                        result.proposal?.summary ?: "Here's a proposed budget:"
+                    }
+                    _messages.update { it + AiChatMessage(isUser = false, text = text, proposal = result.proposal) }
                 }
                 .onFailure { error ->
                     _messages.update {
@@ -68,9 +81,52 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
         }
     }
 
+    /** Applies a budget the user accepted from a chat proposal, matching its account/category
+     * names back to real ids (the AI only ever deals in names, never ids). */
+    fun respondToProposal(message: AiChatMessage, accept: Boolean) {
+        val proposal = message.proposal ?: return
+        _messages.update { list -> list.map { if (it === message) it.copy(proposal = null) else it } }
+        if (!accept) {
+            _messages.update { it + AiChatMessage(isUser = false, text = "Okay, I won't apply that budget.") }
+            return
+        }
+        viewModelScope.launch {
+            val accounts = repository.observeAccounts().first()
+            val categories = repository.observeCategories().first()
+            val accountId = proposal.accountName
+                ?.takeUnless { it.equals("All accounts", ignoreCase = true) }
+                ?.let { name -> accounts.firstOrNull { it.name.equals(name, ignoreCase = true) }?.id }
+
+            var appliedCount = 0
+            proposal.overallAmount?.let {
+                BudgetLimits.setOverallBudget(accountId, it)
+                appliedCount++
+            }
+            proposal.categoryBudgets.forEach { entry ->
+                val category = categories.firstOrNull {
+                    it.mainCategory.equals(entry.mainCategory, ignoreCase = true) &&
+                        it.name.equals(entry.category, ignoreCase = true)
+                }
+                if (category != null) {
+                    BudgetLimits.setCategoryBudget(category.id, accountId, entry.amount)
+                    appliedCount++
+                }
+            }
+
+            val scopeLabel = accountId?.let { id -> accounts.firstOrNull { it.id == id }?.name } ?: "All accounts"
+            val confirmation = if (appliedCount == 0) {
+                "Couldn't match that proposal to your accounts/categories — nothing was applied."
+            } else {
+                "✓ Budget applied ($scopeLabel)."
+            }
+            _messages.update { it + AiChatMessage(isUser = false, text = confirmation) }
+        }
+    }
+
     private fun buildContext(
         transactions: List<TransactionWithDetails>,
-        accounts: List<com.financetracker.app.data.db.entity.Account>
+        accounts: List<Account>,
+        categories: List<Category>
     ): String {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
@@ -87,9 +143,20 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
                 "Answer questions using ONLY the data below. Be concise and specific with numbers. " +
                     "If the data doesn't support an answer, say so instead of guessing."
             )
+            appendLine(
+                "If the user asks for a budget recommendation, analyze the TRANSACTIONS data " +
+                    "below for whatever time range and categories they mention (or a sensible " +
+                    "recent window if they don't specify one — never assume a fixed period like " +
+                    "12 months) and call the propose_budget tool with your recommendation. Use " +
+                    "exact account and category names from the lists below. This only shows the " +
+                    "user a proposal to confirm — never claim you've already set a budget."
+            )
             appendLine()
             appendLine("ACCOUNTS (name, starting balance):")
             accounts.forEach { appendLine("- ${it.name}: ${it.initialBalance}") }
+            appendLine()
+            appendLine("CATEGORIES (MainCategory|Category|Type):")
+            categories.forEach { appendLine("- ${it.mainCategory}|${it.name}|${it.type}") }
             appendLine()
             appendLine("TRANSACTIONS (Date|Account|MainCategory|Category|Type|Amount|Note), newest first:")
             transactions.take(MAX_TRANSACTIONS_IN_CONTEXT).forEach { tx ->

@@ -28,14 +28,15 @@ class RecurringCostsTest {
         note: String,
         category: String = "Phone, internet, streaming and TV",
         mainCategory: String = "Media",
-        accountId: Long = 1L
+        accountId: Long = 1L,
+        categoryId: Long = 1L
     ) = TransactionWithDetails(
         id = nextId++,
         amount = amount,
         type = TransactionType.EXPENSE,
         accountId = accountId,
         accountName = "Checking",
-        categoryId = 1L,
+        categoryId = categoryId,
         categoryName = category,
         mainCategoryName = mainCategory,
         categoryColorHex = "#000000",
@@ -99,22 +100,32 @@ class RecurringCostsTest {
 
     @Test
     fun `two different merchant notes are tracked as separate groups, not merged into one`() {
-        // Known heuristic limitation, deliberately documented rather than hidden: shopping at
-        // the exact same store in each of the last 2 months, with no visit yet this month, DOES
-        // qualify as "recurring" here, the same as a real bill would — this grouping has no way
-        // to tell "always the same store" apart from "genuinely the same monthly commitment"
-        // from note text alone. In practice groceries are visited far more than once a month, so
-        // a real grocery habit almost always has a same-month visit already posted by the time
-        // this runs, which excludes it. What this test actually pins down is narrower: Rema 1000
-        // and Netto are never pooled into a single group just because both are "Groceries".
         val transactions = listOf(
-            expense(utcMillis(2026, 1, 3), 400.0, "Rema 1000", category = "Groceries", mainCategory = "Food"),
-            expense(utcMillis(2026, 1, 20), 350.0, "Netto", category = "Groceries", mainCategory = "Food"),
-            expense(utcMillis(2026, 2, 4), 420.0, "Rema 1000", category = "Groceries", mainCategory = "Food"),
-            expense(utcMillis(2026, 2, 18), 300.0, "Netto", category = "Groceries", mainCategory = "Food")
+            expense(utcMillis(2026, 1, 3), 400.0, "Café Norden", category = "Café, restaurant and bar", mainCategory = "Leisure"),
+            expense(utcMillis(2026, 1, 20), 350.0, "Sunset Bar", category = "Café, restaurant and bar", mainCategory = "Leisure"),
+            expense(utcMillis(2026, 2, 4), 420.0, "Café Norden", category = "Café, restaurant and bar", mainCategory = "Leisure"),
+            expense(utcMillis(2026, 2, 18), 300.0, "Sunset Bar", category = "Café, restaurant and bar", mainCategory = "Leisure")
         )
         val total = anticipatedRecurringExpenseTotal(transactions, now)
         assertEquals(420.0 + 300.0, total, 0.001)
+    }
+
+    @Test
+    fun `groceries is never anticipated, even when it repeats like a real bill would`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 3), 400.0, "Rema 1000", category = "Groceries", mainCategory = "Food"),
+            expense(utcMillis(2026, 2, 4), 420.0, "Rema 1000", category = "Groceries", mainCategory = "Food")
+        )
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+    }
+
+    @Test
+    fun `groceries is excluded even if the category is marked Fixe`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 2, 3), 400.0, "Rema 1000", category = "Groceries", mainCategory = "Food", categoryId = 9L)
+        )
+        val total = anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = setOf(9L))
+        assertEquals(0.0, total, 0.001)
     }
 
     @Test
@@ -198,58 +209,63 @@ class RecurringCostsTest {
     }
 
     @Test
-    fun `a trusted main category is anticipated off a single occurrence within the last 2 months`() {
+    fun `a category marked Fixe is anticipated off a single occurrence within the last 2 months`() {
         val transactions = listOf(
             expense(
                 utcMillis(2026, 2, 20),
                 450.0,
                 "Tryg forsikring",
                 category = "Union and unemployment insurance",
-                mainCategory = "Insurance"
+                mainCategory = "Insurance",
+                categoryId = 5L
             )
         )
-        val items = anticipatedRecurringExpenses(transactions, now)
+        val items = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = setOf(5L))
         assertEquals(1, items.size)
         assertEquals(450.0, items.first().amount, 0.001)
     }
 
     @Test
-    fun `a trusted category more than 2 months old is not anticipated`() {
+    fun `a Fixe category whose only occurrence is more than a month old is not anticipated for this month`() {
         val transactions = listOf(
             expense(
                 utcMillis(2025, 12, 20),
                 450.0,
                 "Tryg forsikring",
                 category = "Union and unemployment insurance",
-                mainCategory = "Insurance"
+                mainCategory = "Insurance",
+                categoryId = 5L
             )
         )
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        val total = anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = setOf(5L))
+        assertEquals(0.0, total, 0.001)
     }
 
     @Test
-    fun `consumer loan, interest and fees, loan and debt (other), and electricity are all trusted categories`() {
+    fun `several categories marked Fixe are all anticipated off a single recent occurrence`() {
         val transactions = listOf(
-            expense(utcMillis(2026, 2, 5), 1200.0, "Santander loan", category = "Consumer loan", mainCategory = "Loan and debt"),
-            expense(utcMillis(2026, 2, 5), 50.0, "Card interest", category = "Interest and fees", mainCategory = "Loan and debt"),
-            expense(utcMillis(2026, 2, 5), 300.0, "Misc debt", category = "Loan and debt (Other)", mainCategory = "Loan and debt"),
-            expense(utcMillis(2026, 2, 5), 600.0, "Norlys", category = "Electricity", mainCategory = "Home")
+            expense(utcMillis(2026, 2, 5), 1200.0, "Santander loan", category = "Consumer loan", mainCategory = "Loan and debt", categoryId = 10L),
+            expense(utcMillis(2026, 2, 5), 50.0, "Card interest", category = "Interest and fees", mainCategory = "Loan and debt", categoryId = 11L),
+            expense(utcMillis(2026, 2, 5), 300.0, "Misc debt", category = "Loan and debt (Other)", mainCategory = "Loan and debt", categoryId = 12L),
+            expense(utcMillis(2026, 2, 5), 600.0, "Norlys", category = "Electricity", mainCategory = "Home", categoryId = 13L)
         )
-        val items = anticipatedRecurringExpenses(transactions, now)
+        val fixedIds = setOf(10L, 11L, 12L, 13L)
+        val items = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixedIds)
         assertEquals(4, items.size)
         assertEquals(setOf(1200.0, 50.0, 300.0, 600.0), items.map { it.amount }.toSet())
     }
 
     @Test
-    fun `credit cards is not a trusted category (only Loan and debt (Other) is)`() {
+    fun `a category not marked Fixe still needs the general 2-of-3-months rule, even for a single recent occurrence`() {
         val transactions = listOf(
-            expense(utcMillis(2026, 2, 5), 800.0, "Card payment", category = "Credit cards", mainCategory = "Loan and debt")
+            expense(utcMillis(2026, 2, 5), 800.0, "Card payment", category = "Credit cards", mainCategory = "Loan and debt", categoryId = 14L)
         )
+        // fixedCategoryIds deliberately left empty/not containing 14L
         assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
     }
 
     @Test
-    fun `a non-trusted category still needs the general 2-of-3-months rule, not just 1 recent occurrence`() {
+    fun `a non-fixed category still needs the general 2-of-3-months rule, not just 1 recent occurrence`() {
         val transactions = listOf(
             expense(utcMillis(2026, 2, 5), 500.0, "Ikea", category = "Furniture and home accessories", mainCategory = "Home")
         )
@@ -278,28 +294,41 @@ class RecurringCostsTest {
     }
 
     @Test
-    fun `a detected yearly insurance cadence is anticipated only in the month it predicts next`() {
+    fun `a detected yearly cadence on a Fixe category is anticipated only in the month it predicts next`() {
         val transactions = listOf(
-            expense(utcMillis(2024, 3, 3), 5000.0, "Tryg forsikring", category = "Union and unemployment insurance", mainCategory = "Insurance"),
-            expense(utcMillis(2025, 3, 5), 5200.0, "Tryg forsikring", category = "Union and unemployment insurance", mainCategory = "Insurance")
+            expense(
+                utcMillis(2024, 3, 3), 5000.0, "Tryg forsikring",
+                category = "Union and unemployment insurance", mainCategory = "Insurance", categoryId = 5L
+            ),
+            expense(
+                utcMillis(2025, 3, 5), 5200.0, "Tryg forsikring",
+                category = "Union and unemployment insurance", mainCategory = "Insurance", categoryId = 5L
+            )
         )
-        val thisMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 0)
+        val fixedIds = setOf(5L)
+        val thisMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 0, fixedCategoryIds = fixedIds)
         assertEquals(1, thisMonth.size)
         assertEquals(5200.0, thisMonth.first().amount, 0.001)
         assertFalse(thisMonth.first().dateIsEstimated)
         assertEquals(utcMillis(2026, 3, 5), thisMonth.first().estimatedDate)
 
-        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1)
+        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1, fixedCategoryIds = fixedIds)
         assertTrue(nextMonth.isEmpty())
     }
 
     @Test
-    fun `a detected quarterly insurance cadence predicts 3 months after the last occurrence`() {
+    fun `a detected quarterly cadence on a Fixe category predicts 3 months after the last occurrence`() {
         val transactions = listOf(
-            expense(utcMillis(2025, 9, 5), 300.0, "Alka forsikring", category = "Union and unemployment insurance", mainCategory = "Insurance"),
-            expense(utcMillis(2025, 12, 5), 310.0, "Alka forsikring", category = "Union and unemployment insurance", mainCategory = "Insurance")
+            expense(
+                utcMillis(2025, 9, 5), 300.0, "Alka forsikring",
+                category = "Union and unemployment insurance", mainCategory = "Insurance", categoryId = 5L
+            ),
+            expense(
+                utcMillis(2025, 12, 5), 310.0, "Alka forsikring",
+                category = "Union and unemployment insurance", mainCategory = "Insurance", categoryId = 5L
+            )
         )
-        val items = anticipatedRecurringExpenses(transactions, now, monthsAhead = 0)
+        val items = anticipatedRecurringExpenses(transactions, now, monthsAhead = 0, fixedCategoryIds = setOf(5L))
         assertEquals(1, items.size)
         assertFalse(items.first().dateIsEstimated)
         assertEquals(utcMillis(2026, 3, 5), items.first().estimatedDate)

@@ -9,30 +9,16 @@ import kotlin.math.roundToInt
 private const val LOOKBACK_MONTHS = 3
 private const val MIN_OCCURRENCES = 2
 
-/** How many months back counts as "recent" for [TRUSTED_MAIN_CATEGORIES]/[TRUSTED_CATEGORIES] —
- * these are trusted as recurring off a single occurrence, but only if it's this recent; an old
- * one-off loan payment from a year ago shouldn't resurrect itself indefinitely. */
-private const val TRUSTED_CATEGORY_RECENT_MONTHS = 2
-
 /** How many days apart a recurring bill's historical posting days can be and still count as a
  * known, consistent day of month (e.g. always the 27th-29th) rather than a rough estimate. */
 private const val DAY_OF_MONTH_CONSISTENCY_THRESHOLD = 4
 
-/** Main categories that are inherently recurring/contractual in nature. "Insurance" additionally
- * gets cadence detection (see [Cadence]) rather than this flat single-occurrence trust, since an
- * insurance premium is just as often billed yearly or quarterly as monthly. */
-private val TRUSTED_MAIN_CATEGORIES = setOf("insurance")
-
-/** Individual categories (regardless of main category) with the same single-occurrence trust as
- * [TRUSTED_MAIN_CATEGORIES] — a consumer loan, a credit/loan interest charge, or an electricity
- * bill is a scheduled cost even the first time it's seen, so it doesn't need to repeat to be
- * anticipated. */
-private val TRUSTED_CATEGORIES = setOf("interest and fees", "consumer loan", "loan and debt (other)", "electricity")
-
 /** Categories that recur by habit, not by contract, and so are never anticipated no matter how
- * regularly they repeat — parking at the same garage every workday isn't a scheduled bill, even
- * though the note+category can look identical for months in a row the same way a real bill does. */
-private val EXCLUDED_CATEGORIES = setOf("parking")
+ * regularly they repeat — parking at the same garage every workday, or buying groceries at the
+ * same supermarket, isn't a scheduled bill, even though the note+category can look identical for
+ * months in a row the same way a real bill does. Applies even if the user marks one of these
+ * "Fixe" by mistake — a deliberate hard override, not just the default. */
+private val EXCLUDED_CATEGORIES = setOf("parking", "groceries")
 
 private enum class Cadence { MONTHLY, QUARTERLY, YEARLY, UNKNOWN }
 
@@ -115,7 +101,8 @@ private fun detectCadence(sortedDates: List<Long>): Cadence {
 /** The next date [cadence] predicts after [lastDate] — calendar-unit arithmetic (not a fixed day
  * count), so a monthly bill lands on the same day next month regardless of month length, and a
  * yearly one isn't thrown off by leap years. [Cadence.UNKNOWN] conservatively assumes monthly,
- * the safest default when the history is too irregular to classify. */
+ * the safest default when the history is too irregular to classify (including a category with
+ * only a single occurrence on record, which can't have a detectable cadence at all). */
 private fun predictNextByCadence(lastDate: Long, cadence: Cadence): Long {
     val cal = utcCalendar().apply { timeInMillis = lastDate }
     when (cadence) {
@@ -144,34 +131,23 @@ private fun dismissKeyFor(bucket: MonthBucket, key: RecurringKey): String =
 
 private data class Qualification(val qualifies: Boolean, val predictedDate: Long, val dateIsEstimated: Boolean)
 
-/** Insurance premiums are as often yearly or quarterly as monthly, so rather than the flat
- * single-occurrence trust the other [TRUSTED_CATEGORIES] get, this detects the actual cadence
- * from every occurrence on record and only anticipates it in the one month that cadence predicts
- * next — never every month by default. */
-private fun qualifyInsurance(sortedTxs: List<TransactionWithDetails>, targetBucket: MonthBucket): Qualification {
+/** A category the user has marked "Fixe" in Settings (see
+ * [com.financetracker.app.data.prefs.FixedExpenseCategories]) is trusted as a scheduled cost
+ * without needing to actually repeat first — its real billing cadence (monthly, quarterly, or
+ * yearly) is detected from every occurrence on record, and it's only anticipated in the one
+ * month that cadence predicts next, never every month by default the way a flat "always assume
+ * monthly" rule would. A single occurrence (no cadence to detect yet) falls back to assuming
+ * monthly, the same conservative default an irregular history gets. */
+private fun qualifyFixedExpense(sortedTxs: List<TransactionWithDetails>, targetBucket: MonthBucket): Qualification {
     val cadence = detectCadence(sortedTxs.map { it.date })
     val last = sortedTxs.last()
     val predicted = predictNextByCadence(last.date, cadence)
     return Qualification(monthBucketOf(predicted) == targetBucket, predicted, cadence == Cadence.UNKNOWN)
 }
 
-/** The other trusted categories: anticipated off a single occurrence as long as it happened
- * within [TRUSTED_CATEGORY_RECENT_MONTHS] real months of [now] — always assumed monthly, unlike
- * insurance. */
-private fun qualifyTrustedCategory(
-    sortedTxs: List<TransactionWithDetails>,
-    byMonth: Map<MonthBucket, List<TransactionWithDetails>>,
-    now: Long,
-    targetBucket: MonthBucket
-): Qualification {
-    val recent = priorMonthBuckets(now, TRUSTED_CATEGORY_RECENT_MONTHS)
-    val qualifies = byMonth.keys.any { it in recent }
-    val last = sortedTxs.last()
-    return Qualification(qualifies, dateForDayInBucket(targetBucket, dayOfMonthOf(last.date)), true)
-}
-
-/** Everything else: needs to have actually repeated — present in at least [MIN_OCCURRENCES] of
- * the last [LOOKBACK_MONTHS] real months — before it's trusted as recurring at all. */
+/** Everything not marked "Fixe": needs to have actually repeated — present in at least
+ * [MIN_OCCURRENCES] of the last [LOOKBACK_MONTHS] real months — before it's trusted as recurring
+ * at all. */
 private fun qualifyByFrequency(
     sortedTxs: List<TransactionWithDetails>,
     byMonth: Map<MonthBucket, List<TransactionWithDetails>>,
@@ -191,19 +167,17 @@ private fun qualifyByFrequency(
 /**
  * Every recurring expense not yet posted in the month being projected for — [monthsAhead] months
  * after [now]'s own month (0 = this month, 1 = next month, and so on) — either:
- * - under "Insurance" (any category), whose actual billing cadence (monthly, quarterly, or
- *   yearly) is detected from its full history and only anticipated in the one month that predicts
- *   next;
- * - under another category trusted as inherently recurring/contractual ([TRUSTED_CATEGORIES]:
- *   Interest and fees, Consumer loan, Loan and debt (Other), Electricity), which only needs a
- *   single occurrence within the last [TRUSTED_CATEGORY_RECENT_MONTHS] real months to be trusted,
- *   assumed monthly; or
+ * - under a category the user has marked "Fixe" ([fixedCategoryIds], set in Settings > Categories
+ *   — see [com.financetracker.app.data.prefs.FixedExpenseCategories]), whose actual billing
+ *   cadence (monthly, quarterly, or yearly) is detected from its full history and only
+ *   anticipated in the one month that predicts next; or
  * - the same account+category+note appearing in at least [MIN_OCCURRENCES] of the last
- *   [LOOKBACK_MONTHS] real calendar months (e.g. a phone bill, a monthly transfer to savings).
+ *   [LOOKBACK_MONTHS] real calendar months (e.g. a phone bill, a monthly transfer to savings),
+ *   for anything not marked Fixe.
  *
- * [EXCLUDED_CATEGORIES] (e.g. Parking) are never anticipated regardless of how often they repeat
- * — they recur by habit, not by contract, so the same note+category showing up in back-to-back
- * months doesn't mean a bill is coming due.
+ * [EXCLUDED_CATEGORIES] (Parking, Groceries) are never anticipated regardless of how often they
+ * repeat, or even if marked Fixe — they recur by habit, not by contract, so the same
+ * note+category showing up in back-to-back months doesn't mean a bill is coming due.
  *
  * Settings' "Anticipate recurring bills" toggle adds these to the Dashboard's Expenses tile total
  * (see [anticipatedRecurringExpenseTotal]) for whichever month is currently selected — This month
@@ -225,7 +199,8 @@ fun anticipatedRecurringExpenses(
     transactions: List<TransactionWithDetails>,
     now: Long = System.currentTimeMillis(),
     monthsAhead: Int = 0,
-    dismissedKeys: Set<String> = emptySet()
+    dismissedKeys: Set<String> = emptySet(),
+    fixedCategoryIds: Set<Long> = emptySet()
 ): List<AnticipatedExpense> {
     val expenses = transactions.filter { it.type == TransactionType.EXPENSE }
     if (expenses.isEmpty()) return emptyList()
@@ -239,10 +214,12 @@ fun anticipatedRecurringExpenses(
         val byMonth = sortedTxs.groupBy { monthBucketOf(it.date) }
         if (byMonth.containsKey(targetBucket)) return@mapNotNull null
 
-        val qualification = when {
-            key.mainCategory in TRUSTED_MAIN_CATEGORIES -> qualifyInsurance(sortedTxs, targetBucket)
-            key.category in TRUSTED_CATEGORIES -> qualifyTrustedCategory(sortedTxs, byMonth, now, targetBucket)
-            else -> qualifyByFrequency(sortedTxs, byMonth, now, targetBucket)
+        val lastCategoryId = sortedTxs.last().categoryId
+        val isFixed = lastCategoryId != null && lastCategoryId in fixedCategoryIds
+        val qualification = if (isFixed) {
+            qualifyFixedExpense(sortedTxs, targetBucket)
+        } else {
+            qualifyByFrequency(sortedTxs, byMonth, now, targetBucket)
         }
         if (!qualification.qualifies) return@mapNotNull null
 
@@ -269,5 +246,6 @@ fun anticipatedRecurringExpenseTotal(
     transactions: List<TransactionWithDetails>,
     now: Long = System.currentTimeMillis(),
     monthsAhead: Int = 0,
-    dismissedKeys: Set<String> = emptySet()
-): Double = anticipatedRecurringExpenses(transactions, now, monthsAhead, dismissedKeys).sumOf { it.amount }
+    dismissedKeys: Set<String> = emptySet(),
+    fixedCategoryIds: Set<Long> = emptySet()
+): Double = anticipatedRecurringExpenses(transactions, now, monthsAhead, dismissedKeys, fixedCategoryIds).sumOf { it.amount }

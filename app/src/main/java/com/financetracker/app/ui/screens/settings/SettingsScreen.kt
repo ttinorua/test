@@ -74,6 +74,7 @@ import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.prefs.LinkedBankAccount
 import com.financetracker.app.data.prefs.SUPPORTED_CURRENCIES
 import com.financetracker.app.ui.components.AccountSelectorChip
@@ -97,6 +98,7 @@ fun SettingsScreen(
     val shiftSalaryToNextMonth by BudgetSettings.shiftSalaryToNextMonth.collectAsState()
     val excludeTransfersFromSpending by BudgetSettings.excludeTransfersFromSpending.collectAsState()
     val anticipateRecurringBills by BudgetSettings.anticipateRecurringBills.collectAsState()
+    val fixedExpenseCategoryIds by FixedExpenseCategories.fixedCategoryIds.collectAsState()
     var tabIndex by remember { mutableIntStateOf(0) }
 
     var showAddAccount by remember { mutableStateOf(false) }
@@ -247,37 +249,46 @@ fun SettingsScreen(
                             if (isExpanded) {
                                 items(subcategories, key = { it.id }) { category ->
                                 Card(modifier = Modifier.padding(vertical = 4.dp)) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
                                         Row(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .padding(end = 8.dp),
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
-                                            Text(
-                                                category.name,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.padding(start = 12.dp)
-                                            )
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = if (category.type == TransactionType.INCOME) "Income" else "Expense",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            IconButton(onClick = { deleteCategoryTarget = category }) {
-                                                Icon(Icons.Filled.Delete, contentDescription = "Delete category")
+                                            Row(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .padding(end = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
+                                                Text(
+                                                    category.name,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.padding(start = 12.dp)
+                                                )
                                             }
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = if (category.type == TransactionType.INCOME) "Income" else "Expense",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                IconButton(onClick = { deleteCategoryTarget = category }) {
+                                                    Icon(Icons.Filled.Delete, contentDescription = "Delete category")
+                                                }
+                                            }
+                                        }
+                                        if (category.type == TransactionType.EXPENSE) {
+                                            val isFixed = category.id in fixedExpenseCategoryIds
+                                            FilterChip(
+                                                selected = isFixed,
+                                                onClick = { FixedExpenseCategories.setFixed(category.id, !isFixed) },
+                                                label = { Text("Fixe") },
+                                                modifier = Modifier.padding(top = 4.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -372,12 +383,15 @@ fun SettingsScreen(
                     )
                     Text(
                         "Bills that show up most months (phone, utilities, a monthly transfer " +
-                            "to another account, insurance, loan interest, electricity, etc.) " +
-                            "but haven't posted yet are added to the Dashboard's Expenses tile " +
-                            "at their last known amount, so Remaining reflects what's left once " +
-                            "they go out — not just what you've spent so far. Works for This " +
-                            "month and Next month alike. Only affects that one tile; budgets, " +
-                            "the spending breakdown, and every other screen are unaffected.",
+                            "to another account, etc.) but haven't posted yet are added to the " +
+                            "Dashboard's Expenses tile at their last known amount, so Remaining " +
+                            "reflects what's left once they go out — not just what you've spent " +
+                            "so far. Any category marked \"Fixe\" below (Categories tab) is " +
+                            "trusted the moment it's seen, even without repeating first, using " +
+                            "its detected billing cadence (monthly, quarterly, or yearly) so " +
+                            "it's only anticipated in the month it's actually due. Works for " +
+                            "This month and Next month alike. Only affects that one tile; " +
+                            "budgets, the spending breakdown, and every other screen are unaffected.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)

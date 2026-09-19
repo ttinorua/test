@@ -9,6 +9,7 @@ import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
+import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.AnticipatedExpense
 import com.financetracker.app.util.PeriodOption
@@ -29,6 +30,13 @@ data class DashboardTransactionsUiState(
     val categories: List<Category> = emptyList(),
     val showAnticipatedSections: Boolean = false,
     val anticipatedExpenses: List<AnticipatedExpense> = emptyList()
+)
+
+private data class DashboardTransactionsExtras(
+    val accounts: List<Account>,
+    val categories: List<Category>,
+    val dismissedRecurring: Set<String>,
+    val fixedCategoryIds: Set<Long>
 )
 
 /**
@@ -59,11 +67,17 @@ class DashboardTransactionsViewModel(
         ) { shiftSalary, excludeTransfers, anticipateRecurring ->
             Triple(shiftSalary, excludeTransfers, anticipateRecurring)
         },
-        repository.observeAccounts(),
-        repository.observeCategories(),
-        DismissedRecurringExpenses.dismissed
-    ) { transactions, settings, accounts, categories, dismissedRecurring ->
+        combine(
+            repository.observeAccounts(),
+            repository.observeCategories(),
+            DismissedRecurringExpenses.dismissed,
+            FixedExpenseCategories.fixedCategoryIds
+        ) { accounts, categories, dismissedRecurring, fixedCategoryIds ->
+            DashboardTransactionsExtras(accounts, categories, dismissedRecurring, fixedCategoryIds)
+        }
+    ) { transactions, settings, extras ->
         val (shiftSalary, excludeTransfers, anticipateRecurring) = settings
+        val (accounts, categories, dismissedRecurring, fixedCategoryIds) = extras
         val (from, to) = periodRange(periodOption, customRange)
         val filtered = transactions.filter { tx ->
             val effectiveDate =
@@ -86,7 +100,12 @@ class DashboardTransactionsViewModel(
         }
         val showAnticipated = includeAnticipated && anticipateRecurring && monthsAhead != null
         val anticipated = if (showAnticipated) {
-            anticipatedRecurringExpenses(transactions, monthsAhead = monthsAhead!!, dismissedKeys = dismissedRecurring)
+            anticipatedRecurringExpenses(
+                transactions,
+                monthsAhead = monthsAhead!!,
+                dismissedKeys = dismissedRecurring,
+                fixedCategoryIds = fixedCategoryIds
+            )
         } else {
             emptyList()
         }

@@ -14,6 +14,7 @@ import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.EnableBankingPrefs
+import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.repository.FinanceRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,7 @@ class FinanceApp : Application() {
         BudgetLimits.init(this)
         AiInsightsCache.init(this)
         DismissedRecurringExpenses.init(this)
+        FixedExpenseCategories.init(this)
         EnableBankingPrefs.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
 
@@ -47,6 +49,7 @@ class FinanceApp : Application() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             BankCategories.ensure(repository, SupportedBanks.byId(EnableBankingPrefs.selectedBankId.value))
             CategoryCleanup.migrateLegacyDuplicates(repository)
+            FixedExpenseCategories.seedLegacyDefaultsIfNeeded(repository.getCategories())
         }
 
         // Best-effort sync once per app launch; a no-op inside the worker if not connected.

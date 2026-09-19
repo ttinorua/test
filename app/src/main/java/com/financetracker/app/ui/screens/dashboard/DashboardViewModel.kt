@@ -15,6 +15,7 @@ import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
+import com.financetracker.app.util.anticipatedRecurringExpenseTotal
 import com.financetracker.app.util.countsTowardSpending
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.periodRange
@@ -45,6 +46,7 @@ data class DashboardUiState(
     val netBalance: Double = 0.0,
     val periodIncome: Double = 0.0,
     val periodExpense: Double = 0.0,
+    val anticipatedRecurringExpense: Double = 0.0,
     val categoryBreakdown: List<CategorySpend> = emptyList(),
     val periodOption: PeriodOption = PeriodOption.THIS_MONTH,
     val customRange: Pair<Long, Long>? = null,
@@ -59,9 +61,18 @@ private data class DashboardFilters(
     val selectedAccountId: Long?
 )
 
+private data class DashboardSettingsAndCategories(
+    val shiftSalary: Boolean,
+    val excludeTransfers: Boolean,
+    val anticipateRecurring: Boolean,
+    val categories: List<Category>,
+    val overallBudgets: Map<Long?, Double>
+)
+
 private data class DashboardExtras(
     val shiftSalary: Boolean,
     val excludeTransfers: Boolean,
+    val anticipateRecurring: Boolean,
     val categories: List<Category>,
     val overallBudgets: Map<Long?, Double>,
     val categoryBudgets: Map<Pair<Long, Long?>, Double>
@@ -80,17 +91,29 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
             DashboardFilters(periodOption, customRange, selectedAccountId)
         },
         combine(
-            BudgetSettings.shiftSalaryToNextMonth,
-            BudgetSettings.excludeTransfersFromSpending,
-            repository.observeCategories(),
-            BudgetLimits.overallBudgets,
+            combine(
+                BudgetSettings.shiftSalaryToNextMonth,
+                BudgetSettings.excludeTransfersFromSpending,
+                BudgetSettings.anticipateRecurringBills,
+                repository.observeCategories(),
+                BudgetLimits.overallBudgets
+            ) { shiftSalary, excludeTransfers, anticipateRecurring, categories, overallBudgets ->
+                DashboardSettingsAndCategories(shiftSalary, excludeTransfers, anticipateRecurring, categories, overallBudgets)
+            },
             BudgetLimits.categoryBudgets
-        ) { shiftSalary, excludeTransfers, categories, overallBudgets, categoryBudgets ->
-            DashboardExtras(shiftSalary, excludeTransfers, categories, overallBudgets, categoryBudgets)
+        ) { partial, categoryBudgets ->
+            DashboardExtras(
+                partial.shiftSalary,
+                partial.excludeTransfers,
+                partial.anticipateRecurring,
+                partial.categories,
+                partial.overallBudgets,
+                categoryBudgets
+            )
         }
     ) { allTransactions, accounts, filters, extras ->
         val (periodOption, customRange, selectedAccountId) = filters
-        val (shiftSalary, excludeTransfers, categories, overallBudgets, allCategoryBudgets) = extras
+        val (shiftSalary, excludeTransfers, anticipateRecurring, categories, overallBudgets, allCategoryBudgets) = extras
         val overallBudget = resolveOverallBudget(overallBudgets, selectedAccountId)
         val categoryBudgets = resolveCategoryBudgets(allCategoryBudgets, selectedAccountId)
         val transactions = if (selectedAccountId != null) {
@@ -118,6 +141,11 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
                 countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
         }
         val expense = expenseTx.sumOf { it.amount }
+        val anticipatedRecurring = if (anticipateRecurring && periodOption == PeriodOption.THIS_MONTH) {
+            anticipatedRecurringExpenseTotal(transactions)
+        } else {
+            0.0
+        }
 
         val breakdown = expenseTx
             .groupBy { it.categoryId }
@@ -160,7 +188,8 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
         DashboardUiState(
             netBalance = netBalance,
             periodIncome = income,
-            periodExpense = expense,
+            periodExpense = expense + anticipatedRecurring,
+            anticipatedRecurringExpense = anticipatedRecurring,
             categoryBreakdown = breakdown,
             periodOption = periodOption,
             customRange = customRange,

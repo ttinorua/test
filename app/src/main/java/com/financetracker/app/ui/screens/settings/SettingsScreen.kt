@@ -96,6 +96,7 @@ fun SettingsScreen(
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
     val shiftSalaryToNextMonth by BudgetSettings.shiftSalaryToNextMonth.collectAsState()
     val excludeTransfersFromSpending by BudgetSettings.excludeTransfersFromSpending.collectAsState()
+    val anticipateRecurringBills by BudgetSettings.anticipateRecurringBills.collectAsState()
     var tabIndex by remember { mutableIntStateOf(0) }
 
     var showAddAccount by remember { mutableStateOf(false) }
@@ -360,6 +361,33 @@ fun SettingsScreen(
                         )
                         Text(
                             text = if (excludeTransfersFromSpending) "On" else "Off",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+
+                    Text(
+                        "Anticipate recurring bills",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
+                    Text(
+                        "Bills that show up most months (phone, utilities, a monthly transfer " +
+                            "to another account, etc.) but haven't posted yet this month are " +
+                            "added to the Dashboard's Expenses tile at their last known amount, " +
+                            "so Remaining reflects what's left once they go out — not just what " +
+                            "you've spent so far. Only affects that one tile; budgets, the " +
+                            "spending breakdown, and every other screen are unaffected.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(
+                            checked = anticipateRecurringBills,
+                            onCheckedChange = { BudgetSettings.setAnticipateRecurringBills(it) }
+                        )
+                        Text(
+                            text = if (anticipateRecurringBills) "On" else "Off",
                             modifier = Modifier.padding(start = 8.dp)
                         )
                     }

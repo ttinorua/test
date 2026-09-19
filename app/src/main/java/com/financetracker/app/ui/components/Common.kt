@@ -46,7 +46,8 @@ fun SummaryCard(
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
     amountStyle: TextStyle = MaterialTheme.typography.titleLarge,
-    contentPadding: Dp = 16.dp
+    contentPadding: Dp = 16.dp,
+    subtitle: String? = null
 ) {
     val colors = if (selected) {
         CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
@@ -70,6 +71,16 @@ fun SummaryCard(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.fillMaxWidth()
             )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
         }
     }
     if (onClick != null) {

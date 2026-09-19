@@ -164,7 +164,10 @@ fun DashboardScreen(
                             )
                         },
                         amountStyle = MaterialTheme.typography.titleSmall,
-                        contentPadding = 12.dp
+                        contentPadding = 12.dp,
+                        subtitle = state.anticipatedRecurringExpense.takeIf { it > 0 }?.let {
+                            "incl. ${Formatters.amount(it)} upcoming"
+                        }
                     )
                     SummaryCard(
                         modifier = Modifier.weight(1f),

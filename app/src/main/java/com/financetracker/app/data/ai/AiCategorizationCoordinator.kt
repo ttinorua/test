@@ -1,5 +1,6 @@
 package com.financetracker.app.data.ai
 
+import com.financetracker.app.data.bank.LegacyCategories
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.repository.FinanceRepository
 
@@ -32,6 +33,14 @@ data class CategorizationOutcome(val categorizedCount: Int, val totalConsidered:
  * single Claude call (see [CategorySuggester.suggestBatch]) instead of one call per merchant —
  * each call is a sequential network round trip, so together these are the main lever on how
  * long a large backfill actually takes wall-clock.
+ *
+ * Also picks up transactions sitting under one of [LegacyCategories]'s old generic buckets (e.g.
+ * "Transportation", "Utilities") the same as literally-Uncategorized ones: those buckets predate
+ * the real taxonomy and each could mean several different real categories, so rather than leave
+ * them stuck there forever, every transaction under one is individually re-matched by its own
+ * note text against the full real category list. The old bucket itself is excluded as a possible
+ * suggestion, so a transaction only ever moves on to a real, specific category, or stays exactly
+ * where it was if nothing matches confidently.
  */
 object AiCategorizationCoordinator {
 
@@ -44,13 +53,13 @@ object AiCategorizationCoordinator {
         if (!ClaudeService.isConfigured) return CategorizationOutcome(0, knownTotal ?: 0, 0)
 
         val categories = repository.getCategories()
-        val uncategorizedIds = categories
-            .filter { it.name == "Uncategorized" && it.mainCategory == "Uncategorized" }
+        val excludedIds = categories
+            .filter { (it.name == "Uncategorized" && it.mainCategory == "Uncategorized") || LegacyCategories.isAmbiguousBucket(it) }
             .map { it.id }
             .toSet()
 
         val allTransactions = repository.getAllTransactions()
-        val targets = allTransactions.filter { it.categoryId == null || it.categoryId in uncategorizedIds }
+        val targets = allTransactions.filter { it.categoryId == null || it.categoryId in excludedIds }
         if (targets.isEmpty()) return CategorizationOutcome(0, knownTotal ?: 0, 0)
 
         val total = knownTotal ?: targets.size
@@ -77,7 +86,7 @@ object AiCategorizationCoordinator {
 
         groupsToProcess.forEachIndexed { index, group ->
             val match = localMatches[index] ?: aiMatches[index]
-            if (match != null && match.id !in uncategorizedIds) {
+            if (match != null && match.id !in excludedIds) {
                 for (transaction in group) {
                     repository.updateTransaction(transaction.copy(categoryId = match.id))
                     categorizedCount++

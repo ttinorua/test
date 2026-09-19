@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
 import com.financetracker.app.data.bank.BankCategories
+import com.financetracker.app.data.bank.CategoryCleanup
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.AppDatabase
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
@@ -36,9 +37,14 @@ class FinanceApp : Application() {
         // that an existing install is still missing (the starter set has grown since some
         // installs were first created) — cheap, idempotent, never touches an existing category.
         // Best done before sync/categorization run so they have the fuller category list to
-        // match against from the start.
+        // match against from the start. Then migrates away any of the app's own original
+        // hand-picked category names (e.g. "Salary") that this real taxonomy has since replaced
+        // with an unambiguous equivalent (e.g. "Pay, benefits and pension") — see
+        // CategoryCleanup, and needs the real taxonomy already seeded to have something to
+        // migrate onto.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             BankCategories.ensure(repository, SupportedBanks.byId(EnableBankingPrefs.selectedBankId.value))
+            CategoryCleanup.migrateLegacyDuplicates(repository)
         }
 
         // Best-effort sync once per app launch; a no-op inside the worker if not connected.

@@ -50,6 +50,19 @@ class SalaryShiftTest {
     }
 
     @Test
+    fun `the app's older default salary category name also shifts`() {
+        // "Salary" was this app's own original default category name before the real
+        // Bankdata/Meniga taxonomy (which uses "Pay, benefits and pension") was seeded — an
+        // install upgrading from before that change can have real transactions still
+        // categorized under the old name, and this toggle needs to keep recognizing them.
+        val date = utcMillis(2026, 8, 31)
+        val result = effectiveReportingDate(
+            date, TransactionType.INCOME, "Income", "Salary", enabled = true
+        )
+        assertEquals(Triple(2026, 9, 30), yearMonthDay(result))
+    }
+
+    @Test
     fun `other income categories are not shifted`() {
         val date = utcMillis(2026, 8, 31)
         val result = effectiveReportingDate(

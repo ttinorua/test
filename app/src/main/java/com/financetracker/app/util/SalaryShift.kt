@@ -5,12 +5,19 @@ import java.util.Calendar
 import java.util.TimeZone
 
 private const val SALARY_MAIN_CATEGORY = "income"
-private const val SALARY_CATEGORY = "pay, benefits and pension"
+
+/** Both names a salary/wage category can carry: "Pay, benefits and pension" is the real
+ * Bankdata/Meniga category name (see [com.financetracker.app.data.bank.BankdataDefaultCategories]);
+ * "Salary" was this app's own original default before that taxonomy was seeded, and an install
+ * that already had transactions categorized under it before upgrading won't have had them
+ * silently re-categorized — an existing "Salary" transaction stays "Salary" until re-run through
+ * categorization, so this has to keep recognizing both names, not just the newer one. */
+private val SALARY_CATEGORY_NAMES = setOf("pay, benefits and pension", "salary")
 
 /** Matches the bank export's own category for salary/wage payments. */
 fun isSalaryCategory(mainCategoryName: String?, categoryName: String?): Boolean {
     return mainCategoryName?.trim()?.lowercase() == SALARY_MAIN_CATEGORY &&
-        categoryName?.trim()?.lowercase() == SALARY_CATEGORY
+        categoryName?.trim()?.lowercase() in SALARY_CATEGORY_NAMES
 }
 
 /**

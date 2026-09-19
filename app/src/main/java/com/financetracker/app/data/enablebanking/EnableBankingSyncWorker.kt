@@ -56,7 +56,10 @@ class EnableBankingSyncWorker(context: Context, params: WorkerParameters) : Coro
         const val KEY_IMPORTED = "imported"
         const val KEY_SKIPPED = "skipped"
         const val KEY_FAILURE = "failure"
-        private const val BATCH_GROUPS = 100
+        // Each Claude call now covers CategorySuggester.BATCH_SIZE (25) merchants at once (see
+        // EnableBankingSyncCoordinator), so this many groups per invocation is still only ~40
+        // sequential AI calls, not 1000.
+        private const val BATCH_GROUPS = 1000
         private const val PREFS_NAME = "finance_prefs"
         private const val KEY_PERSISTED_TOTAL = "enable_banking_sync_total"
 

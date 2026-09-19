@@ -38,8 +38,11 @@ data class SyncOutcome(
  * against what's already saved locally ([DuplicateTransactionFilter]) to know what's actually
  * new. Day to day that's only a handful of transactions, but the very first sync (or any sync
  * after local data was wiped, e.g. an app reinstall) treats the *entire* history as new, and
- * each unique merchant needs its own sequential AI categorization call — the same cost as the
- * AI categorization backfill. This is designed to be called repeatedly in bounded batches
+ * every unique merchant needs an AI categorization suggestion — the same cost as the AI
+ * categorization backfill. Merchants are AI-suggested [CategorySuggester.BATCH_SIZE] at a time
+ * in a single Claude call (see [CategorySuggester.suggestBatch], deduped by note across
+ * accounts) instead of one sequential call per merchant, the main lever on how long a large sync
+ * actually takes wall-clock. This is also designed to be called repeatedly in bounded batches
  * ([maxGroups] merchant groups at a time, across however many accounts that spans) rather than
  * run to completion in one call, the same way [com.financetracker.app.data.ai.AiCategorizationCoordinator]
  * is, so a large first sync survives Android's ~10 minute execution ceiling for background work.
@@ -102,44 +105,71 @@ object EnableBankingSyncCoordinator {
         val alreadyDone = total - targetsCount
 
         val categories = repository.getCategories()
-        // One cache per call, keyed by normalized note, so repeated merchants (very common
-        // across a real transaction history) only cost one AI call each instead of one per row.
-        val suggestionCache = mutableMapOf<String, Category?>()
+
+        // Flatten this call's groups across every pending account, capped at maxGroups, before
+        // asking the AI anything — this lets AI suggestions be batched (and deduped by note
+        // across accounts, the same merchant can appear in more than one) instead of one
+        // sequential Claude call per merchant, the main lever on how long this actually takes.
+        data class Work(val acct: PendingAccount, val group: List<ParsedTransactionRow>)
+        val work = mutableListOf<Work>()
+        outer@ for (acct in pending) {
+            for (group in acct.uniqueGroups) {
+                if (work.size >= maxGroups) break@outer
+                work += Work(acct, group)
+            }
+        }
+
+        val noteByKey = LinkedHashMap<String, String>()
+        for (w in work) {
+            val key = w.group.first().note.trim().lowercase()
+            noteByKey.putIfAbsent(key, w.group.first().note)
+        }
+        val suggestionByKey = mutableMapOf<String, Category?>()
+        if (ClaudeService.isConfigured) {
+            val keys = noteByKey.keys.toList()
+            for (chunk in keys.chunked(CategorySuggester.BATCH_SIZE)) {
+                val notes = chunk.map { noteByKey.getValue(it) }
+                val matches = CategorySuggester.suggestBatch(notes, categories).getOrNull()
+                chunk.forEachIndexed { i, key -> suggestionByKey[key] = matches?.getOrNull(i) }
+            }
+        }
 
         var totalImported = 0
         var doneThisRun = 0
-        var groupsProcessed = 0
+        val processedGroupsByAccount = mutableMapOf<Long, Int>()
         onProgress(SyncProgress(alreadyDone, total))
 
-        outer@ for (acct in pending) {
-            for (group in acct.uniqueGroups) {
-                if (groupsProcessed >= maxGroups) break@outer
-                groupsProcessed++
-
-                val suggested = suggestCategory(group.first().note, categories, suggestionCache)
-                val uncategorizedCache = mutableMapOf<TransactionType, Long>()
-                val transactions = group.map { row ->
-                    val categoryId = suggested?.id ?: uncategorizedCache.getOrPut(row.type) {
-                        repository.getOrCreateCategory(row.mainCategoryName, row.categoryName, row.type).id
-                    }
-                    Transaction(
-                        amount = row.amount,
-                        type = row.type,
-                        accountId = acct.accountId,
-                        categoryId = categoryId,
-                        date = row.date,
-                        note = row.note
-                    )
+        for (w in work) {
+            val key = w.group.first().note.trim().lowercase()
+            val suggested = suggestionByKey[key]
+            val uncategorizedCache = mutableMapOf<TransactionType, Long>()
+            val transactions = w.group.map { row ->
+                val categoryId = suggested?.id ?: uncategorizedCache.getOrPut(row.type) {
+                    repository.getOrCreateCategory(row.mainCategoryName, row.categoryName, row.type).id
                 }
-                repository.addTransactions(transactions)
-                totalImported += transactions.size
-                doneThisRun += group.size
-                onProgress(SyncProgress(alreadyDone + doneThisRun, total))
+                Transaction(
+                    amount = row.amount,
+                    type = row.type,
+                    accountId = w.acct.accountId,
+                    categoryId = categoryId,
+                    date = row.date,
+                    note = row.note
+                )
             }
-            // Only reached when every group of this account was processed above without hitting
-            // the batch limit — an account left partially done gets reconciled on a later call,
-            // once its own remaining groups are drained the same way.
-            BalanceReconciler.reconcile(repository, acct.accountId, acct.rows, sourceOrderIsNewestFirst = false)
+            repository.addTransactions(transactions)
+            totalImported += transactions.size
+            doneThisRun += w.group.size
+            processedGroupsByAccount[w.acct.accountId] = (processedGroupsByAccount[w.acct.accountId] ?: 0) + 1
+            onProgress(SyncProgress(alreadyDone + doneThisRun, total))
+        }
+
+        // Only reconcile an account whose every group (this call's flattened work list) was
+        // actually processed above — one left partially done gets reconciled on a later call,
+        // once its own remaining groups are drained the same way.
+        for (acct in pending) {
+            if ((processedGroupsByAccount[acct.accountId] ?: 0) == acct.uniqueGroups.size) {
+                BalanceReconciler.reconcile(repository, acct.accountId, acct.rows, sourceOrderIsNewestFirst = false)
+            }
         }
 
         val remaining = targetsCount - doneThisRun
@@ -177,22 +207,5 @@ object EnableBankingSyncCoordinator {
         val label = bankAccount.product ?: "Account"
         val suffix = bankAccount.iban?.takeLast(4) ?: bankAccount.uid.take(6)
         return "Sydbank $label ••$suffix"
-    }
-
-    /** Enable Banking sends no category data at all, so every new transaction is AI-suggested
-     * against the user's real categories when Claude is configured — silently skipped (falls
-     * back to Uncategorized) otherwise, since this is a background sync, not a user action. */
-    private suspend fun suggestCategory(
-        note: String,
-        categories: List<Category>,
-        cache: MutableMap<String, Category?>
-    ): Category? {
-        if (!ClaudeService.isConfigured) return null
-        val key = note.trim().lowercase()
-        if (key.isBlank()) return null
-        if (cache.containsKey(key)) return cache.getValue(key)
-        val match = CategorySuggester.suggest(note, categories).getOrNull()
-        cache[key] = match
-        return match
     }
 }

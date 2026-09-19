@@ -16,10 +16,12 @@ import java.util.concurrent.TimeUnit
  * a real transaction history) survives navigating away from Settings, the screen turning off, or
  * the app being backgrounded — not just whether the Settings screen happens to stay open.
  *
- * A full backfill (thousands of sequential AI calls) can take far longer than Android lets an
- * ordinary background job run before the system stops it (~10 minutes) — a real run was observed
- * getting stopped and restarting the entire backfill from scratch each time. Each execution now
- * only processes [BATCH_GROUPS] merchant groups (safely inside that time budget) and, if work
+ * A full backfill (thousands of transactions across hundreds of unique merchants) can take far
+ * longer than Android lets an ordinary background job run before the system stops it (~10
+ * minutes) — a real run was observed getting stopped and restarting the entire backfill from
+ * scratch each time. Each execution now only processes [BATCH_GROUPS] merchant groups (safely
+ * inside that time budget even with each Claude call itself now covering
+ * [CategorySuggester.BATCH_SIZE] merchants — see [AiCategorizationCoordinator]) and, if work
  * remains, returns [Result.retry] — WorkManager's own built-in mechanism for "run this again" —
  * instead of manually enqueuing a replacement for its own still-current unique work, which is a
  * known way to race with and cancel yourself. The run's original total (needed so progress counts
@@ -60,7 +62,9 @@ class AiCategorizationWorker(context: Context, params: WorkerParameters) : Corou
         const val KEY_TOTAL = "total"
         const val KEY_CATEGORIZED = "categorized"
         const val KEY_TOTAL_CONSIDERED = "total_considered"
-        private const val BATCH_GROUPS = 100
+        // Each Claude call now covers CategorySuggester.BATCH_SIZE (25) merchants at once, so
+        // this many groups per invocation is still only ~40 sequential AI calls, not 1000.
+        private const val BATCH_GROUPS = 1000
         private const val PREFS_NAME = "finance_prefs"
         private const val KEY_PERSISTED_TOTAL = "ai_categorization_total"
 

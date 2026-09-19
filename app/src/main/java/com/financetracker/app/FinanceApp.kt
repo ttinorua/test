@@ -1,25 +1,21 @@
 package com.financetracker.app
 
 import android.app.Application
+import androidx.work.ExistingWorkPolicy
+import androidx.work.WorkManager
 import com.financetracker.app.data.db.AppDatabase
-import com.financetracker.app.data.enablebanking.EnableBankingSyncCoordinator
+import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.repository.FinanceRepository
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
 class FinanceApp : Application() {
 
     lateinit var repository: FinanceRepository
         private set
-
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
@@ -30,16 +26,17 @@ class FinanceApp : Application() {
         EnableBankingPrefs.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
 
-        // Best-effort sync once per app launch; no-op if not connected. Wrapped in case of any
-        // failure (network, DB) since this runs unconditionally on every cold start — it must
-        // never be able to crash app launch. The user can always see current status and retry
-        // via Settings > Bank > Sync now.
-        applicationScope.launch {
-            try {
-                EnableBankingSyncCoordinator.syncSelectedAccounts(repository)
-            } catch (e: Throwable) {
-                // Silent: this is a background convenience sync, not a user-initiated action.
-            }
-        }
+        // Best-effort sync once per app launch; a no-op inside the worker if not connected.
+        // Runs as WorkManager-managed work (see EnableBankingSyncWorker) rather than a plain
+        // coroutine, so a sync that can take a long time (the very first sync, or any sync after
+        // a reinstall wiped local data) survives the app being backgrounded or its process being
+        // killed instead of silently dying mid-way. KEEP: if a previous launch's sync is still
+        // running, this one shouldn't interrupt it — the user can always see current status and
+        // force a fresh run via Settings > Bank > Sync now.
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            EnableBankingSyncWorker.UNIQUE_WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            EnableBankingSyncWorker.buildRequest()
+        )
     }
 }

@@ -916,16 +916,39 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             }
         }
 
+        if (state.isSyncing) {
+            val progress = state.syncProgress
+            if (progress != null && progress.total > 0) {
+                LinearProgressIndicator(
+                    progress = { progress.done.toFloat() / progress.total },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                )
+                Text(
+                    "${progress.done} of ${progress.total}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+            }
+        }
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Button(onClick = { viewModel.syncNow() }, enabled = !state.isSyncing, modifier = Modifier.weight(1f)) {
                 if (state.isSyncing) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp))
                 } else {
                     Text("Sync now")
+                }
+            }
+            if (state.isSyncing) {
+                TextButton(onClick = { viewModel.cancelSync() }) {
+                    Text("Cancel")
                 }
             }
             OutlinedButton(onClick = { showDisconnectConfirm = true }) {

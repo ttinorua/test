@@ -215,7 +215,7 @@ class MainActivity : ComponentActivity() {
                                 factory = ViewModelFactory { ImportExportViewModel(repository, applicationContext) }
                             )
                             val enableBankingVm: EnableBankingViewModel = viewModel(
-                                factory = ViewModelFactory { EnableBankingViewModel(repository) }
+                                factory = ViewModelFactory { EnableBankingViewModel(repository, applicationContext) }
                             )
                             SettingsScreen(vm, importExportVm, enableBankingVm)
                         }

@@ -72,6 +72,7 @@
 # ClassNotFoundException — the exact same failure mode that broke POI, log4j2 and
 # commons-compress earlier in this project when only -dontwarn was in place.
 -keep class com.financetracker.app.data.ai.AiCategorizationWorker { *; }
+-keep class com.financetracker.app.data.enablebanking.EnableBankingSyncWorker { *; }
 
 # Anthropic Java SDK serializes/deserializes its request and response model classes (Tool,
 # CacheControlEphemeral, JsonMissing/JsonField wrapper types, etc.) via Jackson reflecting over

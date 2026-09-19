@@ -209,6 +209,10 @@ class DashboardViewModel(private val repository: FinanceRepository) : ViewModel(
             _isGeneratingInsights.value = false
         }
     }
+
+    fun dismissInsights() {
+        AiInsightsCache.clear()
+    }
 }
 
 /** For a specific account, its own budget. For "All accounts" (null), the combined total of

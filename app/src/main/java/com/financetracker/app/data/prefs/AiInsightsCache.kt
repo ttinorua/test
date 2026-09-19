@@ -28,4 +28,14 @@ object AiInsightsCache {
             prefs.edit().putString(KEY_TEXT, text).apply()
         }
     }
+
+    /** Dismisses the current insight (e.g. the dashboard card's close button) without billing
+     * a new API call — [generateInsights][com.financetracker.app.ui.screens.dashboard.DashboardViewModel.generateInsights]
+     * remains the only way to get a new one. */
+    fun clear() {
+        _insight.value = null
+        if (::prefs.isInitialized) {
+            prefs.edit().remove(KEY_TEXT).apply()
+        }
+    }
 }

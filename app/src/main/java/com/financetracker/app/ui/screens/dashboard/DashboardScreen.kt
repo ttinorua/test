@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -211,8 +212,15 @@ fun DashboardScreen(
                                 if (isGeneratingInsights) {
                                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                                 } else {
-                                    TextButton(onClick = viewModel::generateInsights) {
-                                        Text(if (insight == null) "Generate" else "Regenerate")
+                                    Row {
+                                        TextButton(onClick = viewModel::generateInsights) {
+                                            Text(if (insight == null) "Generate" else "Regenerate")
+                                        }
+                                        if (insight != null) {
+                                            IconButton(onClick = viewModel::dismissInsights) {
+                                                Icon(Icons.Filled.Close, contentDescription = "Dismiss insight")
+                                            }
+                                        }
                                     }
                                 }
                             }

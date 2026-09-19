@@ -11,6 +11,7 @@ import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.repository.FinanceRepository
+import com.financetracker.app.util.Formatters
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -59,7 +60,8 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
             val transactions = repository.observeTransactions().first()
             val accounts = repository.observeAccounts().first()
             val categories = repository.observeCategories().first()
-            val context = buildContext(transactions, accounts, categories)
+            val balances = accounts.associate { it.id to repository.getAccountBalance(it) }
+            val context = buildContext(transactions, accounts, categories, balances)
 
             ClaudeService.chatWithBudgetTool(context, history, trimmed)
                 .onSuccess { result ->
@@ -126,7 +128,8 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
     private fun buildContext(
         transactions: List<TransactionWithDetails>,
         accounts: List<Account>,
-        categories: List<Category>
+        categories: List<Category>,
+        balances: Map<Long, Double>
     ): String {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
@@ -152,8 +155,8 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
                     "user a proposal to confirm — never claim you've already set a budget."
             )
             appendLine()
-            appendLine("ACCOUNTS (name, starting balance):")
-            accounts.forEach { appendLine("- ${it.name}: ${it.initialBalance}") }
+            appendLine("ACCOUNTS (name, current balance as of today):")
+            accounts.forEach { appendLine("- ${it.name}: ${Formatters.amount(balances[it.id] ?: it.initialBalance)}") }
             appendLine()
             appendLine("CATEGORIES (MainCategory|Category|Type):")
             categories.forEach { appendLine("- ${it.mainCategory}|${it.name}|${it.type}") }

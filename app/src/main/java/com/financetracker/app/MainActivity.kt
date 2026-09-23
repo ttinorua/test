@@ -97,7 +97,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         composable(Screen.Dashboard.route) {
                             val vm: DashboardViewModel = viewModel(
-                                factory = ViewModelFactory { DashboardViewModel(repository) }
+                                factory = ViewModelFactory { DashboardViewModel(repository, applicationContext) }
                             )
                             DashboardScreen(
                                 vm,

@@ -21,6 +21,10 @@ object Formatters {
     private val monthOnlyFormat = SimpleDateFormat("MMMM", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
+    // Deliberately no explicit UTC timezone (unlike the calendar-day formats above) — this
+    // formats a real wall-clock instant (when a bank sync finished), so it should read in
+    // whatever timezone the device itself is set to.
+    private val syncTimestampFormat = SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.US)
 
     private val CURRENCY_SYMBOLS = mapOf(
         "DKK" to "kr.",
@@ -44,6 +48,7 @@ object Formatters {
     fun date(epochMillis: Long): String = dateFormat.format(epochMillis)
     fun fullDate(epochMillis: Long): String = fullDateFormat.format(epochMillis)
     fun month(epochMillis: Long): String = monthOnlyFormat.format(epochMillis)
+    fun syncTimestamp(epochMillis: Long): String = syncTimestampFormat.format(epochMillis)
 }
 
 fun todayUtcMidnight(): Long {

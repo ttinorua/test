@@ -74,12 +74,33 @@ fun DashboardScreen(
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
     val insights by AiInsightsCache.insights.collectAsState()
     val isGeneratingInsights by viewModel.isGeneratingInsights.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
+    val lastSyncedAt by viewModel.lastSyncedAt.collectAsState()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Finance Tracker") },
+                title = {
+                    Column {
+                        Text("Finance Tracker")
+                        if (lastSyncedAt != null) {
+                            Text(
+                                text = "Synced ${Formatters.syncTimestamp(lastSyncedAt!!)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
                 actions = {
+                    if (isSyncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(horizontal = 14.dp)
+                                .size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
                     IconButton(onClick = onOpenTrends) {
                         Icon(Icons.Filled.ShowChart, contentDescription = "Trends")
                     }

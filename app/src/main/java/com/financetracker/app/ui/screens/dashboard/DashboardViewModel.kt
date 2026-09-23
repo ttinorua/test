@@ -1,7 +1,10 @@
 package com.financetracker.app.ui.screens.dashboard
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.financetracker.app.data.ai.ClaudeService
 import com.financetracker.app.data.ai.InsightCard
 import com.financetracker.app.data.ai.InsightTone
@@ -9,11 +12,13 @@ import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
+import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
@@ -26,6 +31,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -82,11 +88,31 @@ private data class DashboardExtras(
     val fixedCategoryIds: Set<Long>
 )
 
-class DashboardViewModel(private val repository: FinanceRepository) : ViewModel() {
+class DashboardViewModel(private val repository: FinanceRepository, appContext: Context) : ViewModel() {
 
     private val _periodOption = MutableStateFlow(PeriodOption.THIS_MONTH)
     private val _customRange = MutableStateFlow<Pair<Long, Long>?>(null)
     private val _selectedAccountId = MutableStateFlow<Long?>(null)
+
+    /** Whether a bank sync ([EnableBankingSyncWorker]) is currently running — read straight from
+     * WorkManager (not tied to any particular screen's lifecycle) so the header's sync spinner
+     * reflects the same run whether it was started by the automatic sync-on-app-open or a manual
+     * "Sync now" in Settings. Mirrors [com.financetracker.app.ui.screens.settings.EnableBankingViewModel]'s
+     * own isSyncing derivation so both surfaces never disagree about whether a sync is in flight. */
+    private val syncWorkInfo: StateFlow<WorkInfo?> = WorkManager.getInstance(appContext)
+        .getWorkInfosForUniqueWorkFlow(EnableBankingSyncWorker.UNIQUE_WORK_NAME)
+        .map { infos -> infos.firstOrNull { !it.state.isFinished } ?: infos.firstOrNull() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val isSyncing: StateFlow<Boolean> = syncWorkInfo
+        .map { it != null && !it.state.isFinished }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** When the last bank sync completed — shown under the dashboard's title until the next one
+     * finishes. Transactions/accounts/categories themselves refresh on their own the moment a
+     * sync writes to the database, since [uiState] is built from Room [kotlinx.coroutines.flow.Flow]s
+     * that emit on every change — no extra wiring needed for that part. */
+    val lastSyncedAt: StateFlow<Long?> = EnableBankingPrefs.lastSyncedAt
 
     val uiState: StateFlow<DashboardUiState> = combine(
         repository.observeTransactions(),

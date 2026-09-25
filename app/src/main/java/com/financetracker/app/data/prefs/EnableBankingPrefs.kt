@@ -80,10 +80,18 @@ object EnableBankingPrefs {
         }
     }
 
-    /** Called once a `code` has been exchanged for a live session. Selects all returned
-     * accounts by default; the user can narrow that down afterward. */
+    /** Called once a `code` has been exchanged for a live session — either the very first
+     * connect, or a later re-auth that's just refreshing the account list (see
+     * [com.financetracker.app.ui.screens.settings.EnableBankingViewModel.connect], reused for
+     * both). A brand-new account (one the bank returned that we hadn't seen before — most
+     * commonly because it was opened after the last connect) is selected by default; an account
+     * we already knew about keeps whatever the user last chose for it, so refreshing to pick up
+     * a new account never silently re-enables one they'd deliberately unchecked. On a first
+     * connect there's nothing to preserve, so this naturally reduces to "select everything". */
     fun saveConnection(sessionId: String, accounts: List<LinkedBankAccount>, consentValidUntil: Long) {
-        val selected = accounts.map { it.uid }.toSet()
+        val previouslyKnownUids = _linkedAccounts.value.map { it.uid }.toSet()
+        val newUids = accounts.map { it.uid }.toSet() - previouslyKnownUids
+        val selected = (_selectedAccountUids.value intersect accounts.map { it.uid }.toSet()) + newUids
         _sessionId.value = sessionId
         _linkedAccounts.value = accounts
         _selectedAccountUids.value = selected

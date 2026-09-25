@@ -154,7 +154,13 @@ class EnableBankingViewModel(private val repository: FinanceRepository, private 
 
     /** Starts a new consent flow for whichever bank is currently selected
      * ([EnableBankingPrefs.selectedBankId], set via [selectBank]). The screen observes
-     * [EnableBankingUiState.authUrl] and opens it in the browser, then calls [consumeAuthUrl]. */
+     * [EnableBankingUiState.authUrl] and opens it in the browser, then calls [consumeAuthUrl].
+     *
+     * Also doubles as "Refresh accounts" while already connected — same MitID login, no need to
+     * [disconnect] first. [EnableBankingPrefs.saveConnection] (which the redirect eventually
+     * calls into via [EnableBankingService.completeAuth]) preserves the sync selection for
+     * accounts we already knew about and only auto-selects whatever's newly returned, so this is
+     * safe to call again just to pick up an account opened at the bank since the last connect. */
     fun connect() {
         if (_isStartingAuth.value) return
         _isStartingAuth.value = true

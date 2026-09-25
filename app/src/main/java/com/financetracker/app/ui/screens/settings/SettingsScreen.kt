@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
@@ -1015,9 +1016,26 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             modifier = Modifier.padding(bottom = 12.dp, top = 2.dp)
         )
 
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Accounts to sync", style = MaterialTheme.typography.titleSmall)
+            TextButton(onClick = { viewModel.connect() }, enabled = !state.isStartingAuth) {
+                if (state.isStartingAuth) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("Refresh accounts", modifier = Modifier.padding(start = 4.dp))
+                }
+            }
+        }
         Text(
-            "Accounts to sync",
-            style = MaterialTheme.typography.titleSmall,
+            "Logs you in again to pick up any account opened at the bank since you connected — " +
+                "your existing sync choices below are kept.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 4.dp)
         )
         LazyColumn(modifier = Modifier.weight(1f)) {

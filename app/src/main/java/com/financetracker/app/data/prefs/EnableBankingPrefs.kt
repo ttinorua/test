@@ -54,6 +54,13 @@ object EnableBankingPrefs {
     private const val KEY_ACCOUNT_LINK_MAP = "enablebanking_account_link_map"
     private const val KEY_SELECTED_BANK_ID = "enablebanking_selected_bank_id"
 
+    // Pre-multi-bank-support keys: a single connection lived directly under these instead of
+    // inside a KEY_CONNECTIONS list. See migrateLegacySingleConnectionIfNeeded().
+    private const val KEY_LEGACY_SESSION_ID = "enablebanking_session_id"
+    private const val KEY_LEGACY_LINKED_ACCOUNTS = "enablebanking_linked_accounts"
+    private const val KEY_LEGACY_SELECTED_ACCOUNT_UIDS = "enablebanking_selected_account_uids"
+    private const val KEY_LEGACY_CONSENT_VALID_UNTIL = "enablebanking_consent_valid_until"
+
     private lateinit var prefs: android.content.SharedPreferences
 
     private val _connections = MutableStateFlow<List<BankConnection>>(emptyList())
@@ -77,10 +84,38 @@ object EnableBankingPrefs {
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        migrateLegacySingleConnectionIfNeeded()
         _connections.value = deserializeConnections(prefs.getString(KEY_CONNECTIONS, null))
         _lastSyncedAt.value = prefs.getLong(KEY_LAST_SYNCED_AT, -1L).takeIf { it >= 0 }
         _accountLinkMap.value = deserializeAccountLinkMap(prefs.getString(KEY_ACCOUNT_LINK_MAP, null))
         _selectedBankId.value = prefs.getString(KEY_SELECTED_BANK_ID, null) ?: SupportedBanks.DEFAULT.id
+    }
+
+    /** One-time upgrade path for an install from before multi-bank support, which stored its
+     * single connection directly under [KEY_LEGACY_SESSION_ID] etc. instead of inside a
+     * [KEY_CONNECTIONS] list. Without this, that connection would just silently vanish on first
+     * launch after the update — the bank would look disconnected, forcing the user to reconnect,
+     * which then mints a fresh session with fresh account uids that [accountLinkMap] (still keyed
+     * by the *old* uids) no longer recognizes, risking a duplicate local account being created for
+     * one the user already has. Folding the legacy data into the new format up front means the
+     * existing connection (and every uid [accountLinkMap] already knows) carries over untouched.
+     * A no-op once [KEY_CONNECTIONS] exists, or if there was never a legacy connection at all. */
+    private fun migrateLegacySingleConnectionIfNeeded() {
+        if (prefs.contains(KEY_CONNECTIONS)) return
+        val legacySessionId = prefs.getString(KEY_LEGACY_SESSION_ID, null) ?: return
+        val bankId = prefs.getString(KEY_SELECTED_BANK_ID, null) ?: SupportedBanks.DEFAULT.id
+        val legacyAccounts = deserializeAccounts(prefs.getString(KEY_LEGACY_LINKED_ACCOUNTS, null))
+            .map { it.copy(bankId = bankId) }
+        val legacySelectedUids = prefs.getStringSet(KEY_LEGACY_SELECTED_ACCOUNT_UIDS, emptySet()).orEmpty()
+        val legacyConsentValidUntil = prefs.getLong(KEY_LEGACY_CONSENT_VALID_UNTIL, -1L).takeIf { it >= 0 }
+        val connection = BankConnection(bankId, legacySessionId, legacyAccounts, legacySelectedUids, legacyConsentValidUntil)
+        prefs.edit()
+            .putString(KEY_CONNECTIONS, serializeConnections(listOf(connection)))
+            .remove(KEY_LEGACY_SESSION_ID)
+            .remove(KEY_LEGACY_LINKED_ACCOUNTS)
+            .remove(KEY_LEGACY_SELECTED_ACCOUNT_UIDS)
+            .remove(KEY_LEGACY_CONSENT_VALID_UNTIL)
+            .apply()
     }
 
     fun setSelectedBankId(id: String) {
@@ -122,6 +157,21 @@ object EnableBankingPrefs {
 
     fun setAccountLink(uid: String, accountId: Long) {
         val updated = _accountLinkMap.value + (uid to accountId)
+        _accountLinkMap.value = updated
+        if (::prefs.isInitialized) {
+            prefs.edit().putString(KEY_ACCOUNT_LINK_MAP, serializeAccountLinkMap(updated)).apply()
+        }
+    }
+
+    /** Repoints every uid currently mapped to [fromAccountId] onto [toAccountId] — used when two
+     * local accounts turn out to be the same real-world one and get merged (see
+     * [com.financetracker.app.ui.screens.settings.SettingsViewModel.mergeAccounts]), so a future
+     * sync's uid lookup finds the account that was kept instead of recreating the one just
+     * merged away. */
+    fun remapAccountLink(fromAccountId: Long, toAccountId: Long) {
+        val updated = _accountLinkMap.value.mapValues { (_, accountId) ->
+            if (accountId == fromAccountId) toAccountId else accountId
+        }
         _accountLinkMap.value = updated
         if (::prefs.isInitialized) {
             prefs.edit().putString(KEY_ACCOUNT_LINK_MAP, serializeAccountLinkMap(updated)).apply()

@@ -65,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.bank.Bank
@@ -105,6 +106,8 @@ fun SettingsScreen(
     var showAddCategory by remember { mutableStateOf(false) }
     var deleteAccountTarget by remember { mutableStateOf<Account?>(null) }
     var editAccountTarget by remember { mutableStateOf<Account?>(null) }
+    var mergeSourceAccount by remember { mutableStateOf<Account?>(null) }
+    var mergePending by remember { mutableStateOf<Pair<Account, Account>?>(null) }
     var deleteCategoryTarget by remember { mutableStateOf<Category?>(null) }
     var collapsedMains by remember { mutableStateOf(setOf<String>()) }
 
@@ -161,33 +164,46 @@ fun SettingsScreen(
                 ) {
                     items(state.accounts, key = { it.account.id }) { accountUi ->
                         Card(modifier = Modifier.padding(vertical = 4.dp)) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                    Text(
-                                        accountUi.account.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        Formatters.currency(accountUi.balance, currencyCode),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(
+                                            accountUi.account.name,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            Formatters.currency(accountUi.balance, currencyCode),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    IconButton(onClick = { editAccountTarget = accountUi.account }) {
+                                        Icon(Icons.Filled.Edit, contentDescription = "Rename account")
+                                    }
+                                    IconButton(onClick = { deleteAccountTarget = accountUi.account }) {
+                                        Icon(Icons.Filled.Delete, contentDescription = "Delete account")
+                                    }
                                 }
-                                IconButton(onClick = { editAccountTarget = accountUi.account }) {
-                                    Icon(Icons.Filled.Edit, contentDescription = "Rename account")
-                                }
-                                IconButton(onClick = { deleteAccountTarget = accountUi.account }) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Delete account")
+                                // Only worth offering once there's another account to merge into —
+                                // e.g. Enable Banking minted a fresh account on reconnect that
+                                // didn't get recognized as one already synced, leaving two local
+                                // accounts for the same real one. Moves every transaction over
+                                // instead of the data loss a plain Delete above would cause.
+                                if (state.accounts.size > 1) {
+                                    TextButton(
+                                        onClick = { mergeSourceAccount = accountUi.account },
+                                        modifier = Modifier.align(Alignment.End)
+                                    ) {
+                                        Text("Merge into another account…")
+                                    }
                                 }
                             }
                         }
@@ -523,6 +539,57 @@ fun SettingsScreen(
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { deleteAccountTarget = null }) { Text("Cancel") } }
+        )
+    }
+
+    mergeSourceAccount?.let { source ->
+        val candidates = state.accounts.map { it.account }.filter { it.id != source.id }
+        AlertDialog(
+            onDismissRequest = { mergeSourceAccount = null },
+            title = { Text("Merge \"${source.name}\" into…") },
+            text = {
+                Column {
+                    Text(
+                        "Pick the account to keep. Every transaction on \"${source.name}\" moves " +
+                            "there, and \"${source.name}\" is removed.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    candidates.forEach { target ->
+                        TextButton(
+                            onClick = {
+                                mergePending = source to target
+                                mergeSourceAccount = null
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(target.name, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { mergeSourceAccount = null }) { Text("Cancel") } }
+        )
+    }
+
+    mergePending?.let { (source, target) ->
+        AlertDialog(
+            onDismissRequest = { mergePending = null },
+            title = { Text("Merge \"${source.name}\" into \"${target.name}\"?") },
+            text = {
+                Text(
+                    "Every transaction on \"${source.name}\" moves to \"${target.name}\", their " +
+                        "balances combine, and \"${source.name}\" is removed. This can't be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.mergeAccounts(source, target)
+                    mergePending = null
+                }) { Text("Merge") }
+            },
+            dismissButton = { TextButton(onClick = { mergePending = null }) { Text("Cancel") } }
         )
     }
 

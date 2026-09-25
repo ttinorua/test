@@ -12,6 +12,7 @@ import com.financetracker.app.data.ai.ClaudeService
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.repository.FinanceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -151,6 +152,27 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
 
     fun deleteAccount(account: Account) {
         viewModelScope.launch { repository.deleteAccount(account) }
+    }
+
+    /** Moves every transaction on [source] onto [target], folds [source]'s opening balance into
+     * [target]'s so the combined balance is unchanged, remaps any Enable Banking account link
+     * pointing at [source] onto [target] (so a later sync recognizes that account instead of
+     * recreating [source]), then deletes [source] — by then empty, so [deleteAccount]'s
+     * transaction-cascading delete has nothing left to remove. Use this instead of [deleteAccount]
+     * whenever two accounts turn out to be the same real-world account (e.g. Enable Banking
+     * minted a fresh uid on reconnect that wasn't recognized as one already synced) — deleting
+     * [source] directly would cascade-delete every one of its transactions. */
+    fun mergeAccounts(source: Account, target: Account) {
+        viewModelScope.launch {
+            repository.getTransactionsForAccount(source.id).forEach { tx ->
+                repository.updateTransaction(tx.copy(accountId = target.id))
+            }
+            if (source.initialBalance != 0.0) {
+                repository.updateAccount(target.copy(initialBalance = target.initialBalance + source.initialBalance))
+            }
+            EnableBankingPrefs.remapAccountLink(source.id, target.id)
+            repository.deleteAccount(source)
+        }
     }
 
     fun addCategory(mainCategory: String, name: String, type: TransactionType) {

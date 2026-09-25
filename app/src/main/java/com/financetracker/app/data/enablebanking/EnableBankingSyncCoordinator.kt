@@ -206,23 +206,38 @@ object EnableBankingSyncCoordinator {
      * account, so the label alone isn't a safe local-account key — always disambiguate with a
      * suffix that's actually unique per account (the IBAN, falling back to the account uid).
      *
-     * Once a bank uid has been resolved to a local account once, that mapping is persisted
-     * ([EnableBankingPrefs.accountLinkMap]) and reused directly on every later sync — so if the
-     * user renames the account afterward in Settings, sync keeps finding the same account by its
-     * stored id instead of re-deriving the name and failing to match, which would otherwise
-     * create a duplicate account. The name match below only runs as a one-time bootstrap (a
-     * fresh link, or an install from before this mapping existed) and immediately persists the
-     * id it finds so it's never needed again for that uid. */
+     * Resolution tries three things, in order of how much they can be trusted to still be true:
+     * 1. [EnableBankingPrefs.accountLinkMap] by this bank account's `uid` — fastest, but a `uid`
+     *    is only ever valid for the Enable Banking session it came from, so this goes stale the
+     *    moment the user disconnects and reconnects (or refreshes) the bank.
+     * 2. [EnableBankingPrefs.ibanLinkMap] by IBAN — a real account's IBAN never changes, so this
+     *    is what actually makes a reconnect find the *same* local account again instead of
+     *    creating a duplicate for it, which a `uid`-only lookup can't do.
+     * 3. Matching by the exact name a fresh account would get ([localAccountName]) — a one-time
+     *    bootstrap for an account with no IBAN, or the very first time either map above has
+     *    anything to look up.
+     *
+     * Whichever of these resolves it (or a brand-new account gets created because none did),
+     * both maps are (re)written for this uid/IBAN — so once an account has been resolved this
+     * way, every later sync *and* every later reconnect keeps finding it correctly, without
+     * relying on the account never having been renamed. */
     private suspend fun resolveLocalAccount(repository: FinanceRepository, bankAccount: LinkedBankAccount): Long {
         val accounts = repository.getAccounts()
-        val linkedId = EnableBankingPrefs.accountLinkMap.value[bankAccount.uid]
-        if (linkedId != null && accounts.any { it.id == linkedId }) return linkedId
 
-        val name = localAccountName(bankAccount)
-        val existing = accounts.firstOrNull { it.name == name }
-        val accountId = existing?.id
-            ?: repository.upsertAccount(Account(name = name, currencyCode = bankAccount.currency))
+        val linkedByUid = EnableBankingPrefs.accountLinkMap.value[bankAccount.uid]
+        if (linkedByUid != null && accounts.any { it.id == linkedByUid }) return linkedByUid
+
+        val linkedByIban = bankAccount.iban?.let { EnableBankingPrefs.ibanLinkMap.value[it] }
+        val accountId = if (linkedByIban != null && accounts.any { it.id == linkedByIban }) {
+            linkedByIban
+        } else {
+            val name = localAccountName(bankAccount)
+            val existing = accounts.firstOrNull { it.name == name }
+            existing?.id ?: repository.upsertAccount(Account(name = name, currencyCode = bankAccount.currency))
+        }
+
         EnableBankingPrefs.setAccountLink(bankAccount.uid, accountId)
+        bankAccount.iban?.let { EnableBankingPrefs.setIbanLink(it, accountId) }
         return accountId
     }
 

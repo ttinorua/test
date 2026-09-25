@@ -52,6 +52,7 @@ object EnableBankingPrefs {
     private const val KEY_PENDING_AUTH_STATE = "enablebanking_pending_auth_state"
     private const val KEY_PENDING_AUTH_BANK_ID = "enablebanking_pending_auth_bank_id"
     private const val KEY_ACCOUNT_LINK_MAP = "enablebanking_account_link_map"
+    private const val KEY_IBAN_LINK_MAP = "enablebanking_iban_link_map"
     private const val KEY_SELECTED_BANK_ID = "enablebanking_selected_bank_id"
 
     // Pre-multi-bank-support keys: a single connection lived directly under these instead of
@@ -72,9 +73,21 @@ object EnableBankingPrefs {
     /** Bank account uid -> local [com.financetracker.app.data.db.entity.Account] id, once a sync
      * has resolved which local account a linked bank account maps to. Lets later syncs find the
      * right local account directly instead of re-matching by name every time, so renaming an
-     * account in Settings never causes sync to lose track of it and create a duplicate. */
+     * account in Settings never causes sync to lose track of it and create a duplicate. A `uid`
+     * is only stable within one Enable Banking session, though — a reconnect gets a *new* uid for
+     * the same real account, so this map alone goes stale across a reconnect. See [ibanLinkMap]
+     * for the mapping that actually survives one. */
     private val _accountLinkMap = MutableStateFlow<Map<String, Long>>(emptyMap())
     val accountLinkMap: StateFlow<Map<String, Long>> get() = _accountLinkMap
+
+    /** Account IBAN -> local [com.financetracker.app.data.db.entity.Account] id — the mapping
+     * [com.financetracker.app.data.enablebanking.EnableBankingSyncCoordinator.resolveLocalAccount]
+     * actually relies on to survive a reconnect: unlike [accountLinkMap]'s `uid` (minted fresh by
+     * every new Enable Banking session, even for the exact same real account), a real account's
+     * IBAN never changes. Empty for an account with no IBAN, which falls back to matching by name
+     * instead. */
+    private val _ibanLinkMap = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val ibanLinkMap: StateFlow<Map<String, Long>> get() = _ibanLinkMap
 
     /** Which [com.financetracker.app.data.bank.Bank] is currently pre-selected in the "connect a
      * bank" picker — defaults to [SupportedBanks.DEFAULT] (Sydbank). Purely a UI convenience, not
@@ -88,6 +101,7 @@ object EnableBankingPrefs {
         _connections.value = deserializeConnections(prefs.getString(KEY_CONNECTIONS, null))
         _lastSyncedAt.value = prefs.getLong(KEY_LAST_SYNCED_AT, -1L).takeIf { it >= 0 }
         _accountLinkMap.value = deserializeAccountLinkMap(prefs.getString(KEY_ACCOUNT_LINK_MAP, null))
+        _ibanLinkMap.value = deserializeAccountLinkMap(prefs.getString(KEY_IBAN_LINK_MAP, null))
         _selectedBankId.value = prefs.getString(KEY_SELECTED_BANK_ID, null) ?: SupportedBanks.DEFAULT.id
     }
 
@@ -163,18 +177,34 @@ object EnableBankingPrefs {
         }
     }
 
-    /** Repoints every uid currently mapped to [fromAccountId] onto [toAccountId] — used when two
-     * local accounts turn out to be the same real-world one and get merged (see
+    fun setIbanLink(iban: String, accountId: Long) {
+        val updated = _ibanLinkMap.value + (iban to accountId)
+        _ibanLinkMap.value = updated
+        if (::prefs.isInitialized) {
+            prefs.edit().putString(KEY_IBAN_LINK_MAP, serializeAccountLinkMap(updated)).apply()
+        }
+    }
+
+    /** Repoints every entry — in both [accountLinkMap] and [ibanLinkMap] — currently mapped to
+     * [fromAccountId] onto [toAccountId]. Used when two local accounts turn out to be the same
+     * real-world one and get merged (see
      * [com.financetracker.app.ui.screens.settings.SettingsViewModel.mergeAccounts]), so a future
-     * sync's uid lookup finds the account that was kept instead of recreating the one just
-     * merged away. */
+     * sync's lookup — by this session's uid or, across a reconnect, by IBAN — finds the account
+     * that was kept instead of recreating the one just merged away. */
     fun remapAccountLink(fromAccountId: Long, toAccountId: Long) {
-        val updated = _accountLinkMap.value.mapValues { (_, accountId) ->
+        val updatedUidMap = _accountLinkMap.value.mapValues { (_, accountId) ->
             if (accountId == fromAccountId) toAccountId else accountId
         }
-        _accountLinkMap.value = updated
+        _accountLinkMap.value = updatedUidMap
+        val updatedIbanMap = _ibanLinkMap.value.mapValues { (_, accountId) ->
+            if (accountId == fromAccountId) toAccountId else accountId
+        }
+        _ibanLinkMap.value = updatedIbanMap
         if (::prefs.isInitialized) {
-            prefs.edit().putString(KEY_ACCOUNT_LINK_MAP, serializeAccountLinkMap(updated)).apply()
+            prefs.edit()
+                .putString(KEY_ACCOUNT_LINK_MAP, serializeAccountLinkMap(updatedUidMap))
+                .putString(KEY_IBAN_LINK_MAP, serializeAccountLinkMap(updatedIbanMap))
+                .apply()
         }
     }
 
@@ -208,9 +238,10 @@ object EnableBankingPrefs {
     }
 
     /** Disconnects only [bankId]'s own connection — every other connected bank keeps syncing.
-     * Never touches [accountLinkMap], [lastSyncedAt], or local transaction data: reconnecting
-     * this same bank later re-matches its accounts to the same local accounts by name rather than
-     * creating duplicates (see [com.financetracker.app.data.enablebanking.EnableBankingSyncCoordinator.resolveLocalAccount]). */
+     * Never touches [accountLinkMap], [ibanLinkMap], [lastSyncedAt], or local transaction data:
+     * reconnecting this same bank later re-matches its accounts to the same local accounts by
+     * IBAN (falling back to name) rather than creating duplicates (see
+     * [com.financetracker.app.data.enablebanking.EnableBankingSyncCoordinator.resolveLocalAccount]). */
     fun disconnect(bankId: String) {
         _connections.value = _connections.value.filterNot { it.bankId == bankId }
         persistConnections()

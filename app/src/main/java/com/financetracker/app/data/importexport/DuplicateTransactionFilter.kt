@@ -39,8 +39,13 @@ object DuplicateTransactionFilter {
         return Result(unique, duplicateCount)
     }
 
-    private data class Key(val date: Long, val amount: Double, val type: TransactionType, val note: String)
+    data class Key(val date: Long, val amount: Double, val type: TransactionType, val note: String)
 
     private fun keyOf(date: Long, amount: Double, type: TransactionType, note: String) =
         Key(date, amount, type, note.trim().lowercase())
+
+    /** The same identity [filter] and [com.financetracker.app.ui.screens.settings.SettingsViewModel]'s
+     * account-merge/deduplication tools use to decide "is this the same transaction as that one" —
+     * exposed so every place that needs that definition (import, merge, cleanup) agrees on it. */
+    fun keyOf(transaction: Transaction): Key = keyOf(transaction.date, transaction.amount, transaction.type, transaction.note)
 }

@@ -108,6 +108,7 @@ fun SettingsScreen(
     var editAccountTarget by remember { mutableStateOf<Account?>(null) }
     var mergeSourceAccount by remember { mutableStateOf<Account?>(null) }
     var mergePending by remember { mutableStateOf<Pair<Account, Account>?>(null) }
+    var dedupeTarget by remember { mutableStateOf<Account?>(null) }
     var deleteCategoryTarget by remember { mutableStateOf<Category?>(null) }
     var collapsedMains by remember { mutableStateOf(setOf<String>()) }
 
@@ -192,17 +193,24 @@ fun SettingsScreen(
                                         Icon(Icons.Filled.Delete, contentDescription = "Delete account")
                                     }
                                 }
-                                // Only worth offering once there's another account to merge into —
-                                // e.g. Enable Banking minted a fresh account on reconnect that
-                                // didn't get recognized as one already synced, leaving two local
-                                // accounts for the same real one. Moves every transaction over
-                                // instead of the data loss a plain Delete above would cause.
-                                if (state.accounts.size > 1) {
-                                    TextButton(
-                                        onClick = { mergeSourceAccount = accountUi.account },
-                                        modifier = Modifier.align(Alignment.End)
-                                    ) {
-                                        Text("Merge into another account…")
+                                Row(modifier = Modifier.align(Alignment.End)) {
+                                    // A recovery tool for an account whose transactions got
+                                    // doubled (e.g. merging two accounts that both held the same
+                                    // real history, before the merge itself became duplicate-aware) —
+                                    // collapses exact date/amount/type/note repeats back to one.
+                                    TextButton(onClick = { dedupeTarget = accountUi.account }) {
+                                        Text("Remove duplicates")
+                                    }
+                                    // Only worth offering once there's another account to merge
+                                    // into — e.g. Enable Banking minted a fresh account on
+                                    // reconnect that didn't get recognized as one already synced,
+                                    // leaving two local accounts for the same real one. Moves
+                                    // every transaction over instead of the data loss a plain
+                                    // Delete above would cause.
+                                    if (state.accounts.size > 1) {
+                                        TextButton(onClick = { mergeSourceAccount = accountUi.account }) {
+                                            Text("Merge into another account…")
+                                        }
                                     }
                                 }
                             }
@@ -590,6 +598,27 @@ fun SettingsScreen(
                 }) { Text("Merge") }
             },
             dismissButton = { TextButton(onClick = { mergePending = null }) { Text("Cancel") } }
+        )
+    }
+
+    dedupeTarget?.let { account ->
+        AlertDialog(
+            onDismissRequest = { dedupeTarget = null },
+            title = { Text("Remove duplicate transactions?") },
+            text = {
+                Text(
+                    "Any transaction on \"${account.name}\" with the exact same date, amount, " +
+                        "type and note as another one is collapsed down to a single copy. " +
+                        "Genuinely distinct transactions are never touched."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deduplicateTransactions(account)
+                    dedupeTarget = null
+                }) { Text("Remove duplicates") }
+            },
+            dismissButton = { TextButton(onClick = { dedupeTarget = null }) { Text("Cancel") } }
         )
     }
 

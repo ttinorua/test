@@ -12,6 +12,7 @@ import com.financetracker.app.data.ai.ClaudeService
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.importexport.DuplicateTransactionFilter
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.repository.FinanceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -154,24 +155,59 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
         viewModelScope.launch { repository.deleteAccount(account) }
     }
 
-    /** Moves every transaction on [source] onto [target], folds [source]'s opening balance into
-     * [target]'s so the combined balance is unchanged, remaps any Enable Banking account link
-     * pointing at [source] onto [target] (so a later sync recognizes that account instead of
-     * recreating [source]), then deletes [source] — by then empty, so [deleteAccount]'s
-     * transaction-cascading delete has nothing left to remove. Use this instead of [deleteAccount]
-     * whenever two accounts turn out to be the same real-world account (e.g. Enable Banking
-     * minted a fresh uid on reconnect that wasn't recognized as one already synced) — deleting
-     * [source] directly would cascade-delete every one of its transactions. */
+    /** Moves every transaction on [source] onto [target] — except ones [target] already has an
+     * identical copy of (same date/amount/type/note, per [DuplicateTransactionFilter.keyOf]:
+     * the exact scenario a full Enable Banking re-sync into a wrongly-created duplicate account
+     * produces), which are dropped instead of moved, so merging two accounts that both hold the
+     * same real history doesn't leave [target] with everything doubled. Also folds [source]'s
+     * opening balance into [target]'s so the combined balance is unchanged, remaps any Enable
+     * Banking account link pointing at [source] onto [target] (so a later sync recognizes that
+     * account instead of recreating [source]), then deletes [source] — by then empty, so
+     * [deleteAccount]'s transaction-cascading delete has nothing left to remove. Use this instead
+     * of [deleteAccount] whenever two accounts turn out to be the same real-world account —
+     * deleting [source] directly would cascade-delete every one of its transactions. */
     fun mergeAccounts(source: Account, target: Account) {
         viewModelScope.launch {
+            val targetKeyCounts = repository.getTransactionsForAccount(target.id)
+                .groupingBy { DuplicateTransactionFilter.keyOf(it) }
+                .eachCount()
+                .toMutableMap()
+
             repository.getTransactionsForAccount(source.id).forEach { tx ->
-                repository.updateTransaction(tx.copy(accountId = target.id))
+                val key = DuplicateTransactionFilter.keyOf(tx)
+                val remaining = targetKeyCounts[key] ?: 0
+                if (remaining > 0) {
+                    // target already has an equivalent transaction — consume one of its matching
+                    // count (so a genuine same-day/same-amount repeat present on both sides still
+                    // merges 1:1 instead of being collapsed) and drop this one rather than move it.
+                    targetKeyCounts[key] = remaining - 1
+                    repository.deleteTransaction(tx)
+                } else {
+                    repository.updateTransaction(tx.copy(accountId = target.id))
+                }
             }
             if (source.initialBalance != 0.0) {
                 repository.updateAccount(target.copy(initialBalance = target.initialBalance + source.initialBalance))
             }
             EnableBankingPrefs.remapAccountLink(source.id, target.id)
             repository.deleteAccount(source)
+        }
+    }
+
+    /** Recovery tool for an account left with doubled transactions — most commonly by
+     * [mergeAccounts] before it became duplicate-aware, or any other cause that ends up importing
+     * the same real history into the same account twice. Collapses every group of transactions
+     * that share the same date/amount/type/note (per [DuplicateTransactionFilter.keyOf]) down to
+     * one, keeping the single oldest-inserted copy of each and deleting the rest. Never touches
+     * genuinely distinct transactions, only exact repeats within [account] itself. */
+    fun deduplicateTransactions(account: Account) {
+        viewModelScope.launch {
+            val transactions = repository.getTransactionsForAccount(account.id)
+            val duplicates = transactions
+                .groupBy { DuplicateTransactionFilter.keyOf(it) }
+                .values
+                .flatMap { group -> if (group.size <= 1) emptyList() else group.sortedBy { it.createdAt }.drop(1) }
+            duplicates.forEach { repository.deleteTransaction(it) }
         }
     }
 

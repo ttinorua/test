@@ -75,9 +75,11 @@ object EnableBankingSyncCoordinator {
         knownTotal: Int? = null,
         onProgress: suspend (SyncProgress) -> Unit = {}
     ): SyncOutcome? {
-        if (EnableBankingPrefs.sessionId.value == null) return null
-        val accountsToSync = EnableBankingPrefs.linkedAccounts.value
-            .filter { it.uid in EnableBankingPrefs.selectedAccountUids.value }
+        val connections = EnableBankingPrefs.connections.value
+        if (connections.isEmpty()) return null
+        val accountsToSync = connections.flatMap { connection ->
+            connection.linkedAccounts.filter { it.uid in connection.selectedAccountUids }
+        }
         if (accountsToSync.isEmpty()) return null
 
         var totalSkipped = 0
@@ -227,7 +229,7 @@ object EnableBankingSyncCoordinator {
     private fun localAccountName(bankAccount: LinkedBankAccount): String {
         val label = bankAccount.product ?: "Account"
         val suffix = bankAccount.iban?.takeLast(4) ?: bankAccount.uid.take(6)
-        val bankName = SupportedBanks.byId(EnableBankingPrefs.selectedBankId.value).displayName
+        val bankName = SupportedBanks.byId(bankAccount.bankId).displayName
         return "$bankName $label ••$suffix"
     }
 }

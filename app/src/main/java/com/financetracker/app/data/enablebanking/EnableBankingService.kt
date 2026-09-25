@@ -60,7 +60,7 @@ object EnableBankingService {
             val response = EnableBankingApi.post("/auth", body)
             if (response.status !in 200..299) throw EnableBankingRequestException(apiErrorMessage(response))
             val json = JSONObject(response.body)
-            EnableBankingPrefs.setPendingAuthState(state)
+            EnableBankingPrefs.setPendingAuth(state, bank.id)
             Result.success(AuthStart(url = json.getString("url"), state = state))
         } catch (e: Exception) {
             Result.failure(mapError(e))
@@ -68,12 +68,14 @@ object EnableBankingService {
     }
 
     /** Exchanges the authorization `code` from the redirect for a live session, verifies
-     * `state` matches what we sent, and persists the resulting accounts. */
+     * `state` matches what we sent, and persists the resulting accounts under whichever bank
+     * [EnableBankingPrefs.setPendingAuth] recorded this request was for — leaving every other
+     * connected bank untouched. */
     suspend fun completeAuth(code: String, returnedState: String?): Result<List<LinkedBankAccount>> =
         withContext(Dispatchers.IO) {
             try {
-                val expectedState = EnableBankingPrefs.consumePendingAuthState()
-                if (expectedState == null || expectedState != returnedState) {
+                val pending = EnableBankingPrefs.consumePendingAuth()
+                if (pending == null || pending.state != returnedState) {
                     throw EnableBankingRequestException("Bank login response didn't match the request that started it.")
                 }
                 val response = EnableBankingApi.post("/sessions", JSONObject().apply { put("code", code) })
@@ -89,13 +91,14 @@ object EnableBankingService {
                         iban = iban,
                         name = accountObj.stringOrNull("name") ?: iban ?: "Account",
                         product = accountObj.stringOrNull("product"),
-                        currency = accountObj.stringOrNull("currency") ?: "DKK"
+                        currency = accountObj.stringOrNull("currency") ?: "DKK",
+                        bankId = pending.bankId
                     )
                 }
                 val consentValidUntil = json.optJSONObject("access")?.stringOrNull("valid_until")
                     ?.let { parseRfc3339ToEpochMillis(it) }
                     ?: (System.currentTimeMillis() + CONSENT_VALIDITY_DAYS * 24 * 60 * 60 * 1000)
-                EnableBankingPrefs.saveConnection(sessionId, accounts, consentValidUntil)
+                EnableBankingPrefs.saveConnection(pending.bankId, sessionId, accounts, consentValidUntil)
                 Result.success(accounts)
             } catch (e: Exception) {
                 Result.failure(mapError(e))
@@ -153,8 +156,8 @@ object EnableBankingService {
             }
         }
 
-    fun disconnect() {
-        EnableBankingPrefs.disconnect()
+    fun disconnect(bankId: String) {
+        EnableBankingPrefs.disconnect(bankId)
     }
 
     private fun mapTransaction(obj: JSONObject, rowNumber: Int): ParsedTransactionRow? {

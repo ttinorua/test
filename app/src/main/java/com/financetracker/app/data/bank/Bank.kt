@@ -53,9 +53,23 @@ object SupportedBanks {
         defaultCategories = BankdataDefaultCategories.ALL
     )
 
+    /** Lunar is its own bank, not a Bankdata member, so [BankdataDefaultCategories.ALL] isn't a
+     * verified match for it the way it is for [SYDBANK]/[SJF_BANK] — it's reused here only as a
+     * reasonable generic starting taxonomy (categories can always be edited afterward in
+     * Settings). aspspName/aspspCountry confirmed against the user's own Enable Banking
+     * connection, not Enable Banking's public docs (which don't list Lunar for DK or SE as of
+     * this writing) — re-check if a Lunar connect ever starts failing. */
+    val LUNAR = Bank(
+        id = "lunar",
+        displayName = "Lunar",
+        aspspName = "Lunar",
+        aspspCountry = "DK",
+        defaultCategories = BankdataDefaultCategories.ALL
+    )
+
     /** Every bank this app currently knows how to connect to. Add a new [Bank] here (with its
      * own aspspName/aspspCountry and default category list) to support another one. */
-    val ALL = listOf(SYDBANK, SJF_BANK)
+    val ALL = listOf(SYDBANK, SJF_BANK, LUNAR)
 
     val DEFAULT = SYDBANK
 

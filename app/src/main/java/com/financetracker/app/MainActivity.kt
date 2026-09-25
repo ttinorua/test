@@ -25,6 +25,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.enablebanking.EnableBankingService
 import com.financetracker.app.ui.navigation.Screen
@@ -260,9 +261,10 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             EnableBankingService.completeAuth(code, state)
                 .onSuccess { accounts ->
+                    val bankName = accounts.firstOrNull()?.bankId?.let { SupportedBanks.byId(it).displayName } ?: "bank"
                     Toast.makeText(
                         this@MainActivity,
-                        "Connected ${accounts.size} Sydbank account(s)",
+                        "Connected ${accounts.size} $bankName account(s)",
                         Toast.LENGTH_LONG
                     ).show()
                 }

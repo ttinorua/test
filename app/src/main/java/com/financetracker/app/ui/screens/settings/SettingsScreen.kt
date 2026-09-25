@@ -45,7 +45,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
@@ -933,7 +932,7 @@ private fun AddCategoryDialog(onDismiss: () -> Unit, onConfirm: (String, String,
 private fun BankTab(viewModel: EnableBankingViewModel) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    var showDisconnectConfirm by remember { mutableStateOf(false) }
+    var disconnectTarget by remember { mutableStateOf<BankConnectionUi?>(null) }
 
     LaunchedEffect(state.authUrl) {
         state.authUrl?.let { url ->
@@ -950,7 +949,8 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
         Text("Bank sync", style = MaterialTheme.typography.titleMedium)
         Text(
             "Link a bank account via Enable Banking (open banking / PSD2) to pull in " +
-                "transactions automatically instead of exporting and importing a spreadsheet.",
+                "transactions automatically instead of exporting and importing a spreadsheet. " +
+                "You can connect more than one bank at once.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 16.dp, top = 4.dp)
@@ -983,16 +983,16 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             }
         }
 
-        if (!state.isConnected) {
-            val selectedBank = state.availableBanks.firstOrNull { it.id == state.selectedBankId }
-                ?: state.availableBanks.first()
+        if (state.connections.isEmpty()) {
+            val selectedBank = state.connectableBanks.firstOrNull { it.id == state.selectedBankId }
+                ?: state.connectableBanks.first()
             BankDropdown(
-                banks = state.availableBanks,
+                banks = state.connectableBanks,
                 selected = selectedBank,
                 onSelected = { bank -> viewModel.selectBank(bank.id) },
                 modifier = Modifier.padding(bottom = 12.dp)
             )
-            Button(onClick = { viewModel.connect() }, enabled = !state.isStartingAuth) {
+            Button(onClick = { viewModel.startBankAuth(selectedBank.id) }, enabled = !state.isStartingAuth) {
                 if (state.isStartingAuth) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp))
                 } else {
@@ -1002,13 +1002,6 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             return@Column
         }
 
-        state.consentValidUntil?.let { validUntil ->
-            Text(
-                "Access valid until ${formatBankDate(validUntil)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
         Text(
             state.lastSyncedAt?.let { "Last synced ${formatBankDate(it)}" } ?: "Never synced",
             style = MaterialTheme.typography.bodyMedium,
@@ -1016,35 +1009,26 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             modifier = Modifier.padding(bottom = 12.dp, top = 2.dp)
         )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Accounts to sync", style = MaterialTheme.typography.titleSmall)
-            TextButton(onClick = { viewModel.connect() }, enabled = !state.isStartingAuth) {
-                if (state.isStartingAuth) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Refresh accounts", modifier = Modifier.padding(start = 4.dp))
-                }
-            }
-        }
-        Text(
-            "Logs you in again to pick up any account opened at the bank since you connected — " +
-                "your existing sync choices below are kept.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
         LazyColumn(modifier = Modifier.weight(1f)) {
-            items(state.linkedAccounts, key = { it.uid }) { account ->
-                BankAccountRow(
-                    account = account,
-                    selected = account.uid in state.selectedAccountUids,
-                    onToggle = { checked -> viewModel.setAccountSelected(account.uid, checked) }
+            items(state.connections, key = { it.bankId }) { connection ->
+                BankConnectionSection(
+                    connection = connection,
+                    isStartingAuth = state.isStartingAuth,
+                    onRefresh = { viewModel.startBankAuth(connection.bankId) },
+                    onToggleAccount = { uid, checked -> viewModel.setAccountSelected(connection.bankId, uid, checked) },
+                    onDisconnect = { disconnectTarget = connection }
                 )
+            }
+            if (state.connectableBanks.isNotEmpty()) {
+                item {
+                    ConnectAnotherBankSection(
+                        banks = state.connectableBanks,
+                        selectedBankId = state.selectedBankId,
+                        isStartingAuth = state.isStartingAuth,
+                        onSelected = { id -> viewModel.selectBank(id) },
+                        onConnect = { id -> viewModel.startBankAuth(id) }
+                    )
+                }
             }
         }
 
@@ -1079,42 +1063,111 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(onClick = { viewModel.syncNow() }, enabled = !state.isSyncing, modifier = Modifier.weight(1f)) {
-                if (state.isSyncing) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                } else {
-                    Text("Sync now")
-                }
-            }
+        Button(onClick = { viewModel.syncNow() }, enabled = !state.isSyncing, modifier = Modifier.fillMaxWidth()) {
             if (state.isSyncing) {
-                TextButton(onClick = { viewModel.cancelSync() }) {
-                    Text("Cancel")
-                }
+                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+            } else {
+                Text("Sync now")
             }
-            OutlinedButton(onClick = { showDisconnectConfirm = true }) {
-                Text("Disconnect")
+        }
+        if (state.isSyncing) {
+            TextButton(onClick = { viewModel.cancelSync() }, modifier = Modifier.fillMaxWidth()) {
+                Text("Cancel")
             }
         }
     }
 
-    if (showDisconnectConfirm) {
+    disconnectTarget?.let { connection ->
         AlertDialog(
-            onDismissRequest = { showDisconnectConfirm = false },
-            title = { Text("Disconnect Sydbank?") },
-            text = { Text("You'll need to log in with MitID again to reconnect. Already-synced transactions are kept.") },
+            onDismissRequest = { disconnectTarget = null },
+            title = { Text("Disconnect ${connection.bankDisplayName}?") },
+            text = { Text("You'll need to log in again to reconnect. Already-synced transactions are kept, and any other connected bank keeps syncing.") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.disconnect()
-                    showDisconnectConfirm = false
+                    viewModel.disconnect(connection.bankId)
+                    disconnectTarget = null
                 }) { Text("Disconnect") }
             },
-            dismissButton = { TextButton(onClick = { showDisconnectConfirm = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { disconnectTarget = null }) { Text("Cancel") } }
         )
+    }
+}
+
+/** One connected bank: its accounts-to-sync checklist, consent expiry, and its own
+ * refresh/disconnect actions — independent of every other connected bank's section. */
+@Composable
+private fun BankConnectionSection(
+    connection: BankConnectionUi,
+    isStartingAuth: Boolean,
+    onRefresh: () -> Unit,
+    onToggleAccount: (uid: String, selected: Boolean) -> Unit,
+    onDisconnect: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(connection.bankDisplayName, style = MaterialTheme.typography.titleSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onRefresh, enabled = !isStartingAuth) {
+                        if (isStartingAuth) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text("Refresh", modifier = Modifier.padding(start = 4.dp))
+                        }
+                    }
+                    TextButton(onClick = onDisconnect) { Text("Disconnect") }
+                }
+            }
+            connection.consentValidUntil?.let { validUntil ->
+                Text(
+                    "Access valid until ${formatBankDate(validUntil)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
+            connection.linkedAccounts.forEach { account ->
+                BankAccountRow(
+                    account = account,
+                    selected = account.uid in connection.selectedAccountUids,
+                    onToggle = { checked -> onToggleAccount(account.uid, checked) }
+                )
+            }
+        }
+    }
+}
+
+/** Picker + button for adding a bank not already connected — appears once, below every already-
+ * connected bank's own section, and disappears entirely once every supported bank is connected. */
+@Composable
+private fun ConnectAnotherBankSection(
+    banks: List<Bank>,
+    selectedBankId: String,
+    isStartingAuth: Boolean,
+    onSelected: (String) -> Unit,
+    onConnect: (String) -> Unit
+) {
+    val selectedBank = banks.firstOrNull { it.id == selectedBankId } ?: banks.first()
+    Column(modifier = Modifier.padding(top = 8.dp)) {
+        Text("Connect another bank", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(bottom = 8.dp))
+        BankDropdown(
+            banks = banks,
+            selected = selectedBank,
+            onSelected = { bank -> onSelected(bank.id) },
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+        Button(onClick = { onConnect(selectedBank.id) }, enabled = !isStartingAuth) {
+            if (isStartingAuth) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+            } else {
+                Text("Connect ${selectedBank.displayName}")
+            }
+        }
     }
 }
 

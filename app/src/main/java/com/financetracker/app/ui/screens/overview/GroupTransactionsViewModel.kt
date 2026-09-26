@@ -33,13 +33,17 @@ data class GroupTransactionsUiState(
     val categories: List<Category> = emptyList()
 )
 
-/** Shows every transaction in [key]'s [groupBy] bucket for the period the Spending tab was on. */
+/** Shows every transaction in [key]'s [groupBy] bucket for the period the Spending tab was on,
+ * further narrowed to [accountId] when that tab's own account filter had one selected (null
+ * means every account) — the same scoping its own totals were computed from, so this drill-down
+ * never shows a different account's transactions than the bar/row that was tapped to open it. */
 class GroupTransactionsViewModel(
     private val repository: FinanceRepository,
     groupBy: GroupByOption,
     key: String,
     periodOption: PeriodOption,
-    customRange: Pair<Long, Long>?
+    customRange: Pair<Long, Long>?,
+    accountId: Long?
 ) : ViewModel() {
 
     val uiState: StateFlow<GroupTransactionsUiState> = combine(
@@ -54,7 +58,8 @@ class GroupTransactionsViewModel(
             val effectiveDate =
                 effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
             val inPeriod = effectiveDate >= from && effectiveDate < to && groupKeyOf(it, groupBy) == key
-            inPeriod && countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
+            val matchesAccount = accountId == null || it.accountId == accountId
+            inPeriod && matchesAccount && countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
         }.sortedByDescending { it.date }
 
         GroupTransactionsUiState(groupLabel = key, transactions = filtered, accounts = accounts, categories = categories)

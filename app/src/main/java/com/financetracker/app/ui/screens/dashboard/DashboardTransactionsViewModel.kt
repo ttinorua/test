@@ -46,7 +46,11 @@ private data class DashboardTransactionsExtras(
 
 /**
  * Shows every transaction in the dashboard's current period matching [type] and/or
- * [categoryId] (either or both null means "no filter on that field"). [includeAnticipated] is
+ * [categoryId] (either or both null means "no filter on that field"), further narrowed to
+ * [accountId] when the Dashboard's own account filter has one selected (null means every
+ * account) — the same scoping the Dashboard's own tiles/budget rows/category breakdown already
+ * apply to the totals this popup is drilling into, so it never shows a different account's
+ * transactions than what those numbers were actually computed from. [includeAnticipated] is
  * true only for the Dashboard's own Expenses tile — the one drill-down whose total the
  * "Anticipate recurring bills" setting actually changes, for This month or Next month alike;
  * Budget rows and the category breakdown also open this same screen for EXPENSE/This-Month, but
@@ -60,7 +64,8 @@ class DashboardTransactionsViewModel(
     label: String,
     periodOption: PeriodOption,
     customRange: Pair<Long, Long>?,
-    includeAnticipated: Boolean
+    includeAnticipated: Boolean,
+    accountId: Long?
 ) : ViewModel() {
 
     val uiState: StateFlow<DashboardTransactionsUiState> = combine(
@@ -83,8 +88,9 @@ class DashboardTransactionsViewModel(
     ) { transactions, settings, extras ->
         val (shiftSalary, excludeTransfers, anticipateRecurring) = settings
         val (accounts, categories, dismissedRecurring, fixedCategoryIds) = extras
+        val accountScoped = if (accountId != null) transactions.filter { it.accountId == accountId } else transactions
         val (from, to) = periodRange(periodOption, customRange)
-        val filtered = transactions.filter { tx ->
+        val filtered = accountScoped.filter { tx ->
             val effectiveDate =
                 effectiveReportingDate(tx.date, tx.type, tx.mainCategoryName, tx.categoryName, shiftSalary)
             val inPeriod = effectiveDate >= from && effectiveDate < to
@@ -106,7 +112,7 @@ class DashboardTransactionsViewModel(
         val showAnticipated = includeAnticipated && anticipateRecurring && monthsAhead != null
         val anticipated = if (showAnticipated) {
             anticipatedRecurringExpenses(
-                transactions,
+                accountScoped,
                 monthsAhead = monthsAhead!!,
                 dismissedKeys = dismissedRecurring,
                 fixedCategoryIds = fixedCategoryIds

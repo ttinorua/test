@@ -40,7 +40,13 @@ import com.financetracker.app.util.PeriodOption
 @Composable
 fun CategoryOverviewScreen(
     viewModel: CategoryOverviewViewModel,
-    onEntryClick: (groupBy: GroupByOption, key: String, periodOption: PeriodOption, customRange: Pair<Long, Long>?) -> Unit
+    onEntryClick: (
+        groupBy: GroupByOption,
+        key: String,
+        periodOption: PeriodOption,
+        customRange: Pair<Long, Long>?,
+        accountId: Long?
+    ) -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
@@ -112,7 +118,7 @@ fun CategoryOverviewScreen(
                             entries = state.entries,
                             selectedKey = null,
                             onSelect = { key ->
-                                key?.let { onEntryClick(state.groupBy, it, state.periodOption, state.customRange) }
+                                key?.let { onEntryClick(state.groupBy, it, state.periodOption, state.customRange, state.selectedAccountId) }
                             },
                             formatValue = { Formatters.currency(it, currencyCode) },
                             modifier = Modifier.padding(16.dp)
@@ -127,7 +133,7 @@ fun CategoryOverviewScreen(
                 }
                 items(state.entries, key = { it.key }) { entry ->
                     Card(
-                        onClick = { onEntryClick(state.groupBy, entry.key, state.periodOption, state.customRange) },
+                        onClick = { onEntryClick(state.groupBy, entry.key, state.periodOption, state.customRange, state.selectedAccountId) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(

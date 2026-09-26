@@ -67,7 +67,8 @@ fun DashboardScreen(
         label: String,
         periodOption: PeriodOption,
         customRange: Pair<Long, Long>?,
-        includeAnticipated: Boolean
+        includeAnticipated: Boolean,
+        accountId: Long?
     ) -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -145,7 +146,9 @@ fun DashboardScreen(
                     title = "Net Balance",
                     amount = Formatters.currency(state.netBalance, currencyCode),
                     onClick = {
-                        onOpenTransactions(null, null, "All Transactions", state.periodOption, state.customRange, false)
+                        onOpenTransactions(
+                            null, null, "All Transactions", state.periodOption, state.customRange, false, state.selectedAccountId
+                        )
                     }
                 )
             }
@@ -167,7 +170,8 @@ fun DashboardScreen(
                                 "Income",
                                 state.periodOption,
                                 state.customRange,
-                                false
+                                false,
+                                state.selectedAccountId
                             )
                         },
                         amountStyle = MaterialTheme.typography.titleSmall,
@@ -185,7 +189,8 @@ fun DashboardScreen(
                                 "Expenses",
                                 state.periodOption,
                                 state.customRange,
-                                true
+                                true,
+                                state.selectedAccountId
                             )
                         },
                         amountStyle = MaterialTheme.typography.titleSmall,
@@ -222,7 +227,8 @@ fun DashboardScreen(
                                             "Overall Budget",
                                             PeriodOption.THIS_MONTH,
                                             null,
-                                            false
+                                            false,
+                                            state.selectedAccountId
                                         )
                                     }
                                 )
@@ -241,7 +247,8 @@ fun DashboardScreen(
                                             catStatus.categoryName,
                                             PeriodOption.THIS_MONTH,
                                             null,
-                                            false
+                                            false,
+                                            state.selectedAccountId
                                         )
                                     }
                                 )
@@ -311,7 +318,8 @@ fun DashboardScreen(
                                     spend.categoryName,
                                     state.periodOption,
                                     state.customRange,
-                                    false
+                                    false,
+                                    state.selectedAccountId
                                 )
                             },
                             modifier = Modifier.padding(16.dp)

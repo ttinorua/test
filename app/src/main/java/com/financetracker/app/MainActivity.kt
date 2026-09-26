@@ -104,20 +104,21 @@ class MainActivity : ComponentActivity() {
                                 vm,
                                 onOpenAskAi = { navController.navigate("ask_ai") },
                                 onOpenTrends = { navController.navigate("trends") },
-                                onOpenTransactions = { type, categoryId, label, periodOption, customRange, includeAnticipated ->
+                                onOpenTransactions = { type, categoryId, label, periodOption, customRange, includeAnticipated, accountId ->
                                     val typeName = type?.name ?: "NONE"
                                     val catId = categoryId ?: -1L
                                     val from = customRange?.first ?: -1L
                                     val to = customRange?.second ?: -1L
+                                    val acctId = accountId ?: -1L
                                     navController.navigate(
                                         "dashboard_transactions/$typeName/$catId/${Uri.encode(label)}/" +
-                                            "${periodOption.name}/$from/$to/$includeAnticipated"
+                                            "${periodOption.name}/$from/$to/$includeAnticipated/$acctId"
                                     )
                                 }
                             )
                         }
                         composable(
-                            route = "dashboard_transactions/{type}/{categoryId}/{label}/{periodOption}/{from}/{to}/{includeAnticipated}",
+                            route = "dashboard_transactions/{type}/{categoryId}/{label}/{periodOption}/{from}/{to}/{includeAnticipated}/{accountId}",
                             arguments = listOf(
                                 navArgument("type") { type = NavType.StringType },
                                 navArgument("categoryId") { type = NavType.LongType },
@@ -125,7 +126,8 @@ class MainActivity : ComponentActivity() {
                                 navArgument("periodOption") { type = NavType.StringType },
                                 navArgument("from") { type = NavType.LongType },
                                 navArgument("to") { type = NavType.LongType },
-                                navArgument("includeAnticipated") { type = NavType.BoolType }
+                                navArgument("includeAnticipated") { type = NavType.BoolType },
+                                navArgument("accountId") { type = NavType.LongType }
                             )
                         ) { backStackEntry ->
                             val args = backStackEntry.arguments!!
@@ -136,6 +138,7 @@ class MainActivity : ComponentActivity() {
                             val from = args.getLong("from")
                             val to = args.getLong("to")
                             val includeAnticipated = args.getBoolean("includeAnticipated")
+                            val accountId = args.getLong("accountId").takeIf { it >= 0 }
                             val customRange = if (periodOption == PeriodOption.CUSTOM && from >= 0 && to >= 0) {
                                 from to to
                             } else {
@@ -150,7 +153,8 @@ class MainActivity : ComponentActivity() {
                                         label,
                                         periodOption,
                                         customRange,
-                                        includeAnticipated
+                                        includeAnticipated,
+                                        accountId
                                     )
                                 }
                             )
@@ -180,24 +184,26 @@ class MainActivity : ComponentActivity() {
                             )
                             CategoryOverviewScreen(
                                 vm,
-                                onEntryClick = { groupBy, key, periodOption, customRange ->
+                                onEntryClick = { groupBy, key, periodOption, customRange, accountId ->
                                     val from = customRange?.first ?: -1L
                                     val to = customRange?.second ?: -1L
+                                    val acctId = accountId ?: -1L
                                     navController.navigate(
                                         "group_transactions/${groupBy.name}/${Uri.encode(key)}/" +
-                                            "${periodOption.name}/$from/$to"
+                                            "${periodOption.name}/$from/$to/$acctId"
                                     )
                                 }
                             )
                         }
                         composable(
-                            route = "group_transactions/{groupBy}/{key}/{periodOption}/{from}/{to}",
+                            route = "group_transactions/{groupBy}/{key}/{periodOption}/{from}/{to}/{accountId}",
                             arguments = listOf(
                                 navArgument("groupBy") { type = NavType.StringType },
                                 navArgument("key") { type = NavType.StringType },
                                 navArgument("periodOption") { type = NavType.StringType },
                                 navArgument("from") { type = NavType.LongType },
-                                navArgument("to") { type = NavType.LongType }
+                                navArgument("to") { type = NavType.LongType },
+                                navArgument("accountId") { type = NavType.LongType }
                             )
                         ) { backStackEntry ->
                             val args = backStackEntry.arguments!!
@@ -206,6 +212,7 @@ class MainActivity : ComponentActivity() {
                             val periodOption = PeriodOption.valueOf(args.getString("periodOption")!!)
                             val from = args.getLong("from")
                             val to = args.getLong("to")
+                            val accountId = args.getLong("accountId").takeIf { it >= 0 }
                             val customRange = if (periodOption == PeriodOption.CUSTOM && from >= 0 && to >= 0) {
                                 from to to
                             } else {
@@ -213,7 +220,7 @@ class MainActivity : ComponentActivity() {
                             }
                             val vm: GroupTransactionsViewModel = viewModel(
                                 factory = ViewModelFactory {
-                                    GroupTransactionsViewModel(repository, groupBy, key, periodOption, customRange)
+                                    GroupTransactionsViewModel(repository, groupBy, key, periodOption, customRange, accountId)
                                 }
                             )
                             GroupTransactionsScreen(vm, onClose = { navController.popBackStack() })

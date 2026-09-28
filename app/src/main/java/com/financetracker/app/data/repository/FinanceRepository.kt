@@ -1,0 +1,76 @@
+package com.financetracker.app.data.repository
+
+import com.financetracker.app.data.db.AppDatabase
+import com.financetracker.app.data.db.entity.Account
+import com.financetracker.app.data.db.entity.Category
+import com.financetracker.app.data.db.entity.Transaction
+import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.db.entity.TransactionWithDetails
+import kotlinx.coroutines.flow.Flow
+
+class FinanceRepository(private val db: AppDatabase) {
+
+    private val accountDao = db.accountDao()
+    private val categoryDao = db.categoryDao()
+    private val transactionDao = db.transactionDao()
+
+    // Accounts
+    fun observeAccounts(): Flow<List<Account>> = accountDao.observeAll()
+    suspend fun getAccounts(): List<Account> = accountDao.getAll()
+    suspend fun upsertAccount(account: Account): Long = accountDao.insert(account)
+    suspend fun updateAccount(account: Account) = accountDao.update(account)
+    suspend fun deleteAccount(account: Account) = accountDao.delete(account)
+
+    suspend fun getAccountBalance(account: Account): Double {
+        return account.initialBalance + accountDao.getTransactionDelta(account.id)
+    }
+
+    suspend fun getOrCreateAccount(name: String): Account {
+        return accountDao.getByName(name) ?: run {
+            val id = accountDao.insert(Account(name = name))
+            Account(id = id, name = name)
+        }
+    }
+
+    // Categories
+    fun observeCategories(): Flow<List<Category>> = categoryDao.observeAll()
+    suspend fun getCategories(): List<Category> = categoryDao.getAll()
+    suspend fun upsertCategory(category: Category): Long = categoryDao.insert(category)
+    suspend fun updateCategory(category: Category) = categoryDao.update(category)
+    suspend fun deleteCategory(category: Category) = categoryDao.delete(category)
+
+    suspend fun getOrCreateCategory(
+        mainCategory: String,
+        name: String,
+        type: TransactionType,
+        colorHex: String = "#607D8B"
+    ): Category {
+        val trimmedMain = mainCategory.ifBlank { "Uncategorized" }
+        val trimmedName = name.ifBlank { "Uncategorized" }
+        return categoryDao.getByMainAndNameAndType(trimmedMain, trimmedName, type) ?: run {
+            val category = Category(name = trimmedName, mainCategory = trimmedMain, type = type, colorHex = colorHex)
+            val id = categoryDao.insert(category)
+            category.copy(id = id)
+        }
+    }
+
+    // Transactions
+    fun observeTransactions(): Flow<List<TransactionWithDetails>> =
+        transactionDao.observeAllWithDetails()
+
+    suspend fun addTransaction(transaction: Transaction): Long = transactionDao.insert(transaction)
+
+    suspend fun addTransactions(transactions: List<Transaction>): List<Long> =
+        transactionDao.insertAll(transactions)
+
+    suspend fun getTransactionsForAccount(accountId: Long): List<Transaction> =
+        transactionDao.getByAccountId(accountId)
+
+    suspend fun getAllTransactions(): List<Transaction> = transactionDao.getAll()
+
+    suspend fun updateTransaction(transaction: Transaction) = transactionDao.update(transaction)
+
+    suspend fun deleteTransaction(transaction: Transaction) = transactionDao.delete(transaction)
+
+    fun observeNetBalance(): Flow<Double> = transactionDao.observeNetBalance()
+}

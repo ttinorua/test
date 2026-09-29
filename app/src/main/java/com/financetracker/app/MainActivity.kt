@@ -104,7 +104,7 @@ class MainActivity : ComponentActivity() {
                                 vm,
                                 onOpenAskAi = { navController.navigate("ask_ai") },
                                 onOpenTrends = { navController.navigate("trends") },
-                                onOpenTransactions = { type, categoryId, label, periodOption, customRange, includeAnticipated, accountId ->
+                                onOpenTransactions = { type, categoryId, label, periodOption, customRange, includeAnticipated, accountId, uncategorizedOnly ->
                                     val typeName = type?.name ?: "NONE"
                                     val catId = categoryId ?: -1L
                                     val from = customRange?.first ?: -1L
@@ -112,13 +112,13 @@ class MainActivity : ComponentActivity() {
                                     val acctId = accountId ?: -1L
                                     navController.navigate(
                                         "dashboard_transactions/$typeName/$catId/${Uri.encode(label)}/" +
-                                            "${periodOption.name}/$from/$to/$includeAnticipated/$acctId"
+                                            "${periodOption.name}/$from/$to/$includeAnticipated/$acctId/$uncategorizedOnly"
                                     )
                                 }
                             )
                         }
                         composable(
-                            route = "dashboard_transactions/{type}/{categoryId}/{label}/{periodOption}/{from}/{to}/{includeAnticipated}/{accountId}",
+                            route = "dashboard_transactions/{type}/{categoryId}/{label}/{periodOption}/{from}/{to}/{includeAnticipated}/{accountId}/{uncategorizedOnly}",
                             arguments = listOf(
                                 navArgument("type") { type = NavType.StringType },
                                 navArgument("categoryId") { type = NavType.LongType },
@@ -127,7 +127,8 @@ class MainActivity : ComponentActivity() {
                                 navArgument("from") { type = NavType.LongType },
                                 navArgument("to") { type = NavType.LongType },
                                 navArgument("includeAnticipated") { type = NavType.BoolType },
-                                navArgument("accountId") { type = NavType.LongType }
+                                navArgument("accountId") { type = NavType.LongType },
+                                navArgument("uncategorizedOnly") { type = NavType.BoolType }
                             )
                         ) { backStackEntry ->
                             val args = backStackEntry.arguments!!
@@ -139,6 +140,7 @@ class MainActivity : ComponentActivity() {
                             val to = args.getLong("to")
                             val includeAnticipated = args.getBoolean("includeAnticipated")
                             val accountId = args.getLong("accountId").takeIf { it >= 0 }
+                            val uncategorizedOnly = args.getBoolean("uncategorizedOnly")
                             val customRange = if (periodOption == PeriodOption.CUSTOM && from >= 0 && to >= 0) {
                                 from to to
                             } else {
@@ -154,7 +156,8 @@ class MainActivity : ComponentActivity() {
                                         periodOption,
                                         customRange,
                                         includeAnticipated,
-                                        accountId
+                                        accountId,
+                                        uncategorizedOnly
                                     )
                                 }
                             )

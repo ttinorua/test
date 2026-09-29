@@ -2,6 +2,7 @@ package com.financetracker.app.ui.screens.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.Transaction
@@ -56,6 +57,12 @@ private data class DashboardTransactionsExtras(
  * Budget rows and the category breakdown also open this same screen for EXPENSE/This-Month, but
  * their own totals never include anticipated amounts, so showing the upcoming/posted split there
  * would be misleading.
+ *
+ * [uncategorizedOnly] is true only for the Dashboard's Uncategorized tile: it overrides both
+ * [categoryId] (filters to literally uncategorized — `categoryId == null` — instead of "no
+ * filter on category") and the period, showing the full all-time backlog regardless of
+ * [periodOption]/[customRange], since an old uncategorized transaction is just as much a cleanup
+ * item as a new one.
  */
 class DashboardTransactionsViewModel(
     private val repository: FinanceRepository,
@@ -65,7 +72,8 @@ class DashboardTransactionsViewModel(
     periodOption: PeriodOption,
     customRange: Pair<Long, Long>?,
     includeAnticipated: Boolean,
-    accountId: Long?
+    accountId: Long?,
+    uncategorizedOnly: Boolean = false
 ) : ViewModel() {
 
     val uiState: StateFlow<DashboardTransactionsUiState> = combine(
@@ -89,13 +97,13 @@ class DashboardTransactionsViewModel(
         val (shiftSalary, excludeTransfers, anticipateRecurring) = settings
         val (accounts, categories, dismissedRecurring, fixedCategoryIds) = extras
         val accountScoped = if (accountId != null) transactions.filter { it.accountId == accountId } else transactions
-        val (from, to) = periodRange(periodOption, customRange)
+        val (from, to) = if (uncategorizedOnly) periodRange(PeriodOption.ALL_TIME, null) else periodRange(periodOption, customRange)
         val filtered = accountScoped.filter { tx ->
             val effectiveDate =
                 effectiveReportingDate(tx.date, tx.type, tx.mainCategoryName, tx.categoryName, shiftSalary)
             val inPeriod = effectiveDate >= from && effectiveDate < to
             val matchesType = type == null || tx.type == type
-            val matchesCategory = categoryId == null || tx.categoryId == categoryId
+            val matchesCategory = if (uncategorizedOnly) tx.categoryId == null else (categoryId == null || tx.categoryId == categoryId)
             // Only applied when this list is specifically the "Expenses" drill-down (type ==
             // EXPENSE) — "All Transactions"/"Income" must stay unfiltered so they still sum to
             // the (never-filtered) net balance and income totals shown on the tiles above them.
@@ -146,6 +154,7 @@ class DashboardTransactionsViewModel(
             repository.addTransaction(
                 Transaction(amount = amount, type = type, accountId = accountId, categoryId = categoryId, date = date, note = note)
             )
+            if (categoryId != null) LearnedCategoryRules.learn(note, categoryId)
         }
     }
 
@@ -164,6 +173,7 @@ class DashboardTransactionsViewModel(
             repository.updateTransaction(
                 Transaction(id = id, amount = amount, type = type, accountId = accountId, categoryId = categoryId, date = date, note = note)
             )
+            if (categoryId != null) LearnedCategoryRules.learn(note, categoryId)
             if (original != null && categoryId != original.categoryId) {
                 val similar = findSimilarTransactions(allBefore, original, categoryId)
                 if (similar.isNotEmpty()) {

@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.ai.CategorySuggester
 import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
@@ -168,9 +169,18 @@ fun AddEditTransactionSheet(
 
             OutlinedTextField(
                 value = note,
-                onValueChange = {
-                    note = it
+                onValueChange = { newNote ->
+                    note = newNote
                     suggestError = null
+                    // Only while adding a brand-new transaction — editing an existing one
+                    // already has its own category, and shouldn't change out from under the
+                    // user just because they touched the note field.
+                    if (existing == null) {
+                        LearnedCategoryRules.suggest(newNote, categories)?.let { match ->
+                            type = match.type
+                            selectedCategoryId = match.id
+                        }
+                    }
                 },
                 label = { Text("Note (optional)") },
                 modifier = Modifier.fillMaxWidth()

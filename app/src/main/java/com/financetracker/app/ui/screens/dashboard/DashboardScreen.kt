@@ -68,7 +68,8 @@ fun DashboardScreen(
         periodOption: PeriodOption,
         customRange: Pair<Long, Long>?,
         includeAnticipated: Boolean,
-        accountId: Long?
+        accountId: Long?,
+        uncategorizedOnly: Boolean
     ) -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -147,7 +148,7 @@ fun DashboardScreen(
                     amount = Formatters.currency(state.netBalance, currencyCode),
                     onClick = {
                         onOpenTransactions(
-                            null, null, "All Transactions", state.periodOption, state.customRange, false, state.selectedAccountId
+                            null, null, "All Transactions", state.periodOption, state.customRange, false, state.selectedAccountId, false
                         )
                     }
                 )
@@ -171,7 +172,8 @@ fun DashboardScreen(
                                 state.periodOption,
                                 state.customRange,
                                 false,
-                                state.selectedAccountId
+                                state.selectedAccountId,
+                                false
                             )
                         },
                         amountStyle = MaterialTheme.typography.titleSmall,
@@ -190,7 +192,8 @@ fun DashboardScreen(
                                 state.periodOption,
                                 state.customRange,
                                 true,
-                                state.selectedAccountId
+                                state.selectedAccountId,
+                                false
                             )
                         },
                         amountStyle = MaterialTheme.typography.titleSmall,
@@ -228,7 +231,8 @@ fun DashboardScreen(
                                             PeriodOption.THIS_MONTH,
                                             null,
                                             false,
-                                            state.selectedAccountId
+                                            state.selectedAccountId,
+                                            false
                                         )
                                     }
                                 )
@@ -248,13 +252,37 @@ fun DashboardScreen(
                                             PeriodOption.THIS_MONTH,
                                             null,
                                             false,
-                                            state.selectedAccountId
+                                            state.selectedAccountId,
+                                            false
                                         )
                                     }
                                 )
                             }
                         }
                     }
+                }
+            }
+            if (state.uncategorizedCount > 0) {
+                item {
+                    SummaryCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        title = "Uncategorized",
+                        amount = "${state.uncategorizedCount} transaction${if (state.uncategorizedCount == 1) "" else "s"}",
+                        valueColor = ExpenseRed,
+                        amountStyle = MaterialTheme.typography.titleMedium,
+                        onClick = {
+                            onOpenTransactions(
+                                null,
+                                null,
+                                "Uncategorized",
+                                state.periodOption,
+                                state.customRange,
+                                false,
+                                state.selectedAccountId,
+                                true
+                            )
+                        }
+                    )
                 }
             }
             if (ClaudeService.isConfigured) {
@@ -319,7 +347,8 @@ fun DashboardScreen(
                                     state.periodOption,
                                     state.customRange,
                                     false,
-                                    state.selectedAccountId
+                                    state.selectedAccountId,
+                                    false
                                 )
                             },
                             modifier = Modifier.padding(16.dp)

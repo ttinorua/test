@@ -7,6 +7,7 @@ import com.financetracker.app.data.bank.BankCategories
 import com.financetracker.app.data.bank.CategoryCleanup
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.AppDatabase
+import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BudgetLimits
@@ -29,6 +30,7 @@ class FinanceApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CurrencySettings.init(this)
+        LearnedCategoryRules.init(this)
         BudgetSettings.init(this)
         BudgetLimits.init(this)
         AiInsightsCache.init(this)

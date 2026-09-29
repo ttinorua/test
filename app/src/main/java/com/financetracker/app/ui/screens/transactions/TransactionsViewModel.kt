@@ -2,6 +2,7 @@ package com.financetracker.app.ui.screens.transactions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.Transaction
@@ -174,6 +175,7 @@ class TransactionsViewModel(private val repository: FinanceRepository) : ViewMod
                     note = note
                 )
             )
+            if (categoryId != null) LearnedCategoryRules.learn(note, categoryId)
         }
     }
 
@@ -200,6 +202,7 @@ class TransactionsViewModel(private val repository: FinanceRepository) : ViewMod
                     note = note
                 )
             )
+            if (categoryId != null) LearnedCategoryRules.learn(note, categoryId)
             if (original != null && categoryId != original.categoryId) {
                 val similar = findSimilarTransactions(allBefore, original, categoryId)
                 if (similar.isNotEmpty()) {

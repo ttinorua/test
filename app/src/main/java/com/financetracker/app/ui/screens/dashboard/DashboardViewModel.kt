@@ -60,7 +60,11 @@ data class DashboardUiState(
     val customRange: Pair<Long, Long>? = null,
     val budgetStatus: BudgetStatus = BudgetStatus(),
     val accounts: List<Account> = emptyList(),
-    val selectedAccountId: Long? = null
+    val selectedAccountId: Long? = null,
+    /** All-time (not scoped to [periodOption]) count of transactions with no category at all,
+     * respecting [selectedAccountId] — a cleanup backlog, not a spending metric, so an old
+     * uncategorized transaction is just as worth surfacing as a new one. */
+    val uncategorizedCount: Int = 0
 )
 
 private data class DashboardFilters(
@@ -158,6 +162,7 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
         } else {
             allTransactions
         }
+        val uncategorizedCount = transactions.count { it.categoryId == null }
         val netBalance = if (selectedAccountId != null) {
             val initial = accounts.firstOrNull { it.id == selectedAccountId }?.initialBalance ?: 0.0
             initial + transactions.sumOf { if (it.type == TransactionType.INCOME) it.amount else -it.amount }
@@ -246,7 +251,8 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
                 categoryStatuses = categoryStatuses
             ),
             accounts = accounts,
-            selectedAccountId = selectedAccountId
+            selectedAccountId = selectedAccountId,
+            uncategorizedCount = uncategorizedCount
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 

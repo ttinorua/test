@@ -78,6 +78,8 @@ import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.prefs.LinkedBankAccount
 import com.financetracker.app.data.prefs.SUPPORTED_CURRENCIES
+import com.financetracker.app.data.prefs.ThemeMode
+import com.financetracker.app.data.prefs.ThemeSettings
 import com.financetracker.app.ui.components.AccountSelectorChip
 import com.financetracker.app.ui.components.CategoryColorDot
 import com.financetracker.app.ui.screens.importexport.ImportExportScreen
@@ -96,6 +98,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
+    val themeMode by ThemeSettings.themeMode.collectAsState()
     val shiftSalaryToNextMonth by BudgetSettings.shiftSalaryToNextMonth.collectAsState()
     val excludeTransfersFromSpending by BudgetSettings.excludeTransfersFromSpending.collectAsState()
     val anticipateRecurringBills by BudgetSettings.anticipateRecurringBills.collectAsState()
@@ -337,7 +340,28 @@ fun SettingsScreen(
                         .padding(16.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    Text("Display currency", style = MaterialTheme.typography.titleMedium)
+                    Text("Theme", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Choose Light or Dark, or follow your device's system setting.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ThemeMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = themeMode == mode,
+                                onClick = { ThemeSettings.setThemeMode(mode) },
+                                label = { Text(mode.label) }
+                            )
+                        }
+                    }
+
+                    Text(
+                        "Display currency",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
                     Text(
                         "Amounts are shown in this currency. This doesn't convert existing values.",
                         style = MaterialTheme.typography.bodyMedium,

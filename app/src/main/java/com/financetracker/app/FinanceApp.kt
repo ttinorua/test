@@ -15,6 +15,7 @@ import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.FixedExpenseCategories
+import com.financetracker.app.data.prefs.ThemeSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,7 @@ class FinanceApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CurrencySettings.init(this)
+        ThemeSettings.init(this)
         BudgetSettings.init(this)
         BudgetLimits.init(this)
         AiInsightsCache.init(this)

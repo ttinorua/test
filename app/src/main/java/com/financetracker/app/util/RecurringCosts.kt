@@ -14,11 +14,12 @@ private const val MIN_OCCURRENCES = 2
 private const val DAY_OF_MONTH_CONSISTENCY_THRESHOLD = 4
 
 /** Categories that recur by habit, not by contract, and so are never anticipated no matter how
- * regularly they repeat — parking at the same garage every workday, or buying groceries at the
- * same supermarket, isn't a scheduled bill, even though the note+category can look identical for
- * months in a row the same way a real bill does. Applies even if the user marks one of these
- * "Fixe" by mistake — a deliberate hard override, not just the default. */
-private val EXCLUDED_CATEGORIES = setOf("parking", "groceries")
+ * regularly they repeat — parking at the same garage every workday, buying groceries at the same
+ * supermarket, or fuelling up / charging an EV at the same station, isn't a scheduled bill, even
+ * though the note+category can look identical for months in a row the same way a real bill does.
+ * Applies even if the user marks one of these "Fixe" by mistake — a deliberate hard override, not
+ * just the default. */
+private val EXCLUDED_CATEGORIES = setOf("parking", "groceries", "fuel")
 
 private enum class Cadence { MONTHLY, QUARTERLY, YEARLY, UNKNOWN }
 

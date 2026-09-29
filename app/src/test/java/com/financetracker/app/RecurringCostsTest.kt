@@ -129,6 +129,24 @@ class RecurringCostsTest {
     }
 
     @Test
+    fun `fuel is never anticipated, even when it repeats like a real bill would`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 12), 350.0, "Spiiri", category = "Fuel", mainCategory = "Transportation"),
+            expense(utcMillis(2026, 2, 13), 360.0, "Spiiri", category = "Fuel", mainCategory = "Transportation")
+        )
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+    }
+
+    @Test
+    fun `fuel is excluded even if the category is marked Fixe`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 2, 12), 350.0, "Spiiri", category = "Fuel", mainCategory = "Transportation", categoryId = 10L)
+        )
+        val total = anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = setOf(10L))
+        assertEquals(0.0, total, 0.001)
+    }
+
+    @Test
     fun `multiple qualifying recurring costs are summed`() {
         val transactions = listOf(
             expense(utcMillis(2026, 1, 15), 200.0, "Telia"),

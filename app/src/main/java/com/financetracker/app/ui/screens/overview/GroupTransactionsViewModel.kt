@@ -9,11 +9,13 @@ import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.BudgetSettings
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.GroupByOption
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.SimilarTransactionsPrompt
 import com.financetracker.app.util.countsTowardTotals
+import com.financetracker.app.util.transfersInCountAsIncome
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.findSimilarTransactions
 import com.financetracker.app.util.groupKeyOf
@@ -60,7 +62,7 @@ class GroupTransactionsViewModel(
                 effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
             val inPeriod = effectiveDate >= from && effectiveDate < to && groupKeyOf(it, groupBy) == key
             val matchesAccount = accountId == null || it.accountId == accountId
-            inPeriod && matchesAccount && countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = accountId != null)
+            inPeriod && matchesAccount && countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(accountId, MainAccountSettings.mainAccountId.value))
         }.sortedByDescending { it.date }
 
         GroupTransactionsUiState(groupLabel = key, transactions = filtered, accounts = accounts, categories = categories)

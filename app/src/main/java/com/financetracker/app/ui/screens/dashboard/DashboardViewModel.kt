@@ -25,6 +25,7 @@ import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.anticipatedRecurringExpenses
 import com.financetracker.app.util.countsTowardTotals
+import com.financetracker.app.util.transfersInCountAsIncome
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.periodRange
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -187,11 +188,11 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
 
         val income = inPeriod.filter {
             it.type == TransactionType.INCOME &&
-                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
+                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(selectedAccountId, MainAccountSettings.mainAccountId.value))
         }.sumOf { it.amount }
         val expenseTx = inPeriod.filter {
             it.type == TransactionType.EXPENSE &&
-                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
+                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(selectedAccountId, MainAccountSettings.mainAccountId.value))
         }
         val expense = expenseTx.sumOf { it.amount }
         val monthsAhead = when (periodOption) {
@@ -229,7 +230,7 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             val effectiveDate =
                 effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
             it.type == TransactionType.EXPENSE && effectiveDate >= monthFrom && effectiveDate < monthTo &&
-                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
+                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(selectedAccountId, MainAccountSettings.mainAccountId.value))
         }
         val spentByCategory = monthExpenses
             .filter { it.categoryId != null }

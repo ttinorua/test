@@ -8,6 +8,7 @@ import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.countsTowardTotals
+import com.financetracker.app.util.transfersInCountAsIncome
 import com.financetracker.app.util.effectiveReportingDate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -85,11 +86,11 @@ class TrendsViewModel(private val repository: FinanceRepository) : ViewModel() {
                 monthLabel = label,
                 income = inMonth.filter {
                     it.type == TransactionType.INCOME &&
-                        countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
+                        countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(selectedAccountId, MainAccountSettings.mainAccountId.value))
                 }.sumOf { it.amount },
                 expense = inMonth.filter {
                     it.type == TransactionType.EXPENSE &&
-                        countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
+                        countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(selectedAccountId, MainAccountSettings.mainAccountId.value))
                 }.sumOf { it.amount }
             )
         }

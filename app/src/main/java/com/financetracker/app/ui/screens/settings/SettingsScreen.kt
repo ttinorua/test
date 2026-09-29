@@ -433,9 +433,9 @@ fun SettingsScreen(
                             "between your own accounts, e.g. to or from savings) are left out of " +
                             "income and expense totals, budgets, and the spending breakdown, " +
                             "since they're neither real income nor real spending. When viewing a " +
-                            "single account, money transferred in from your other accounts counts " +
-                            "as that account's income. Net balance and the account register " +
-                            "still include every transaction.",
+                            "single account other than your main account, money transferred in " +
+                            "from your other accounts counts as that account's income. Net " +
+                            "balance and the account register still include every transaction.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)

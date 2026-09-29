@@ -12,6 +12,7 @@ import com.financetracker.app.ui.components.BarChartEntry
 import com.financetracker.app.util.GroupByOption
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.countsTowardTotals
+import com.financetracker.app.util.transfersInCountAsIncome
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.groupKeyOf
 import com.financetracker.app.util.periodRange
@@ -83,11 +84,11 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
 
         fun countsAsExpense(tx: TransactionWithDetails) =
             tx.type == TransactionType.EXPENSE &&
-                countsTowardTotals(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
+                countsTowardTotals(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(selectedAccountId, MainAccountSettings.mainAccountId.value))
 
         fun countsAsIncome(tx: TransactionWithDetails) =
             tx.type == TransactionType.INCOME &&
-                countsTowardTotals(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
+                countsTowardTotals(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(selectedAccountId, MainAccountSettings.mainAccountId.value))
 
         val entries = inPeriod
             .groupBy { groupKeyOf(it, groupBy) }

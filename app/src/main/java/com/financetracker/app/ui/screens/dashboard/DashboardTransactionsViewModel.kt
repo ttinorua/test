@@ -11,12 +11,14 @@ import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.FixedExpenseCategories
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.AnticipatedExpense
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.SimilarTransactionsPrompt
 import com.financetracker.app.util.anticipatedRecurringExpenses
 import com.financetracker.app.util.countsTowardTotals
+import com.financetracker.app.util.transfersInCountAsIncome
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.findSimilarTransactions
 import com.financetracker.app.util.periodRange
@@ -107,7 +109,7 @@ class DashboardTransactionsViewModel(
             // Applied to the Income and Expenses drill-downs so they match their tiles; "All
             // Transactions" (type == null) stays unfiltered to match the net balance.
             val countsIfRelevant = type == null ||
-                countsTowardTotals(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers, singleAccount = accountId != null)
+                countsTowardTotals(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(accountId, MainAccountSettings.mainAccountId.value))
             inPeriod && matchesType && matchesCategory && countsIfRelevant
         }.sortedByDescending { it.date }
 

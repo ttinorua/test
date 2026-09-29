@@ -346,6 +346,33 @@ class RecurringCostsTest {
     }
 
     @Test
+    fun `a running reference number embedded in the note doesn't split one bill into separate groups`() {
+        // Sydbank threads a transaction reference straight into the note (e.g. "MCD 01978
+        // Telenor"), incrementing on every posting even for the exact same recurring bill.
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 26), 200.0, "MCD 01900 Telenor"),
+            expense(utcMillis(2026, 2, 26), 210.0, "MCD 01978 Telenor")
+        )
+        val items = anticipatedRecurringExpenses(transactions, now)
+        assertEquals(1, items.size)
+        assertEquals(210.0, items.first().amount, 0.001)
+    }
+
+    @Test
+    fun `a real posting with a different embedded reference number still counts as already posted`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 26), 200.0, "MCD 01900 Telenor"),
+            expense(utcMillis(2026, 2, 26), 210.0, "MCD 01978 Telenor"),
+            // This month's real posting — same bill, but yet another reference number. Without
+            // stripping it, this would be treated as a brand-new, unrelated group, and the
+            // "already posted" check on the older group would never see it, leaving a stale
+            // "Upcoming" entry showing for a bill that already posted.
+            expense(utcMillis(2026, 3, 5), 220.0, "MCD 02027 Telenor")
+        )
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+    }
+
+    @Test
     fun `a bill already posted next month is not anticipated again for next month`() {
         val transactions = listOf(
             expense(utcMillis(2026, 1, 15), 200.0, "Telia"),

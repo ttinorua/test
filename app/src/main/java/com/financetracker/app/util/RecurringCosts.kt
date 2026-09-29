@@ -113,17 +113,37 @@ private fun predictNextByCadence(lastDate: Long, cadence: Cadence): Long {
     return cal.timeInMillis
 }
 
+/** Strips whichever whitespace-delimited tokens in [note] are made up entirely of digits — some
+ * banks (Sydbank included) thread a running transaction reference number straight into the note
+ * itself, e.g. "MCD 01978 Telenor" one month and "MCD 02027 Telenor" the next: same real bill,
+ * same merchant, but a *different* raw note every single time. Matching on the raw note would
+ * never recognize consecutive months' postings as the same recurring series, and — worse — would
+ * never recognize a real, just-posted transaction as satisfying an already-anticipated one,
+ * leaving a stale "Upcoming" entry showing even after the real bill has posted. Keeping everything
+ * that isn't purely numeric (so "Rema 1000" only loses its "1000", not its identity as a specific
+ * chain) is a deliberate, simple heuristic — real reference/sequence numbers are overwhelmingly
+ * pure-digit tokens, real merchant names essentially never are. Falls back to the untouched,
+ * trimmed note if stripping would leave nothing at all. */
+private fun identityNoteOf(note: String): String {
+    val trimmed = note.trim()
+    val stripped = trimmed.split(Regex("\\s+"))
+        .filterNot { it.isNotEmpty() && it.all(Char::isDigit) }
+        .joinToString(" ")
+    return stripped.ifBlank { trimmed }.lowercase()
+}
+
 /** Same identity a recurring bill/transfer keeps month to month: the account it's paid from,
  * its category, and its (normalized) note — e.g. "Checking / Media / phone, internet, streaming
  * and tv / telia" every month. Deliberately not amount-based, since a bill can legitimately vary
- * (electricity by season) while still being the same recurring commitment. */
+ * (electricity by season) while still being the same recurring commitment. See [identityNoteOf]
+ * for why the note itself is more than just a trim + lowercase. */
 private data class RecurringKey(val accountId: Long, val mainCategory: String, val category: String, val note: String)
 
 private fun recurringKeyOf(tx: TransactionWithDetails) = RecurringKey(
     accountId = tx.accountId,
     mainCategory = (tx.mainCategoryName ?: "Uncategorized").trim().lowercase(),
     category = (tx.categoryName ?: "Uncategorized").trim().lowercase(),
-    note = tx.note.trim().lowercase()
+    note = identityNoteOf(tx.note)
 )
 
 private fun dismissKeyFor(bucket: MonthBucket, key: RecurringKey): String =

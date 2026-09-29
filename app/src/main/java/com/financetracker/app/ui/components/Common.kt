@@ -2,7 +2,6 @@ package com.financetracker.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +35,7 @@ import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.ui.theme.BudgetWarningDark
 import com.financetracker.app.ui.theme.BudgetWarningLight
 import com.financetracker.app.ui.theme.ExpenseRed
+import com.financetracker.app.ui.theme.LocalDarkTheme
 import com.financetracker.app.util.Formatters
 
 @Composable
@@ -204,7 +204,7 @@ fun BudgetProgressRow(
     onClick: (() -> Unit)? = null
 ) {
     val ratio = if (budget > 0) spent / budget else 0.0
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalDarkTheme.current
     val statusColor = when {
         ratio >= 1.0 -> ExpenseRed
         ratio >= 0.8 -> if (isDark) BudgetWarningDark else BudgetWarningLight

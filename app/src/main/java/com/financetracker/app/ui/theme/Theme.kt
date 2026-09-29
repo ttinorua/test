@@ -8,6 +8,8 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
 
 private val LightColors = lightColorScheme(
@@ -26,6 +28,10 @@ private val DarkColors = darkColorScheme(
     error = ExpenseRed
 )
 
+/** Whether the app is currently drawn dark — follows the user's Settings choice, so read this
+ * instead of isSystemInDarkTheme(), which only knows the phone-wide setting. */
+val LocalDarkTheme = staticCompositionLocalOf { false }
+
 @Composable
 fun PersonalFinanceTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -40,9 +46,11 @@ fun PersonalFinanceTheme(
         else -> LightColors
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = AppTypography,
-        content = content
-    )
+    CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = AppTypography,
+            content = content
+        )
+    }
 }

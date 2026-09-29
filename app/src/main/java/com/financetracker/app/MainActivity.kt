@@ -1,19 +1,24 @@
 package com.financetracker.app
 
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -28,6 +33,8 @@ import androidx.navigation.navArgument
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.enablebanking.EnableBankingService
+import com.financetracker.app.data.prefs.ThemeMode
+import com.financetracker.app.data.prefs.ThemeSettings
 import com.financetracker.app.ui.navigation.Screen
 import com.financetracker.app.ui.screens.ai.AskAiScreen
 import com.financetracker.app.ui.screens.ai.AskAiViewModel
@@ -62,7 +69,26 @@ class MainActivity : ComponentActivity() {
         val repository = (application as FinanceApp).repository
 
         setContent {
-            PersonalFinanceTheme {
+            val themeMode by ThemeSettings.themeMode.collectAsState()
+            val dynamicColor by ThemeSettings.dynamicColor.collectAsState()
+            val darkTheme = when (themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+
+            // enableEdgeToEdge() above picks status/navigation bar icon colors from the phone's
+            // own dark mode — redo it whenever the in-app choice differs, so the icons stay
+            // readable (e.g. dark icons on a forced-light app while the phone is in dark mode).
+            DisposableEffect(darkTheme) {
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { darkTheme },
+                    navigationBarStyle = SystemBarStyle.auto(LightScrim, DarkScrim) { darkTheme }
+                )
+                onDispose {}
+            }
+
+            PersonalFinanceTheme(darkTheme = darkTheme, dynamicColor = dynamicColor) {
                 val navController = rememberNavController()
 
                 Scaffold(
@@ -281,3 +307,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+// Same default scrims enableEdgeToEdge() uses for the navigation bar on 3-button navigation.
+private val LightScrim = Color.argb(0xe6, 0xFF, 0xFF, 0xFF)
+private val DarkScrim = Color.argb(0x80, 0x1b, 0x1b, 0x1b)

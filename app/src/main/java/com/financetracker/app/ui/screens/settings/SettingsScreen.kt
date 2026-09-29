@@ -75,6 +75,12 @@ import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
+import android.os.Build
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import com.financetracker.app.data.prefs.ThemeMode
+import com.financetracker.app.data.prefs.ThemeSettings
 import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.prefs.LinkedBankAccount
 import com.financetracker.app.data.prefs.SUPPORTED_CURRENCIES
@@ -337,7 +343,13 @@ fun SettingsScreen(
                         .padding(16.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    Text("Display currency", style = MaterialTheme.typography.titleMedium)
+                    ThemeSection()
+
+                    Text(
+                        "Display currency",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
                     Text(
                         "Amounts are shown in this currency. This doesn't convert existing values.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -856,6 +868,56 @@ private fun CategoryBudgetRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemeSection() {
+    val themeMode by ThemeSettings.themeMode.collectAsState()
+    val dynamicColor by ThemeSettings.dynamicColor.collectAsState()
+
+    Text("Theme", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Choose light or dark, or follow your phone's setting.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 12.dp, top = 4.dp)
+    )
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        ThemeMode.entries.forEachIndexed { index, mode ->
+            SegmentedButton(
+                selected = themeMode == mode,
+                onClick = { ThemeSettings.setThemeMode(mode) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = ThemeMode.entries.size),
+                label = { Text(if (mode == ThemeMode.SYSTEM) "System" else mode.label, maxLines = 1) }
+            )
+        }
+    }
+
+    // Wallpaper-based colors only exist on Android 12+; older phones always get the app's green.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        Text(
+            "Use wallpaper colors",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 24.dp)
+        )
+        Text(
+            "Tint the app with colors from your wallpaper. Turn off to use the app's own green theme.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = dynamicColor,
+                onCheckedChange = { ThemeSettings.setDynamicColor(it) }
+            )
+            Text(
+                text = if (dynamicColor) "On" else "Off",
+                modifier = Modifier.padding(start = 8.dp)
             )
         }
     }

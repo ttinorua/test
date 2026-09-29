@@ -114,41 +114,55 @@ private fun predictNextByCadence(lastDate: Long, cadence: Cadence): Long {
     return cal.timeInMillis
 }
 
-/** Strips whichever whitespace-delimited tokens in [note] are made up entirely of digits — some
- * banks (Sydbank included) thread a running transaction reference number straight into the note
- * itself, e.g. "MCD 01978 Telenor" one month and "MCD 02027 Telenor" the next: same real bill,
- * same merchant, but a *different* raw note every single time. Matching on the raw note would
- * never recognize consecutive months' postings as the same recurring series, and — worse — would
- * never recognize a real, just-posted transaction as satisfying an already-anticipated one,
- * leaving a stale "Upcoming" entry showing even after the real bill has posted. Keeping everything
- * that isn't purely numeric (so "Rema 1000" only loses its "1000", not its identity as a specific
- * chain) is a deliberate, simple heuristic — real reference/sequence numbers are overwhelmingly
- * pure-digit tokens, real merchant names essentially never are. Falls back to the untouched,
- * trimmed note if stripping would leave nothing at all. */
-private fun identityNoteOf(note: String): String {
-    val trimmed = note.trim()
-    val stripped = trimmed.split(Regex("\\s+"))
-        .filterNot { it.isNotEmpty() && it.all(Char::isDigit) }
-        .joinToString(" ")
-    return stripped.ifBlank { trimmed }.lowercase()
+/** A bank reference code rather than part of the merchant's name: pure digits ("01978") or a
+ * letters+digits code ("P45451234"). Digits-with-punctuation tokens like an account number
+ * "1234-5678901" are kept, since those tell different transfer destinations apart. */
+private fun isReferenceToken(token: String): Boolean =
+    token.any(Char::isDigit) && (token.all(Char::isDigit) || token.any(Char::isLetter))
+
+/** The merchant-identifying words of [note], lowercased — Sydbank threads a running reference
+ * (and sometimes a payment code) into every note, e.g. "MCD 01943 Spotify P4545..." vs
+ * "MCD 01990 SpotifySE" for the same subscription. Falls back to the whole note if nothing is
+ * left. */
+private fun identityTokensOf(note: String): List<String> {
+    val tokens = note.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    return tokens.filterNot(::isReferenceToken).ifEmpty { tokens }
 }
 
-/** Same identity a recurring bill/transfer keeps month to month: the account it's paid from,
- * its category, and its (normalized) note — e.g. "Checking / Media / phone, internet, streaming
- * and tv / telia" every month. Deliberately not amount-based, since a bill can legitimately vary
- * (electricity by season) while still being the same recurring commitment. See [identityNoteOf]
- * for why the note itself is more than just a trim + lowercase. */
-private data class RecurringKey(val accountId: Long, val mainCategory: String, val category: String, val note: String)
+private const val MIN_PREFIX_MATCH_LENGTH = 4
 
-private fun recurringKeyOf(tx: TransactionWithDetails) = RecurringKey(
-    accountId = tx.accountId,
-    mainCategory = (tx.mainCategoryName ?: "Uncategorized").trim().lowercase(),
-    category = (tx.categoryName ?: "Uncategorized").trim().lowercase(),
-    note = identityNoteOf(tx.note)
-)
+/** Same merchant if every word lines up, allowing one to be a prefix of the other ("spotify" vs
+ * "spotifyse") so a bank's regional-suffix variants still count as the same bill. */
+private fun sameMerchant(a: List<String>, b: List<String>): Boolean =
+    a.size == b.size && a.zip(b).all { (x, y) ->
+        x == y || (minOf(x.length, y.length) >= MIN_PREFIX_MATCH_LENGTH && (x.startsWith(y) || y.startsWith(x)))
+    }
 
-private fun dismissKeyFor(bucket: MonthBucket, key: RecurringKey): String =
-    "${bucket.year}-${bucket.month}|${key.accountId}|${key.mainCategory}|${key.category}|${key.note}"
+/** One recurring series: same account and same merchant, regardless of category — re-categorizing
+ * one month's posting (e.g. Prime Video moved to a different category) must not split the series,
+ * or the recategorized posting would never count as the bill having already posted. */
+private class RecurringGroup(val accountId: Long, val identity: List<String>) {
+    val variants = mutableListOf(identity)
+    val txs = mutableListOf<TransactionWithDetails>()
+}
+
+/** Groups oldest-first, so a group's [RecurringGroup.identity] (and therefore its dismiss key)
+ * stays stable as new postings with slightly different notes arrive. */
+private fun groupRecurring(expenses: List<TransactionWithDetails>): List<RecurringGroup> {
+    val groups = mutableListOf<RecurringGroup>()
+    for (tx in expenses.sortedBy { it.date }) {
+        val identity = identityTokensOf(tx.note)
+        val group = groups.firstOrNull { g ->
+            g.accountId == tx.accountId && g.variants.any { sameMerchant(it, identity) }
+        } ?: RecurringGroup(tx.accountId, identity).also { groups += it }
+        if (identity !in group.variants) group.variants += identity
+        group.txs += tx
+    }
+    return groups
+}
+
+private fun dismissKeyFor(bucket: MonthBucket, group: RecurringGroup): String =
+    "${bucket.year}-${bucket.month}|${group.accountId}|${group.identity.joinToString(" ")}"
 
 private data class Qualification(val qualifies: Boolean, val predictedDate: Long, val dateIsEstimated: Boolean)
 
@@ -166,9 +180,13 @@ private fun qualifyFixedExpense(sortedTxs: List<TransactionWithDetails>, targetB
     return Qualification(monthBucketOf(predicted) == targetBucket, predicted, cadence == Cadence.UNKNOWN)
 }
 
+/** Postings closer together than this (median gap) look like repeat purchases, not a bill — e.g.
+ * two rentals on Jul 31 and Aug 5 land in two different months but are nothing like monthly. */
+private const val MIN_RECURRING_GAP_DAYS = 20
+
 /** Everything not marked "Fixe": needs to have actually repeated — present in at least
- * [MIN_OCCURRENCES] of the last [LOOKBACK_MONTHS] real months — before it's trusted as recurring
- * at all. */
+ * [MIN_OCCURRENCES] of the last [LOOKBACK_MONTHS] real months, spaced like a bill rather than
+ * bunched together — before it's trusted as recurring at all. */
 private fun qualifyByFrequency(
     sortedTxs: List<TransactionWithDetails>,
     byMonth: Map<MonthBucket, List<TransactionWithDetails>>,
@@ -177,6 +195,10 @@ private fun qualifyByFrequency(
 ): Qualification {
     val lookbackMonths = byMonth.filterKeys { it in priorMonthBuckets(now, LOOKBACK_MONTHS) }
     if (lookbackMonths.size < MIN_OCCURRENCES) return Qualification(false, 0L, true)
+
+    val lookbackGaps = lookbackMonths.values.flatten().map { it.date }.sorted()
+        .zipWithNext { a, b -> daysBetween(a, b) }.sorted()
+    if (lookbackGaps[lookbackGaps.size / 2] < MIN_RECURRING_GAP_DAYS) return Qualification(false, 0L, true)
 
     val last = sortedTxs.last()
     val historicalDays = lookbackMonths.values.map { monthTxs -> dayOfMonthOf(monthTxs.maxBy { it.date }.date) }
@@ -192,11 +214,12 @@ private fun qualifyByFrequency(
  *   — see [com.financetracker.app.data.prefs.FixedExpenseCategories]), whose actual billing
  *   cadence (monthly, quarterly, or yearly) is detected from its full history and only
  *   anticipated in the one month that predicts next; or
- * - the same account+category+note appearing in at least [MIN_OCCURRENCES] of the last
+ * - the same account+merchant appearing in at least [MIN_OCCURRENCES] of the last
  *   [LOOKBACK_MONTHS] real calendar months (e.g. a phone bill, a monthly transfer to savings),
  *   for anything not marked Fixe.
  *
- * [EXCLUDED_CATEGORIES] (Parking, Groceries) are never anticipated regardless of how often they
+ * Fixe/excluded status and the displayed category come from each series' most recent posting.
+ * [EXCLUDED_CATEGORIES] (Parking, Groceries, Fuel) are never anticipated regardless of how often they
  * repeat, or even if marked Fixe — they recur by habit, not by contract, so the same
  * note+category showing up in back-to-back months doesn't mean a bill is coming due.
  *
@@ -228,10 +251,11 @@ fun anticipatedRecurringExpenses(
 
     val targetBucket = monthBucketOf(now, monthsAhead)
 
-    return expenses.groupBy { recurringKeyOf(it) }.mapNotNull { (key, txs) ->
-        if (key.category in EXCLUDED_CATEGORIES) return@mapNotNull null
+    return groupRecurring(expenses).mapNotNull { group ->
+        val sortedTxs = group.txs
+        val lastCategory = (sortedTxs.last().categoryName ?: "Uncategorized").trim().lowercase()
+        if (lastCategory in EXCLUDED_CATEGORIES) return@mapNotNull null
 
-        val sortedTxs = txs.sortedBy { it.date }
         val byMonth = sortedTxs.groupBy { monthBucketOf(it.date) }
         if (byMonth.containsKey(targetBucket)) return@mapNotNull null
 
@@ -244,7 +268,7 @@ fun anticipatedRecurringExpenses(
         }
         if (!qualification.qualifies) return@mapNotNull null
 
-        val dismissKey = dismissKeyFor(targetBucket, key)
+        val dismissKey = dismissKeyFor(targetBucket, group)
         if (dismissKey in dismissedKeys) return@mapNotNull null
 
         val mostRecent = sortedTxs.last()

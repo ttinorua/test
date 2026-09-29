@@ -400,4 +400,55 @@ class RecurringCostsTest {
         val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1)
         assertTrue(nextMonth.isEmpty())
     }
+
+    @Test
+    fun `a posting recategorized this month still counts as the bill having posted`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 6), 69.0, "MCD 01901 Prime Video", category = "Films, music, apps and software", categoryId = 3L),
+            expense(utcMillis(2026, 2, 6), 69.0, "MCD 01947 Prime Video", category = "Films, music, apps and software", categoryId = 3L),
+            expense(utcMillis(2026, 3, 7), 69.0, "MCD 01993 Prime Video", categoryId = 1L)
+        )
+        assertTrue(anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = setOf(1L)).isEmpty())
+    }
+
+    @Test
+    fun `a recategorized series is anticipated next month under its latest category`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 6), 69.0, "MCD 01901 Prime Video", category = "Films, music, apps and software", categoryId = 3L),
+            expense(utcMillis(2026, 2, 6), 69.0, "MCD 01947 Prime Video", category = "Films, music, apps and software", categoryId = 3L),
+            expense(utcMillis(2026, 3, 7), 69.0, "MCD 01993 Prime Video", categoryId = 1L)
+        )
+        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1, fixedCategoryIds = setOf(1L))
+        assertEquals(1, nextMonth.size)
+        assertEquals("Phone, internet, streaming and TV", nextMonth.first().category)
+    }
+
+    @Test
+    fun `a payment code or regional suffix in the note doesn't split one subscription`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 6), 199.0, "MCD 01899 SpotifySE"),
+            expense(utcMillis(2026, 2, 4), 199.0, "MCD 01943 Spotify P45451234AB"),
+            expense(utcMillis(2026, 3, 4), 199.0, "MCD 01990 SpotifySE")
+        )
+        assertTrue(anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = setOf(1L)).isEmpty())
+    }
+
+    @Test
+    fun `different merchants sharing a short prefix are not merged`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 10), 100.0, "MobilePay Jens"),
+            expense(utcMillis(2026, 2, 10), 100.0, "MobilePay Jens"),
+            expense(utcMillis(2026, 3, 10), 50.0, "MobilePay Anne")
+        )
+        assertEquals(1, anticipatedRecurringExpenses(transactions, now).size)
+    }
+
+    @Test
+    fun `two purchases a few days apart across a month boundary are not a monthly bill`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 31), 59.0, "MCD 01935 Blockbuster", category = "Films, music, apps and software", categoryId = 3L),
+            expense(utcMillis(2026, 2, 5), 79.0, "MCD 01944 Blockbuster", category = "Films, music, apps and software", categoryId = 3L)
+        )
+        assertTrue(anticipatedRecurringExpenses(transactions, now).isEmpty())
+    }
 }

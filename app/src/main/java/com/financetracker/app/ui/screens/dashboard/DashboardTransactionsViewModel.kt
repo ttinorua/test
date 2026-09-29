@@ -107,7 +107,7 @@ class DashboardTransactionsViewModel(
             // Applied to the Income and Expenses drill-downs so they match their tiles; "All
             // Transactions" (type == null) stays unfiltered to match the net balance.
             val countsIfRelevant = type == null ||
-                countsTowardTotals(tx.mainCategoryName, tx.categoryName, excludeTransfers)
+                countsTowardTotals(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers, singleAccount = accountId != null)
             inPeriod && matchesType && matchesCategory && countsIfRelevant
         }.sortedByDescending { it.date }
 

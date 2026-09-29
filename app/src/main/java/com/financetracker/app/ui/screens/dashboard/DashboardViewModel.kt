@@ -20,6 +20,7 @@ import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.FixedExpenseCategories
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.anticipatedRecurringExpenses
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -96,7 +98,13 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
 
     private val _periodOption = MutableStateFlow(PeriodOption.THIS_MONTH)
     private val _customRange = MutableStateFlow<Pair<Long, Long>?>(null)
-    private val _selectedAccountId = MutableStateFlow<Long?>(null)
+    private val _selectedAccountId = MutableStateFlow(MainAccountSettings.mainAccountId.value)
+
+    init {
+        viewModelScope.launch {
+            MainAccountSettings.mainAccountId.drop(1).collect { _selectedAccountId.value = it }
+        }
+    }
 
     /** Whether a bank sync ([EnableBankingSyncWorker]) is currently running — read straight from
      * WorkManager (not tied to any particular screen's lifecycle) so the header's sync spinner
@@ -179,11 +187,11 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
 
         val income = inPeriod.filter {
             it.type == TransactionType.INCOME &&
-                countsTowardTotals(it.mainCategoryName, it.categoryName, excludeTransfers)
+                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
         }.sumOf { it.amount }
         val expenseTx = inPeriod.filter {
             it.type == TransactionType.EXPENSE &&
-                countsTowardTotals(it.mainCategoryName, it.categoryName, excludeTransfers)
+                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
         }
         val expense = expenseTx.sumOf { it.amount }
         val monthsAhead = when (periodOption) {
@@ -221,7 +229,7 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             val effectiveDate =
                 effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
             it.type == TransactionType.EXPENSE && effectiveDate >= monthFrom && effectiveDate < monthTo &&
-                countsTowardTotals(it.mainCategoryName, it.categoryName, excludeTransfers)
+                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
         }
         val spentByCategory = monthExpenses
             .filter { it.categoryId != null }

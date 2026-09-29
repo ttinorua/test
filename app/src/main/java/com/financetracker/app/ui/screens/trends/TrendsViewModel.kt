@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.prefs.BudgetSettings
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.countsTowardTotals
 import com.financetracker.app.util.effectiveReportingDate
@@ -12,7 +13,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -48,7 +51,13 @@ data class TrendsUiState(
 class TrendsViewModel(private val repository: FinanceRepository) : ViewModel() {
 
     private val _window = MutableStateFlow(TrendsWindow.SIX)
-    private val _selectedAccountId = MutableStateFlow<Long?>(null)
+    private val _selectedAccountId = MutableStateFlow(MainAccountSettings.mainAccountId.value)
+
+    init {
+        viewModelScope.launch {
+            MainAccountSettings.mainAccountId.drop(1).collect { _selectedAccountId.value = it }
+        }
+    }
 
     val uiState: StateFlow<TrendsUiState> = combine(
         repository.observeTransactions(),
@@ -76,11 +85,11 @@ class TrendsViewModel(private val repository: FinanceRepository) : ViewModel() {
                 monthLabel = label,
                 income = inMonth.filter {
                     it.type == TransactionType.INCOME &&
-                        countsTowardTotals(it.mainCategoryName, it.categoryName, excludeTransfers)
+                        countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
                 }.sumOf { it.amount },
                 expense = inMonth.filter {
                     it.type == TransactionType.EXPENSE &&
-                        countsTowardTotals(it.mainCategoryName, it.categoryName, excludeTransfers)
+                        countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
                 }.sumOf { it.amount }
             )
         }

@@ -6,6 +6,7 @@ import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.BudgetSettings
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.ui.components.BarChartEntry
 import com.financetracker.app.util.GroupByOption
@@ -18,7 +19,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 data class CategoryOverviewUiState(
     val periodOption: PeriodOption = PeriodOption.THIS_MONTH,
@@ -43,7 +46,13 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
     private val _periodOption = MutableStateFlow(PeriodOption.THIS_MONTH)
     private val _customRange = MutableStateFlow<Pair<Long, Long>?>(null)
     private val _groupBy = MutableStateFlow(GroupByOption.MAIN_CATEGORY)
-    private val _selectedAccountId = MutableStateFlow<Long?>(null)
+    private val _selectedAccountId = MutableStateFlow(MainAccountSettings.mainAccountId.value)
+
+    init {
+        viewModelScope.launch {
+            MainAccountSettings.mainAccountId.drop(1).collect { _selectedAccountId.value = it }
+        }
+    }
 
     val uiState: StateFlow<CategoryOverviewUiState> = combine(
         repository.observeTransactions(),
@@ -74,11 +83,11 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
 
         fun countsAsExpense(tx: TransactionWithDetails) =
             tx.type == TransactionType.EXPENSE &&
-                countsTowardTotals(tx.mainCategoryName, tx.categoryName, excludeTransfers)
+                countsTowardTotals(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
 
         fun countsAsIncome(tx: TransactionWithDetails) =
             tx.type == TransactionType.INCOME &&
-                countsTowardTotals(tx.mainCategoryName, tx.categoryName, excludeTransfers)
+                countsTowardTotals(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers, singleAccount = selectedAccountId != null)
 
         val entries = inPeriod
             .groupBy { groupKeyOf(it, groupBy) }

@@ -14,6 +14,7 @@ import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.importexport.DuplicateTransactionFilter
 import com.financetracker.app.data.prefs.EnableBankingPrefs
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -152,7 +153,14 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
     }
 
     fun deleteAccount(account: Account) {
-        viewModelScope.launch { repository.deleteAccount(account) }
+        viewModelScope.launch {
+            repository.deleteAccount(account)
+            MainAccountSettings.onAccountRemoved(account.id)
+        }
+    }
+
+    fun setMainAccount(account: Account, isMain: Boolean) {
+        MainAccountSettings.setMainAccount(if (isMain) account.id else null)
     }
 
     /** Moves every transaction on [source] onto [target] — except ones [target] already has an
@@ -191,6 +199,7 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
             }
             EnableBankingPrefs.remapAccountLink(source.id, target.id)
             repository.deleteAccount(source)
+            MainAccountSettings.onAccountRemoved(source.id, replacementId = target.id)
         }
     }
 

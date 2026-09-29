@@ -60,7 +60,7 @@ class GroupTransactionsViewModel(
                 effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
             val inPeriod = effectiveDate >= from && effectiveDate < to && groupKeyOf(it, groupBy) == key
             val matchesAccount = accountId == null || it.accountId == accountId
-            inPeriod && matchesAccount && countsTowardTotals(it.mainCategoryName, it.categoryName, excludeTransfers)
+            inPeriod && matchesAccount && countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, singleAccount = accountId != null)
         }.sortedByDescending { it.date }
 
         GroupTransactionsUiState(groupLabel = key, transactions = filtered, accounts = accounts, categories = categories)

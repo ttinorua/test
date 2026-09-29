@@ -33,6 +33,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,6 +82,7 @@ import com.financetracker.app.data.prefs.LinkedBankAccount
 import com.financetracker.app.data.prefs.SUPPORTED_CURRENCIES
 import com.financetracker.app.data.prefs.ThemeMode
 import com.financetracker.app.data.prefs.ThemeSettings
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.ui.components.AccountSelectorChip
 import com.financetracker.app.ui.components.CategoryColorDot
 import com.financetracker.app.ui.screens.importexport.ImportExportScreen
@@ -99,6 +102,7 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsState()
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
     val themeMode by ThemeSettings.themeMode.collectAsState()
+    val mainAccountId by MainAccountSettings.mainAccountId.collectAsState()
     val shiftSalaryToNextMonth by BudgetSettings.shiftSalaryToNextMonth.collectAsState()
     val excludeTransfersFromSpending by BudgetSettings.excludeTransfersFromSpending.collectAsState()
     val anticipateRecurringBills by BudgetSettings.anticipateRecurringBills.collectAsState()
@@ -194,6 +198,27 @@ fun SettingsScreen(
                                     }
                                     IconButton(onClick = { deleteAccountTarget = accountUi.account }) {
                                         Icon(Icons.Filled.Delete, contentDescription = "Delete account")
+                                    }
+                                }
+                                val isMain = mainAccountId == accountUi.account.id
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .toggleable(
+                                            value = isMain,
+                                            role = Role.Checkbox,
+                                            onValueChange = { viewModel.setMainAccount(accountUi.account, it) }
+                                        )
+                                ) {
+                                    Checkbox(checked = isMain, onCheckedChange = null)
+                                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                                        Text("Main account", style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            "Shown by default on every screen",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
                                 Row(modifier = Modifier.align(Alignment.End)) {
@@ -407,8 +432,10 @@ fun SettingsScreen(
                         "Transactions categorized as Other • \"Other (Transfer)\" (moving money " +
                             "between your own accounts, e.g. to or from savings) are left out of " +
                             "income and expense totals, budgets, and the spending breakdown, " +
-                            "since they're neither real income nor real spending. Net balance " +
-                            "and the account register still include every transaction.",
+                            "since they're neither real income nor real spending. When viewing a " +
+                            "single account, money transferred in from your other accounts counts " +
+                            "as that account's income. Net balance and the account register " +
+                            "still include every transaction.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)

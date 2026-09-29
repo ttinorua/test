@@ -4,14 +4,6 @@ import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import java.util.Calendar
 import java.util.TimeZone
-import kotlin.math.roundToInt
-
-private const val LOOKBACK_MONTHS = 3
-private const val MIN_OCCURRENCES = 2
-
-/** How many days apart a recurring bill's historical posting days can be and still count as a
- * known, consistent day of month (e.g. always the 27th-29th) rather than a rough estimate. */
-private const val DAY_OF_MONTH_CONSISTENCY_THRESHOLD = 4
 
 /** Categories that recur by habit, not by contract, and so are never anticipated no matter how
  * regularly they repeat — parking at the same garage every workday, buying groceries at the same
@@ -25,9 +17,8 @@ private enum class Cadence { MONTHLY, QUARTERLY, YEARLY, UNKNOWN }
 
 /** One recurring expense that hasn't posted yet in the month being projected for, projected at
  * its most recent occurrence's amount. [estimatedDate] is that month's predicted posting date —
- * a real prediction (a consistent historical day of month, or a detected monthly/quarterly/
- * yearly cadence) when [dateIsEstimated] is false, otherwise a rough guess when there's too
- * little history to be confident. [dismissKey] identifies this specific bill for this specific
+ * a real prediction (a detected monthly/quarterly/yearly cadence) when [dateIsEstimated] is
+ * false, otherwise a rough guess when there's too little history to be confident. [dismissKey] identifies this specific bill for this specific
  * projected month — pass it to
  * [com.financetracker.app.data.prefs.DismissedRecurringExpenses.dismiss] to remove it from
  * "Upcoming expenses" (and the Dashboard Expenses tile total) until it actually posts or that
@@ -56,34 +47,7 @@ private fun monthBucketOf(date: Long, monthsOffset: Int = 0): MonthBucket {
     return MonthBucket(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH))
 }
 
-private fun dayOfMonthOf(date: Long): Int {
-    val cal = utcCalendar().apply { timeInMillis = date }
-    return cal.get(Calendar.DAY_OF_MONTH)
-}
-
 private fun daysBetween(a: Long, b: Long): Long = (b - a) / (24L * 60 * 60 * 1000)
-
-/** [bucket]'s own month, with the day of month set to [day] (clamped to that month's real
- * length, e.g. day 31 in a 30-day month lands on the 30th). */
-private fun dateForDayInBucket(bucket: MonthBucket, day: Int): Long {
-    val cal = utcCalendar().apply {
-        clear()
-        set(bucket.year, bucket.month, 1, 0, 0, 0)
-    }
-    val lastDayOfMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-    cal.set(Calendar.DAY_OF_MONTH, day.coerceIn(1, lastDayOfMonth))
-    return cal.timeInMillis
-}
-
-/** The [count] calendar months strictly before [now]'s month — never includes the current month
- * itself, since that's what we're deciding whether a bill is still "recent" relative to. */
-private fun priorMonthBuckets(now: Long, count: Int): Set<MonthBucket> {
-    val cal = utcCalendar().apply { timeInMillis = now }
-    return (1..count).map {
-        cal.add(Calendar.MONTH, -1)
-        MonthBucket(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH))
-    }.toSet()
-}
 
 /** The typical gap between [sortedDates]' consecutive entries, classified into a cadence a
  * bill/premium commonly follows. Needs at least 2 dates to say anything at all. */
@@ -166,57 +130,36 @@ private fun dismissKeyFor(bucket: MonthBucket, group: RecurringGroup): String =
 
 private data class Qualification(val qualifies: Boolean, val predictedDate: Long, val dateIsEstimated: Boolean)
 
-/** A category the user has marked "Fixe" in Settings (see
- * [com.financetracker.app.data.prefs.FixedExpenseCategories]) is trusted as a scheduled cost
- * without needing to actually repeat first — its real billing cadence (monthly, quarterly, or
- * yearly) is detected from every occurrence on record, and it's only anticipated in the one
- * month that cadence predicts next, never every month by default the way a flat "always assume
- * monthly" rule would. A single occurrence (no cadence to detect yet) falls back to assuming
- * monthly, the same conservative default an irregular history gets. */
-private fun qualifyFixedExpense(sortedTxs: List<TransactionWithDetails>, targetBucket: MonthBucket): Qualification {
-    val cadence = detectCadence(sortedTxs.map { it.date })
-    val last = sortedTxs.last()
-    val predicted = predictNextByCadence(last.date, cadence)
-    return Qualification(monthBucketOf(predicted) == targetBucket, predicted, cadence == Cadence.UNKNOWN)
-}
+private fun MonthBucket.index() = year * 12 + month
 
-/** Postings closer together than this (median gap) look like repeat purchases, not a bill — e.g.
- * two rentals on Jul 31 and Aug 5 land in two different months but are nothing like monthly. */
-private const val MIN_RECURRING_GAP_DAYS = 20
-
-/** Everything not marked "Fixe": needs to have actually repeated — present in at least
- * [MIN_OCCURRENCES] of the last [LOOKBACK_MONTHS] real months, spaced like a bill rather than
- * bunched together — before it's trusted as recurring at all. */
-private fun qualifyByFrequency(
+/** A series under a category the user has marked "Fixe" in Settings (see
+ * [com.financetracker.app.data.prefs.FixedExpenseCategories]): its billing cadence (monthly,
+ * quarterly, or yearly) is detected from every occurrence on record, and it's anticipated only
+ * in a month that cadence lands on. A single occurrence (or an irregular history) assumes
+ * monthly. A series whose next due date already passed before [nowBucket] without posting is
+ * treated as stopped. Projecting further ahead than the next due date steps forward by cadence,
+ * so "Next month" still shows a monthly bill that hasn't posted this month yet either. */
+private fun qualifyFixedExpense(
     sortedTxs: List<TransactionWithDetails>,
-    byMonth: Map<MonthBucket, List<TransactionWithDetails>>,
-    now: Long,
+    nowBucket: MonthBucket,
     targetBucket: MonthBucket
 ): Qualification {
-    val lookbackMonths = byMonth.filterKeys { it in priorMonthBuckets(now, LOOKBACK_MONTHS) }
-    if (lookbackMonths.size < MIN_OCCURRENCES) return Qualification(false, 0L, true)
-
-    val lookbackGaps = lookbackMonths.values.flatten().map { it.date }.sorted()
-        .zipWithNext { a, b -> daysBetween(a, b) }.sorted()
-    if (lookbackGaps[lookbackGaps.size / 2] < MIN_RECURRING_GAP_DAYS) return Qualification(false, 0L, true)
-
-    val last = sortedTxs.last()
-    val historicalDays = lookbackMonths.values.map { monthTxs -> dayOfMonthOf(monthTxs.maxBy { it.date }.date) }
-    val isConsistentDay = (historicalDays.max() - historicalDays.min()) <= DAY_OF_MONTH_CONSISTENCY_THRESHOLD
-    val predictedDay = if (isConsistentDay) historicalDays.average().roundToInt() else dayOfMonthOf(last.date)
-    return Qualification(true, dateForDayInBucket(targetBucket, predictedDay), !isConsistentDay)
+    val cadence = detectCadence(sortedTxs.map { it.date })
+    var predicted = predictNextByCadence(sortedTxs.last().date, cadence)
+    if (monthBucketOf(predicted).index() < nowBucket.index()) return Qualification(false, 0L, true)
+    while (monthBucketOf(predicted).index() < targetBucket.index()) {
+        predicted = predictNextByCadence(predicted, cadence)
+    }
+    return Qualification(monthBucketOf(predicted) == targetBucket, predicted, cadence == Cadence.UNKNOWN)
 }
 
 /**
  * Every recurring expense not yet posted in the month being projected for — [monthsAhead] months
- * after [now]'s own month (0 = this month, 1 = next month, and so on) — either:
- * - under a category the user has marked "Fixe" ([fixedCategoryIds], set in Settings > Categories
- *   — see [com.financetracker.app.data.prefs.FixedExpenseCategories]), whose actual billing
- *   cadence (monthly, quarterly, or yearly) is detected from its full history and only
- *   anticipated in the one month that predicts next; or
- * - the same account+merchant appearing in at least [MIN_OCCURRENCES] of the last
- *   [LOOKBACK_MONTHS] real calendar months (e.g. a phone bill, a monthly transfer to savings),
- *   for anything not marked Fixe.
+ * after [now]'s own month (0 = this month, 1 = next month, and so on) — whose series (same account
+ * and merchant) is currently under a category the user has marked "Fixe" ([fixedCategoryIds], set
+ * in Settings > Categories). Nothing outside a Fixe category is ever anticipated: guessing from
+ * how often a merchant repeats flagged too many ordinary purchases (restaurants, furniture
+ * stores) as bills.
  *
  * Fixe/excluded status and the displayed category come from each series' most recent posting.
  * [EXCLUDED_CATEGORIES] (Parking, Groceries, Fuel) are never anticipated regardless of how often they
@@ -249,6 +192,7 @@ fun anticipatedRecurringExpenses(
     val expenses = transactions.filter { it.type == TransactionType.EXPENSE }
     if (expenses.isEmpty()) return emptyList()
 
+    val nowBucket = monthBucketOf(now)
     val targetBucket = monthBucketOf(now, monthsAhead)
 
     return groupRecurring(expenses).mapNotNull { group ->
@@ -256,16 +200,11 @@ fun anticipatedRecurringExpenses(
         val lastCategory = (sortedTxs.last().categoryName ?: "Uncategorized").trim().lowercase()
         if (lastCategory in EXCLUDED_CATEGORIES) return@mapNotNull null
 
-        val byMonth = sortedTxs.groupBy { monthBucketOf(it.date) }
-        if (byMonth.containsKey(targetBucket)) return@mapNotNull null
-
         val lastCategoryId = sortedTxs.last().categoryId
-        val isFixed = lastCategoryId != null && lastCategoryId in fixedCategoryIds
-        val qualification = if (isFixed) {
-            qualifyFixedExpense(sortedTxs, targetBucket)
-        } else {
-            qualifyByFrequency(sortedTxs, byMonth, now, targetBucket)
-        }
+        if (lastCategoryId == null || lastCategoryId !in fixedCategoryIds) return@mapNotNull null
+        if (sortedTxs.any { monthBucketOf(it.date) == targetBucket }) return@mapNotNull null
+
+        val qualification = qualifyFixedExpense(sortedTxs, nowBucket, targetBucket)
         if (!qualification.qualifies) return@mapNotNull null
 
         val dismissKey = dismissKeyFor(targetBucket, group)

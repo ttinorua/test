@@ -61,13 +61,16 @@ class RecurringCostsTest {
     // "Now" is March 15, 2026 — current month is March; lookback months are Feb, Jan, Dec 2025.
     private val now = utcMillis(2026, 3, 15)
 
+    // The default category (id 1, "Phone, internet, streaming and TV") is marked Fixe.
+    private val fixed = setOf(1L)
+
     @Test
-    fun `a bill in 2 of the last 3 months, not yet posted this month, is anticipated at its most recent amount`() {
+    fun `a Fixe bill not yet posted this month is anticipated at its most recent amount`() {
         val transactions = listOf(
             expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
             expense(utcMillis(2026, 2, 15), 210.0, "Telia")
         )
-        assertEquals(210.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        assertEquals(210.0, anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = fixed), 0.001)
     }
 
     @Test
@@ -78,15 +81,17 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 2, 10), 320.0, "Elgiganten electricity", category = "Electricity", mainCategory = "Home"),
             expense(utcMillis(2026, 3, 10), 330.0, "Elgiganten electricity", category = "Electricity", mainCategory = "Home")
         )
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = fixed), 0.001)
     }
 
     @Test
-    fun `a one-off expense in only 1 of the last 3 months does not count as recurring`() {
+    fun `a category not marked Fixe is never anticipated, even when it repeats every month`() {
         val transactions = listOf(
-            expense(utcMillis(2026, 1, 5), 500.0, "Dentist", category = "Dentist, doctor and medication", mainCategory = "Clothing and pers. care prod.")
+            expense(utcMillis(2025, 12, 18), 340.0, "MCD 01886 SILVAN A/S", category = "Furniture and home accessories", mainCategory = "Home", categoryId = 6L),
+            expense(utcMillis(2026, 1, 20), 120.0, "MCD 01930 SILVAN A/S", category = "Furniture and home accessories", mainCategory = "Home", categoryId = 6L),
+            expense(utcMillis(2026, 2, 23), 340.75, "MCD 01986 SILVAN A/S", category = "Furniture and home accessories", mainCategory = "Home", categoryId = 6L)
         )
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        assertTrue(anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed).isEmpty())
     }
 
     @Test
@@ -95,7 +100,7 @@ class RecurringCostsTest {
             income(utcMillis(2026, 1, 31), 26000.0, "Salary"),
             income(utcMillis(2026, 2, 28), 26000.0, "Salary")
         )
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = fixed), 0.001)
     }
 
     @Test
@@ -106,7 +111,7 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 2, 4), 420.0, "Café Norden", category = "Café, restaurant and bar", mainCategory = "Leisure"),
             expense(utcMillis(2026, 2, 18), 300.0, "Sunset Bar", category = "Café, restaurant and bar", mainCategory = "Leisure")
         )
-        val total = anticipatedRecurringExpenseTotal(transactions, now)
+        val total = anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = fixed)
         assertEquals(420.0 + 300.0, total, 0.001)
     }
 
@@ -116,7 +121,7 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 1, 3), 400.0, "Rema 1000", category = "Groceries", mainCategory = "Food"),
             expense(utcMillis(2026, 2, 4), 420.0, "Rema 1000", category = "Groceries", mainCategory = "Food")
         )
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = fixed), 0.001)
     }
 
     @Test
@@ -134,7 +139,7 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 1, 12), 350.0, "Spiiri", category = "Fuel", mainCategory = "Transportation"),
             expense(utcMillis(2026, 2, 13), 360.0, "Spiiri", category = "Fuel", mainCategory = "Transportation")
         )
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = fixed), 0.001)
     }
 
     @Test
@@ -166,7 +171,7 @@ class RecurringCostsTest {
                 mainCategory = "Other"
             )
         )
-        assertEquals(210.0 + 7000.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        assertEquals(210.0 + 7000.0, anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = fixed), 0.001)
     }
 
     @Test
@@ -180,7 +185,7 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
             expense(utcMillis(2026, 2, 15), 210.0, "Telia")
         )
-        val items = anticipatedRecurringExpenses(transactions, now)
+        val items = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed)
         assertEquals(1, items.size)
         val item = items.first()
         assertEquals("Telia", item.label)
@@ -190,12 +195,12 @@ class RecurringCostsTest {
     }
 
     @Test
-    fun `an irregular posting day is flagged as estimated and uses the most recent day of month`() {
+    fun `an irregular gap is flagged as estimated and assumes monthly from the last posting`() {
         val transactions = listOf(
             expense(utcMillis(2026, 1, 3), 200.0, "Telia"),
             expense(utcMillis(2026, 2, 27), 210.0, "Telia")
         )
-        val items = anticipatedRecurringExpenses(transactions, now)
+        val items = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed)
         assertEquals(1, items.size)
         val item = items.first()
         assertTrue(item.dateIsEstimated)
@@ -222,7 +227,7 @@ class RecurringCostsTest {
                 mainCategory = "Other"
             )
         )
-        val items = anticipatedRecurringExpenses(transactions, now)
+        val items = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed)
         assertEquals(listOf("Transfer to savings", "Telia"), items.map { it.label })
     }
 
@@ -274,20 +279,12 @@ class RecurringCostsTest {
     }
 
     @Test
-    fun `a category not marked Fixe still needs the general 2-of-3-months rule, even for a single recent occurrence`() {
+    fun `a single occurrence in a category not marked Fixe is not anticipated`() {
         val transactions = listOf(
             expense(utcMillis(2026, 2, 5), 800.0, "Card payment", category = "Credit cards", mainCategory = "Loan and debt", categoryId = 14L)
         )
         // fixedCategoryIds deliberately left empty/not containing 14L
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
-    }
-
-    @Test
-    fun `a non-fixed category still needs the general 2-of-3-months rule, not just 1 recent occurrence`() {
-        val transactions = listOf(
-            expense(utcMillis(2026, 2, 5), 500.0, "Ikea", category = "Furniture and home accessories", mainCategory = "Home")
-        )
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = fixed), 0.001)
     }
 
     @Test
@@ -296,10 +293,10 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
             expense(utcMillis(2026, 2, 15), 210.0, "Telia")
         )
-        val dismissKey = anticipatedRecurringExpenses(transactions, now).first().dismissKey
-        val afterDismiss = anticipatedRecurringExpenses(transactions, now, dismissedKeys = setOf(dismissKey))
+        val dismissKey = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed).first().dismissKey
+        val afterDismiss = anticipatedRecurringExpenses(transactions, now, dismissedKeys = setOf(dismissKey), fixedCategoryIds = fixed)
         assertTrue(afterDismiss.isEmpty())
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, dismissedKeys = setOf(dismissKey)), 0.001)
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, dismissedKeys = setOf(dismissKey), fixedCategoryIds = fixed), 0.001)
     }
 
     @Test
@@ -308,7 +305,7 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 1, 10), 50.0, "City Parkering", category = "Parking", mainCategory = "Transportation"),
             expense(utcMillis(2026, 2, 10), 50.0, "City Parkering", category = "Parking", mainCategory = "Transportation")
         )
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = fixed), 0.001)
     }
 
     @Test
@@ -358,7 +355,7 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
             expense(utcMillis(2026, 2, 15), 210.0, "Telia")
         )
-        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1)
+        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1, fixedCategoryIds = fixed)
         assertEquals(1, nextMonth.size)
         assertEquals(utcMillis(2026, 4, 15), nextMonth.first().estimatedDate)
     }
@@ -371,7 +368,7 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 1, 26), 200.0, "MCD 01900 Telenor"),
             expense(utcMillis(2026, 2, 26), 210.0, "MCD 01978 Telenor")
         )
-        val items = anticipatedRecurringExpenses(transactions, now)
+        val items = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed)
         assertEquals(1, items.size)
         assertEquals(210.0, items.first().amount, 0.001)
     }
@@ -387,7 +384,7 @@ class RecurringCostsTest {
             // "Upcoming" entry showing for a bill that already posted.
             expense(utcMillis(2026, 3, 5), 220.0, "MCD 02027 Telenor")
         )
-        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now), 0.001)
+        assertEquals(0.0, anticipatedRecurringExpenseTotal(transactions, now, fixedCategoryIds = fixed), 0.001)
     }
 
     @Test
@@ -397,7 +394,7 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 2, 15), 210.0, "Telia"),
             expense(utcMillis(2026, 4, 1), 220.0, "Telia")
         )
-        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1)
+        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1, fixedCategoryIds = fixed)
         assertTrue(nextMonth.isEmpty())
     }
 
@@ -440,15 +437,26 @@ class RecurringCostsTest {
             expense(utcMillis(2026, 2, 10), 100.0, "MobilePay Jens"),
             expense(utcMillis(2026, 3, 10), 50.0, "MobilePay Anne")
         )
-        assertEquals(1, anticipatedRecurringExpenses(transactions, now).size)
+        assertEquals(1, anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed).size)
     }
 
     @Test
-    fun `two purchases a few days apart across a month boundary are not a monthly bill`() {
+    fun `next month includes a Fixe bill even when it hasn't posted this month yet`() {
         val transactions = listOf(
-            expense(utcMillis(2026, 1, 31), 59.0, "MCD 01935 Blockbuster", category = "Films, music, apps and software", categoryId = 3L),
-            expense(utcMillis(2026, 2, 5), 79.0, "MCD 01944 Blockbuster", category = "Films, music, apps and software", categoryId = 3L)
+            expense(utcMillis(2026, 1, 20), 189.0, "MCD 01900 Netflix.com"),
+            expense(utcMillis(2026, 2, 23), 189.0, "MCD 01950 Netflix.com")
         )
-        assertTrue(anticipatedRecurringExpenses(transactions, now).isEmpty())
+        val nextMonth = anticipatedRecurringExpenses(transactions, now, monthsAhead = 1, fixedCategoryIds = fixed)
+        assertEquals(1, nextMonth.size)
+        assertEquals(utcMillis(2026, 4, 23), nextMonth.first().estimatedDate)
+    }
+
+    @Test
+    fun `a series moved out of a Fixe category stops being anticipated`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 10), 699.0, "MobilePay Telenor"),
+            expense(utcMillis(2026, 2, 10), 699.0, "MobilePay Telenor", category = "Other (Transfer)", mainCategory = "Other", categoryId = 7L)
+        )
+        assertTrue(anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed).isEmpty())
     }
 }

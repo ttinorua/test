@@ -406,16 +406,15 @@ fun SettingsScreen(
                         modifier = Modifier.padding(top = 24.dp)
                     )
                     Text(
-                        "Bills that show up most months (phone, utilities, a monthly transfer " +
-                            "to another account, etc.) but haven't posted yet are added to the " +
-                            "Dashboard's Expenses tile at their last known amount, so Remaining " +
-                            "reflects what's left once they go out — not just what you've spent " +
-                            "so far. Any category marked \"Fixe\" below (Categories tab) is " +
-                            "trusted the moment it's seen, even without repeating first, using " +
-                            "its detected billing cadence (monthly, quarterly, or yearly) so " +
-                            "it's only anticipated in the month it's actually due. Works for " +
-                            "This month and Next month alike. Only affects that one tile; " +
-                            "budgets, the spending breakdown, and every other screen are unaffected.",
+                        "Bills in categories marked \"Fixe\" (Categories tab) that haven't " +
+                            "posted yet are added to the Dashboard's Expenses tile at their last " +
+                            "known amount, so Remaining reflects what's left once they go out — " +
+                            "not just what you've spent so far. Only Fixe categories are " +
+                            "anticipated; each merchant's billing cadence (monthly, quarterly, or " +
+                            "yearly) is detected so it's only anticipated in the month it's " +
+                            "actually due. Works for This month and Next month alike. Only " +
+                            "affects that one tile; budgets, the spending breakdown, and every " +
+                            "other screen are unaffected.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)

@@ -375,16 +375,16 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        "Exclude transfers from spending",
+                        "Exclude transfers from totals",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = 24.dp)
                     )
                     Text(
-                        "Expenses categorized as Other • \"Other (Transfer)\" (moving money to " +
-                            "another of your own accounts, e.g. savings) are left out of income/" +
-                            "expense totals, budgets, and the spending breakdown, since they " +
-                            "aren't real spending. The account register still shows every " +
-                            "transaction as normal.",
+                        "Transactions categorized as Other • \"Other (Transfer)\" (moving money " +
+                            "between your own accounts, e.g. to or from savings) are left out of " +
+                            "income and expense totals, budgets, and the spending breakdown, " +
+                            "since they're neither real income nor real spending. Net balance " +
+                            "and the account register still include every transaction.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)

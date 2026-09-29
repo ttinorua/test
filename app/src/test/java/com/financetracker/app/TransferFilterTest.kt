@@ -1,7 +1,6 @@
 package com.financetracker.app
 
-import com.financetracker.app.data.db.entity.TransactionType
-import com.financetracker.app.util.countsTowardSpending
+import com.financetracker.app.util.countsTowardTotals
 import com.financetracker.app.util.isTransferCategory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -33,26 +32,26 @@ class TransferFilterTest {
 
     @Test
     fun `disabled setting always counts, even a transfer`() {
-        assertTrue(countsTowardSpending(TransactionType.EXPENSE, "Other", "Other (Transfer)", enabled = false))
+        assertTrue(countsTowardTotals("Other", "Other (Transfer)", enabled = false))
     }
 
     @Test
-    fun `enabled setting excludes a transfer expense`() {
-        assertFalse(countsTowardSpending(TransactionType.EXPENSE, "Other", "Other (Transfer)", enabled = true))
+    fun `enabled setting excludes a transfer in either direction`() {
+        assertFalse(countsTowardTotals("Other", "Other (Transfer)", enabled = true))
     }
 
     @Test
-    fun `enabled setting still counts a non-transfer expense`() {
-        assertTrue(countsTowardSpending(TransactionType.EXPENSE, "Food", "Groceries", enabled = true))
+    fun `enabled setting still counts a non-transfer`() {
+        assertTrue(countsTowardTotals("Food", "Groceries", enabled = true))
     }
 
     @Test
-    fun `enabled setting never excludes income, even with the same category strings`() {
-        assertTrue(countsTowardSpending(TransactionType.INCOME, "Other", "Other (Transfer)", enabled = true))
+    fun `enabled setting still counts real income`() {
+        assertTrue(countsTowardTotals("Income", "Pay, benefits and pension", enabled = true))
     }
 
     @Test
     fun `enabled setting with null category counts`() {
-        assertEquals(true, countsTowardSpending(TransactionType.EXPENSE, null, null, enabled = true))
+        assertEquals(true, countsTowardTotals(null, null, enabled = true))
     }
 }

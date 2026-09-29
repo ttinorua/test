@@ -23,7 +23,7 @@ import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.anticipatedRecurringExpenses
-import com.financetracker.app.util.countsTowardSpending
+import com.financetracker.app.util.countsTowardTotals
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.periodRange
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -177,10 +177,13 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             effectiveDate >= from && effectiveDate < to
         }
 
-        val income = inPeriod.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
+        val income = inPeriod.filter {
+            it.type == TransactionType.INCOME &&
+                countsTowardTotals(it.mainCategoryName, it.categoryName, excludeTransfers)
+        }.sumOf { it.amount }
         val expenseTx = inPeriod.filter {
             it.type == TransactionType.EXPENSE &&
-                countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
+                countsTowardTotals(it.mainCategoryName, it.categoryName, excludeTransfers)
         }
         val expense = expenseTx.sumOf { it.amount }
         val monthsAhead = when (periodOption) {
@@ -218,7 +221,7 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             val effectiveDate =
                 effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
             it.type == TransactionType.EXPENSE && effectiveDate >= monthFrom && effectiveDate < monthTo &&
-                countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
+                countsTowardTotals(it.mainCategoryName, it.categoryName, excludeTransfers)
         }
         val spentByCategory = monthExpenses
             .filter { it.categoryId != null }

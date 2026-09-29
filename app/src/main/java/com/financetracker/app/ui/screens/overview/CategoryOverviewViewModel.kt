@@ -10,7 +10,7 @@ import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.ui.components.BarChartEntry
 import com.financetracker.app.util.GroupByOption
 import com.financetracker.app.util.PeriodOption
-import com.financetracker.app.util.countsTowardSpending
+import com.financetracker.app.util.countsTowardTotals
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.groupKeyOf
 import com.financetracker.app.util.periodRange
@@ -74,7 +74,11 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
 
         fun countsAsExpense(tx: TransactionWithDetails) =
             tx.type == TransactionType.EXPENSE &&
-                countsTowardSpending(tx.type, tx.mainCategoryName, tx.categoryName, excludeTransfers)
+                countsTowardTotals(tx.mainCategoryName, tx.categoryName, excludeTransfers)
+
+        fun countsAsIncome(tx: TransactionWithDetails) =
+            tx.type == TransactionType.INCOME &&
+                countsTowardTotals(tx.mainCategoryName, tx.categoryName, excludeTransfers)
 
         val entries = inPeriod
             .groupBy { groupKeyOf(it, groupBy) }
@@ -82,7 +86,7 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
                 BarChartEntry(
                     key = key,
                     label = key,
-                    income = txs.filter { it.type == TransactionType.INCOME }.sumOf { it.amount },
+                    income = txs.filter { countsAsIncome(it) }.sumOf { it.amount },
                     expense = txs.filter { countsAsExpense(it) }.sumOf { it.amount }
                 )
             }
@@ -93,7 +97,7 @@ class CategoryOverviewViewModel(private val repository: FinanceRepository) : Vie
             customRange = customRange,
             groupBy = groupBy,
             entries = entries,
-            totalIncome = inPeriod.filter { it.type == TransactionType.INCOME }.sumOf { it.amount },
+            totalIncome = inPeriod.filter { countsAsIncome(it) }.sumOf { it.amount },
             totalExpense = inPeriod.filter { countsAsExpense(it) }.sumOf { it.amount },
             accounts = accounts,
             selectedAccountId = selectedAccountId

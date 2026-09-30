@@ -110,20 +110,26 @@ private fun sameMerchant(a: List<String>, b: List<String>): Boolean =
  * "MCD" card prefix on a booked card payment, which the same bill's scheduled entry lacks. */
 private val CHANNEL_TOKENS = setOf(
     "mcd", "bs", "pbs", "betalingsservice", "mobilepay", "dankort", "visa", "mastercard",
-    "overførsel", "overforsel", "fra", "til"
+    "overførsel", "overforsel", "fra", "til", "to", "from"
 )
 
-private fun merchantWords(tokens: List<String>) =
-    tokens.filter { it.length >= MIN_PREFIX_MATCH_LENGTH && it !in CHANNEL_TOKENS }
+private fun merchantWords(tokens: List<String>) = tokens.filter { it !in CHANNEL_TOKENS }
+
+private fun wordsMatch(x: String, y: String) =
+    x == y || (minOf(x.length, y.length) >= MIN_PREFIX_MATCH_LENGTH && (x.startsWith(y) || y.startsWith(x)))
 
 /** Looser than [sameMerchant], for deciding whether a bank-scheduled payment is a bill already
- * known some other way — its note is often worded differently from the booked postings ("TELENOR"
- * scheduled vs "MCD 02027 TELENOR" booked). Same merchant if they share a merchant word (or one
- * word is a prefix of the other, "netflix" vs "netflix.com"). */
+ * known some other way — its note is often worded differently from the booked postings ("TELENOR
+ * A/S" scheduled vs "MCD 02027 TELENOR" booked). Once payment-channel words are dropped, every
+ * word of the shorter name must appear in the longer one ("netflix" matches "netflix.com") —
+ * sharing just one word isn't enough, or "To Dansk Bolig" would match "Danske Bank". */
 private fun looselySameMerchant(a: List<String>, b: List<String>): Boolean {
     if (sameMerchant(a, b)) return true
+    val wordsA = merchantWords(a)
     val wordsB = merchantWords(b)
-    return merchantWords(a).any { x -> wordsB.any { y -> x == y || x.startsWith(y) || y.startsWith(x) } }
+    if (wordsA.isEmpty() || wordsB.isEmpty()) return false
+    val (shorter, longer) = if (wordsA.size <= wordsB.size) wordsA to wordsB else wordsB to wordsA
+    return shorter.all { x -> longer.any { y -> wordsMatch(x, y) } }
 }
 
 /** One recurring series: same account and same merchant, regardless of category — re-categorizing

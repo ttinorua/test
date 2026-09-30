@@ -582,4 +582,29 @@ class RecurringCostsTest {
         val scheduled = listOf(expense(utcMillis(2026, 3, 15), 700.0, "TELENOR"))
         assertTrue(anticipatedRecurringExpenses(transactions, now, scheduled = scheduled).isEmpty())
     }
+
+    @Test
+    fun `a scheduled payment doesn't borrow the category of a different merchant with a similar word`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 2, 1), 2000.0, "Danske Bank", category = "Other (Transfer)", mainCategory = "Other", categoryId = 7L)
+        )
+        val scheduled = listOf(
+            expense(utcMillis(2026, 3, 30), 24830.0, "To Dansk Bolig Forening").copy(categoryId = null, categoryName = null, mainCategoryName = null)
+        )
+        val items = anticipatedRecurringExpenses(transactions, now, scheduled = scheduled, excludeTransfers = true)
+        assertEquals(1, items.size)
+        assertEquals(24830.0, items.first().amount, 0.001)
+    }
+
+    @Test
+    fun `a Betalingsservice prefix doesn't stop a scheduled bill matching its history`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 1), 361.72, "OK EL", category = "Electricity", mainCategory = "Home", categoryId = 13L),
+            expense(utcMillis(2026, 2, 1), 355.10, "OK EL", category = "Electricity", mainCategory = "Home", categoryId = 13L)
+        )
+        val scheduled = listOf(expense(utcMillis(2026, 3, 30), 361.72, "BS OK EL"))
+        val items = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = setOf(13L), scheduled = scheduled)
+        assertEquals(1, items.size)
+        assertTrue(items.first().scheduledByBank)
+    }
 }

@@ -1162,6 +1162,17 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            scheduledPayments.sortedBy { it.date }.forEach { payment ->
+                Text(
+                    "${Formatters.date(payment.date)} · ${payment.note.ifBlank { "(no text)" }} · " +
+                        "-${Formatters.amount(payment.amount)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
         }
         Spacer(modifier = Modifier.height(12.dp))
 

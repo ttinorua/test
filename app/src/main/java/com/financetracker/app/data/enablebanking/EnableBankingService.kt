@@ -32,6 +32,13 @@ data class FetchedTransactions(val booked: List<ParsedTransactionRow>, val sched
  * how requests are authorized (no client secret; every call carries a freshly-signed RS256 JWT).
  */
 object EnableBankingService {
+    /** Pending ("PDNG") and scheduled ("SCHD") entries haven't happened yet — never imported as
+     * transactions, only kept as upcoming payments. */
+    private val NOT_YET_BOOKED_STATUSES = setOf("PDNG", "SCHD")
+    private const val SCHEDULED_LOOKAHEAD_MILLIS = 365L * 24 * 60 * 60 * 1000
+
+    @Volatile
+    private var futureDateToRejected = false
 
     private const val CONSENT_VALIDITY_DAYS = 180L
 
@@ -129,17 +136,29 @@ object EnableBankingService {
     ): Result<FetchedTransactions> =
         withContext(Dispatchers.IO) {
             try {
-                val dateFromParam = "?date_from=${formatDate(Date(sinceEpochMillis ?: FULL_HISTORY_SINCE_MILLIS))}"
+                val dateFrom = formatDate(Date(sinceEpochMillis ?: FULL_HISTORY_SINCE_MILLIS))
+                // Ask up to a year ahead so the bank's scheduled payments (future-dated) come back
+                // in the same request — no extra fetch against the bank's daily request limit.
+                val dateTo = formatDate(Date(todayUtcMidnight() + SCHEDULED_LOOKAHEAD_MILLIS))
+                var includeDateTo = !futureDateToRejected
                 val rows = mutableListOf<ParsedTransactionRow>()
                 val scheduled = mutableListOf<ParsedTransactionRow>()
                 var continuationKey: String? = null
                 var rowNumber = 0
-                do {
-                    val separator = if (dateFromParam.isEmpty()) "?" else "&"
-                    val query = dateFromParam + (continuationKey?.let {
-                        "${separator}continuation_key=${URLEncoder.encode(it, "UTF-8")}"
-                    } ?: "")
+                while (true) {
+                    val query = buildString {
+                        append("?date_from=").append(dateFrom)
+                        if (includeDateTo) append("&date_to=").append(dateTo)
+                        continuationKey?.let { append("&continuation_key=").append(URLEncoder.encode(it, "UTF-8")) }
+                    }
                     val response = EnableBankingApi.get("/accounts/$accountUid/transactions$query")
+                    if (includeDateTo && continuationKey == null && (response.status == 400 || response.status == 422)) {
+                        // A bank that rejects a future date_to: retry once without it, and stop
+                        // sending it for the rest of this app session.
+                        futureDateToRejected = true
+                        includeDateTo = false
+                        continue
+                    }
                     if (response.status !in 200..299) throw EnableBankingRequestException(apiErrorMessage(response))
                     val json = JSONObject(response.body)
                     val transactionsJson = json.optJSONArray("transactions")
@@ -160,7 +179,8 @@ object EnableBankingService {
                     // omitted field) once there's no more data — see stringOrNull() below for
                     // why that has to be handled explicitly rather than via optString() alone.
                     continuationKey = json.stringOrNull("continuation_key")
-                } while (continuationKey != null)
+                    if (continuationKey == null) break
+                }
                 Result.success(FetchedTransactions(rows, scheduled))
             } catch (e: Exception) {
                 Result.failure(mapError(e))
@@ -177,7 +197,7 @@ object EnableBankingService {
         // (b) get picked by BalanceReconciler as the latest row, skewing the reconciled balance
         // with a transaction that hasn't actually settled yet. Those go through
         // [mapScheduledPayment] instead.
-        if (obj.stringOrNull("status") == "PDNG") return null
+        if (obj.stringOrNull("status") in NOT_YET_BOOKED_STATUSES) return null
 
         val bookingDate = obj.stringOrNull("booking_date") ?: obj.stringOrNull("value_date") ?: return null
         val date = parseDateOnly(bookingDate) ?: return null
@@ -195,7 +215,7 @@ object EnableBankingService {
             ?: obj.stringOrNull("transaction_date")
             ?: return null
         val date = parseDateOnly(dateString) ?: return null
-        val isPending = obj.stringOrNull("status") == "PDNG"
+        val isPending = obj.stringOrNull("status") in NOT_YET_BOOKED_STATUSES
         val today = todayUtcMidnight()
         if (date < today || (!isPending && date == today)) return null
         return mapRow(obj, rowNumber, date)?.takeIf { it.type == TransactionType.EXPENSE }

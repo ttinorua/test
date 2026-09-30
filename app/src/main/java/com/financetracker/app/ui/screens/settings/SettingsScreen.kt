@@ -75,6 +75,7 @@ import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.prefs.BudgetLimits
+import com.financetracker.app.data.prefs.BankScheduledPayments
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.FixedExpenseCategories
@@ -1148,12 +1149,21 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             return@Column
         }
 
+        val scheduledPayments by BankScheduledPayments.payments.collectAsState()
         Text(
             state.lastSyncedAt?.let { "Last synced ${formatBankDate(it)}" } ?: "Never synced",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp, top = 2.dp)
+            modifier = Modifier.padding(top = 2.dp)
         )
+        if (state.lastSyncedAt != null) {
+            Text(
+                "Upcoming payments received from bank: ${scheduledPayments.size}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
 
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(state.connections, key = { it.bankId }) { connection ->

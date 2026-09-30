@@ -13,6 +13,7 @@ import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.importexport.DuplicateTransactionFilter
+import com.financetracker.app.data.prefs.BankScheduledPayments
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
@@ -156,6 +157,7 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
         viewModelScope.launch {
             repository.deleteAccount(account)
             MainAccountSettings.onAccountRemoved(account.id)
+            BankScheduledPayments.onAccountRemoved(account.id)
         }
     }
 
@@ -200,6 +202,7 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
             EnableBankingPrefs.remapAccountLink(source.id, target.id)
             repository.deleteAccount(source)
             MainAccountSettings.onAccountRemoved(source.id, replacementId = target.id)
+            BankScheduledPayments.onAccountRemoved(source.id)
         }
     }
 

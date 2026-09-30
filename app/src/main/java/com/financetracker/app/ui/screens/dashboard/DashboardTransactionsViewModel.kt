@@ -8,10 +8,13 @@ import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.data.prefs.BankScheduledPayments
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.prefs.MainAccountSettings
+import com.financetracker.app.data.prefs.ScheduledPayment
+import com.financetracker.app.data.prefs.toTransactionDetails
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.AnticipatedExpense
 import com.financetracker.app.util.PeriodOption
@@ -44,7 +47,8 @@ private data class DashboardTransactionsExtras(
     val accounts: List<Account>,
     val categories: List<Category>,
     val dismissedRecurring: Set<String>,
-    val fixedCategoryIds: Set<Long>
+    val fixedCategoryIds: Set<Long>,
+    val scheduledPayments: List<ScheduledPayment>
 )
 
 /**
@@ -91,13 +95,14 @@ class DashboardTransactionsViewModel(
             repository.observeAccounts(),
             repository.observeCategories(),
             DismissedRecurringExpenses.dismissed,
-            FixedExpenseCategories.fixedCategoryIds
-        ) { accounts, categories, dismissedRecurring, fixedCategoryIds ->
-            DashboardTransactionsExtras(accounts, categories, dismissedRecurring, fixedCategoryIds)
+            FixedExpenseCategories.fixedCategoryIds,
+            BankScheduledPayments.payments
+        ) { accounts, categories, dismissedRecurring, fixedCategoryIds, scheduledPayments ->
+            DashboardTransactionsExtras(accounts, categories, dismissedRecurring, fixedCategoryIds, scheduledPayments)
         }
     ) { transactions, settings, extras ->
         val (shiftSalary, excludeTransfers, anticipateRecurring) = settings
-        val (accounts, categories, dismissedRecurring, fixedCategoryIds) = extras
+        val (accounts, categories, dismissedRecurring, fixedCategoryIds, scheduledPayments) = extras
         val accountScoped = if (accountId != null) transactions.filter { it.accountId == accountId } else transactions
         val (from, to) = if (uncategorizedOnly) periodRange(PeriodOption.ALL_TIME, null) else periodRange(periodOption, customRange)
         val filtered = accountScoped.filter { tx ->
@@ -120,11 +125,16 @@ class DashboardTransactionsViewModel(
         }
         val showAnticipated = includeAnticipated && anticipateRecurring && monthsAhead != null
         val anticipated = if (showAnticipated) {
+            val categoriesById = categories.associateBy { it.id }
             anticipatedRecurringExpenses(
                 accountScoped,
                 monthsAhead = monthsAhead!!,
                 dismissedKeys = dismissedRecurring,
-                fixedCategoryIds = fixedCategoryIds
+                fixedCategoryIds = fixedCategoryIds,
+                scheduled = scheduledPayments
+                    .filter { accountId == null || it.accountId == accountId }
+                    .map { it.toTransactionDetails(categoriesById) },
+                excludeTransfers = excludeTransfers
             )
         } else {
             emptyList()

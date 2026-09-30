@@ -459,4 +459,88 @@ class RecurringCostsTest {
         )
         assertTrue(anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed).isEmpty())
     }
+
+    @Test
+    fun `a bank-scheduled payment is listed at its exact date and amount, even with no history or Fixe category`() {
+        val scheduled = listOf(
+            expense(utcMillis(2026, 4, 1), 3055.0, "Tryg forsikring", category = "Union and unemployment insurance", mainCategory = "Insurance", categoryId = 20L)
+        )
+        val nextMonth = anticipatedRecurringExpenses(emptyList(), now, monthsAhead = 1, scheduled = scheduled)
+        assertEquals(1, nextMonth.size)
+        val item = nextMonth.first()
+        assertTrue(item.scheduledByBank)
+        assertFalse(item.dateIsEstimated)
+        assertEquals(3055.0, item.amount, 0.001)
+        assertEquals(utcMillis(2026, 4, 1), item.estimatedDate)
+    }
+
+    @Test
+    fun `a bank-scheduled payment in another month isn't listed for this month`() {
+        val scheduled = listOf(expense(utcMillis(2026, 4, 1), 3055.0, "Tryg forsikring"))
+        assertTrue(anticipatedRecurringExpenses(emptyList(), now, scheduled = scheduled).isEmpty())
+    }
+
+    @Test
+    fun `a bank-scheduled payment replaces the Fixe prediction for the same bill`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
+            expense(utcMillis(2026, 2, 15), 210.0, "Telia")
+        )
+        val scheduled = listOf(expense(utcMillis(2026, 3, 20), 250.0, "Telia"))
+        val items = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed, scheduled = scheduled)
+        assertEquals(1, items.size)
+        assertTrue(items.first().scheduledByBank)
+        assertEquals(250.0, items.first().amount, 0.001)
+        assertEquals(utcMillis(2026, 3, 20), items.first().estimatedDate)
+    }
+
+    @Test
+    fun `a bill the bank has scheduled for next month isn't also predicted for this month`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
+            expense(utcMillis(2026, 2, 15), 210.0, "Telia")
+        )
+        val scheduled = listOf(expense(utcMillis(2026, 4, 1), 210.0, "Telia"))
+        assertTrue(anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed, scheduled = scheduled).isEmpty())
+    }
+
+    @Test
+    fun `a bank-scheduled payment that has already posted is not listed again`() {
+        val transactions = listOf(expense(utcMillis(2026, 3, 14), 700.0, "Telenor"))
+        val scheduled = listOf(expense(utcMillis(2026, 3, 15), 700.0, "Telenor"))
+        assertTrue(anticipatedRecurringExpenses(transactions, now, scheduled = scheduled).isEmpty())
+    }
+
+    @Test
+    fun `a bank-scheduled payment borrows the category of the matching bill in history`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 1), 3055.0, "Tryg forsikring", category = "Union and unemployment insurance", mainCategory = "Insurance", categoryId = 5L)
+        )
+        val scheduled = listOf(
+            expense(utcMillis(2026, 3, 25), 3055.0, "Tryg forsikring").copy(categoryId = null, categoryName = null, mainCategoryName = null)
+        )
+        val items = anticipatedRecurringExpenses(transactions, now, scheduled = scheduled)
+        assertEquals(1, items.size)
+        assertEquals("Union and unemployment insurance", items.first().category)
+    }
+
+    @Test
+    fun `a bank-scheduled transfer is left out when transfers are excluded`() {
+        val scheduled = listOf(
+            expense(utcMillis(2026, 3, 28), 5000.0, "Til opsparing", category = "Other (Transfer)", mainCategory = "Other", categoryId = 7L)
+        )
+        assertTrue(anticipatedRecurringExpenses(emptyList(), now, scheduled = scheduled, excludeTransfers = true).isEmpty())
+        assertEquals(1, anticipatedRecurringExpenses(emptyList(), now, scheduled = scheduled, excludeTransfers = false).size)
+    }
+
+    @Test
+    fun `two identical bank-scheduled payments get distinct dismiss keys`() {
+        val scheduled = listOf(
+            expense(utcMillis(2026, 3, 28), 100.0, "MobilePay Jens"),
+            expense(utcMillis(2026, 3, 28), 100.0, "MobilePay Jens")
+        )
+        val items = anticipatedRecurringExpenses(emptyList(), now, scheduled = scheduled)
+        assertEquals(2, items.size)
+        assertEquals(2, items.map { it.dismissKey }.toSet().size)
+    }
 }

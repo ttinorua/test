@@ -20,6 +20,10 @@ class EnableBankingRequestException(message: String, cause: Throwable? = null) :
 
 data class AuthStart(val url: String, val state: String)
 
+/** [booked] are real transactions to import; [scheduled] are outgoing payments the bank has
+ * scheduled but not booked yet, kept apart so they're never imported. */
+data class FetchedTransactions(val booked: List<ParsedTransactionRow>, val scheduled: List<ParsedTransactionRow>)
+
 /**
  * Talks to Enable Banking's open-banking (PSD2/AISP) API to link and sync a Sydbank account.
  * The app's application ID and private key ship inside BuildConfig (set via local.properties,
@@ -122,11 +126,12 @@ object EnableBankingService {
         accountUid: String,
         sinceEpochMillis: Long?,
         onPage: suspend (Int) -> Unit = {}
-    ): Result<List<ParsedTransactionRow>> =
+    ): Result<FetchedTransactions> =
         withContext(Dispatchers.IO) {
             try {
                 val dateFromParam = "?date_from=${formatDate(Date(sinceEpochMillis ?: FULL_HISTORY_SINCE_MILLIS))}"
                 val rows = mutableListOf<ParsedTransactionRow>()
+                val scheduled = mutableListOf<ParsedTransactionRow>()
                 var continuationKey: String? = null
                 var rowNumber = 0
                 do {
@@ -141,7 +146,13 @@ object EnableBankingService {
                     if (transactionsJson != null) {
                         for (i in 0 until transactionsJson.length()) {
                             rowNumber++
-                            mapTransaction(transactionsJson.getJSONObject(i), rowNumber)?.let { rows.add(it) }
+                            val obj = transactionsJson.getJSONObject(i)
+                            val booked = mapTransaction(obj, rowNumber)
+                            if (booked != null) {
+                                rows.add(booked)
+                            } else {
+                                mapScheduledPayment(obj, rowNumber)?.let { scheduled.add(it) }
+                            }
                         }
                     }
                     onPage(rows.size)
@@ -150,7 +161,7 @@ object EnableBankingService {
                     // why that has to be handled explicitly rather than via optString() alone.
                     continuationKey = json.stringOrNull("continuation_key")
                 } while (continuationKey != null)
-                Result.success(rows)
+                Result.success(FetchedTransactions(rows, scheduled))
             } catch (e: Exception) {
                 Result.failure(mapError(e))
             }
@@ -164,13 +175,33 @@ object EnableBankingService {
         // Sydbank shows scheduled/standing transfers ahead of their real date, so without this
         // filter a future-dated "PDNG" entry can (a) get imported as if it already happened and
         // (b) get picked by BalanceReconciler as the latest row, skewing the reconciled balance
-        // with a transaction that hasn't actually settled yet.
+        // with a transaction that hasn't actually settled yet. Those go through
+        // [mapScheduledPayment] instead.
         if (obj.stringOrNull("status") == "PDNG") return null
 
         val bookingDate = obj.stringOrNull("booking_date") ?: obj.stringOrNull("value_date") ?: return null
         val date = parseDateOnly(bookingDate) ?: return null
         if (date > todayUtcMidnight()) return null
 
+        return mapRow(obj, rowNumber, date)
+    }
+
+    /** An outgoing payment the bank has scheduled for today or later (pending, or booked with a
+     * future date) — never imported as a transaction, only shown as an upcoming expense.
+     * Past-dated pending entries (e.g. card reservations about to book) are skipped as before. */
+    private fun mapScheduledPayment(obj: JSONObject, rowNumber: Int): ParsedTransactionRow? {
+        val dateString = obj.stringOrNull("booking_date")
+            ?: obj.stringOrNull("value_date")
+            ?: obj.stringOrNull("transaction_date")
+            ?: return null
+        val date = parseDateOnly(dateString) ?: return null
+        val isPending = obj.stringOrNull("status") == "PDNG"
+        val today = todayUtcMidnight()
+        if (date < today || (!isPending && date == today)) return null
+        return mapRow(obj, rowNumber, date)?.takeIf { it.type == TransactionType.EXPENSE }
+    }
+
+    private fun mapRow(obj: JSONObject, rowNumber: Int, date: Long): ParsedTransactionRow? {
         val amountObj = obj.optJSONObject("transaction_amount") ?: return null
         val amount = amountObj.stringOrNull("amount")?.toDoubleOrNull()?.let { Math.abs(it) } ?: return null
 

@@ -14,6 +14,7 @@ import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
+import com.financetracker.app.data.prefs.BankScheduledPayments
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
@@ -21,6 +22,8 @@ import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.prefs.MainAccountSettings
+import com.financetracker.app.data.prefs.ScheduledPayment
+import com.financetracker.app.data.prefs.toTransactionDetails
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.anticipatedRecurringExpenses
@@ -92,7 +95,8 @@ private data class DashboardExtras(
     val overallBudgets: Map<Long?, Double>,
     val categoryBudgets: Map<Pair<Long, Long?>, Double>,
     val dismissedRecurring: Set<String>,
-    val fixedCategoryIds: Set<Long>
+    val fixedCategoryIds: Set<Long>,
+    val scheduledPayments: List<ScheduledPayment>
 )
 
 class DashboardViewModel(private val repository: FinanceRepository, appContext: Context) : ViewModel() {
@@ -145,8 +149,9 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             },
             BudgetLimits.categoryBudgets,
             DismissedRecurringExpenses.dismissed,
-            FixedExpenseCategories.fixedCategoryIds
-        ) { partial, categoryBudgets, dismissedRecurring, fixedCategoryIds ->
+            FixedExpenseCategories.fixedCategoryIds,
+            BankScheduledPayments.payments
+        ) { partial, categoryBudgets, dismissedRecurring, fixedCategoryIds, scheduledPayments ->
             DashboardExtras(
                 partial.shiftSalary,
                 partial.excludeTransfers,
@@ -155,14 +160,15 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
                 partial.overallBudgets,
                 categoryBudgets,
                 dismissedRecurring,
-                fixedCategoryIds
+                fixedCategoryIds,
+                scheduledPayments
             )
         }
     ) { allTransactions, accounts, filters, extras ->
         val (periodOption, customRange, selectedAccountId) = filters
         val (
             shiftSalary, excludeTransfers, anticipateRecurring, categories,
-            overallBudgets, allCategoryBudgets, dismissedRecurring, fixedCategoryIds
+            overallBudgets, allCategoryBudgets, dismissedRecurring, fixedCategoryIds, scheduledPayments
         ) = extras
         val overallBudget = resolveOverallBudget(overallBudgets, selectedAccountId)
         val categoryBudgets = resolveCategoryBudgets(allCategoryBudgets, selectedAccountId)
@@ -201,11 +207,16 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             else -> null
         }
         val anticipatedTotal = if (anticipateRecurring && monthsAhead != null) {
+            val categoriesById = categories.associateBy { it.id }
             anticipatedRecurringExpenses(
                 transactions,
                 monthsAhead = monthsAhead,
                 dismissedKeys = dismissedRecurring,
-                fixedCategoryIds = fixedCategoryIds
+                fixedCategoryIds = fixedCategoryIds,
+                scheduled = scheduledPayments
+                    .filter { selectedAccountId == null || it.accountId == selectedAccountId }
+                    .map { it.toTransactionDetails(categoriesById) },
+                excludeTransfers = excludeTransfers
             ).sumOf { it.amount }
         } else {
             0.0

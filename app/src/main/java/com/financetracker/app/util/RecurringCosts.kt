@@ -4,6 +4,7 @@ import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import java.util.Calendar
 import java.util.TimeZone
+import kotlin.math.abs
 
 /** Categories that recur by habit, not by contract, and so are never anticipated no matter how
  * regularly they repeat — parking at the same garage every workday, buying groceries at the same
@@ -18,8 +19,10 @@ private enum class Cadence { MONTHLY, QUARTERLY, YEARLY, UNKNOWN }
 /** One recurring expense that hasn't posted yet in the month being projected for, projected at
  * its most recent occurrence's amount. [estimatedDate] is that month's predicted posting date —
  * a real prediction (a detected monthly/quarterly/yearly cadence) when [dateIsEstimated] is
- * false, otherwise a rough guess when there's too little history to be confident. [dismissKey] identifies this specific bill for this specific
- * projected month — pass it to
+ * false, otherwise a rough guess when there's too little history to be confident.
+ * [scheduledByBank] means the bank itself has this payment scheduled — exact amount and date, not
+ * a guess. [dismissKey] identifies this specific bill for this specific projected month — pass it
+ * to
  * [com.financetracker.app.data.prefs.DismissedRecurringExpenses.dismiss] to remove it from
  * "Upcoming expenses" (and the Dashboard Expenses tile total) until it actually posts or that
  * month rolls over. */
@@ -31,7 +34,8 @@ data class AnticipatedExpense(
     val amount: Double,
     val estimatedDate: Long,
     val dateIsEstimated: Boolean,
-    val dismissKey: String
+    val dismissKey: String,
+    val scheduledByBank: Boolean = false
 )
 
 private data class MonthBucket(val year: Int, val month: Int)
@@ -108,6 +112,8 @@ private fun sameMerchant(a: List<String>, b: List<String>): Boolean =
 private class RecurringGroup(val accountId: Long, val identity: List<String>) {
     val variants = mutableListOf(identity)
     val txs = mutableListOf<TransactionWithDetails>()
+
+    fun matches(other: List<String>) = variants.any { sameMerchant(it, other) }
 }
 
 /** Groups oldest-first, so a group's [RecurringGroup.identity] (and therefore its dismiss key)
@@ -117,7 +123,7 @@ private fun groupRecurring(expenses: List<TransactionWithDetails>): List<Recurri
     for (tx in expenses.sortedBy { it.date }) {
         val identity = identityTokensOf(tx.note)
         val group = groups.firstOrNull { g ->
-            g.accountId == tx.accountId && g.variants.any { sameMerchant(it, identity) }
+            g.accountId == tx.accountId && g.matches(identity)
         } ?: RecurringGroup(tx.accountId, identity).also { groups += it }
         if (identity !in group.variants) group.variants += identity
         group.txs += tx
@@ -179,30 +185,83 @@ private fun qualifyFixedExpense(
  * [com.financetracker.app.data.prefs.DismissedRecurringExpenses]) excludes anything the user has
  * explicitly removed from that month's list.
  *
- * [transactions] should already be scoped to whichever account (or all accounts) the caller
- * cares about — this only groups and projects, it doesn't filter by account itself.
+ * [scheduled] are the bank's own scheduled-but-not-booked payments (see
+ * [com.financetracker.app.data.prefs.BankScheduledPayments]). Every one dated in the projected
+ * month is listed at its exact amount and date, whatever its category — the bank knows it's
+ * coming, no guessing needed — and takes the place of any Fixe prediction for the same account
+ * and merchant, since the bank's date beats an estimate. One that already matches a posted
+ * transaction (same account, merchant and amount, within a few days) is skipped.
+ *
+ * With [excludeTransfers] on, anything whose category is "Other (Transfer)" is left out, the same
+ * way the Expenses total leaves posted transfers out.
+ *
+ * [transactions] and [scheduled] should already be scoped to whichever account (or all accounts)
+ * the caller cares about — this only groups and projects, it doesn't filter by account itself.
  */
 fun anticipatedRecurringExpenses(
     transactions: List<TransactionWithDetails>,
     now: Long = System.currentTimeMillis(),
     monthsAhead: Int = 0,
     dismissedKeys: Set<String> = emptySet(),
-    fixedCategoryIds: Set<Long> = emptySet()
+    fixedCategoryIds: Set<Long> = emptySet(),
+    scheduled: List<TransactionWithDetails> = emptyList(),
+    excludeTransfers: Boolean = false
 ): List<AnticipatedExpense> {
     val expenses = transactions.filter { it.type == TransactionType.EXPENSE }
-    if (expenses.isEmpty()) return emptyList()
-
     val nowBucket = monthBucketOf(now)
     val targetBucket = monthBucketOf(now, monthsAhead)
+    val groups = groupRecurring(expenses)
 
-    return groupRecurring(expenses).mapNotNull { group ->
+    fun isExcludedTransfer(tx: TransactionWithDetails) =
+        excludeTransfers && isTransferCategory(tx.mainCategoryName, tx.categoryName)
+
+    val upcomingScheduled = scheduled.filter { payment ->
+        payment.type == TransactionType.EXPENSE &&
+            monthBucketOf(payment.date).index() >= targetBucket.index() &&
+            !isAlreadyPosted(payment, expenses)
+    }
+    val scheduledThisMonth = upcomingScheduled.filter { monthBucketOf(it.date) == targetBucket }
+    val keyCounts = mutableMapOf<String, Int>()
+    val bankItems = scheduledThisMonth.sortedBy { it.date }.mapNotNull { payment ->
+        val identity = identityTokensOf(payment.note)
+        val series = groups.firstOrNull { it.accountId == payment.accountId && it.matches(identity) }
+        val source = series?.txs?.last() ?: payment
+        if (isExcludedTransfer(source)) return@mapNotNull null
+
+        val baseKey = "${targetBucket.year}-${targetBucket.month}|bank|${payment.accountId}|" +
+            "${identity.joinToString(" ")}|${payment.date}|${payment.amount}"
+        val occurrence = (keyCounts[baseKey] ?: 0) + 1
+        keyCounts[baseKey] = occurrence
+        val dismissKey = if (occurrence == 1) baseKey else "$baseKey#$occurrence"
+        if (dismissKey in dismissedKeys) return@mapNotNull null
+
+        AnticipatedExpense(
+            label = payment.note.ifBlank { source.categoryName ?: "Scheduled payment" },
+            mainCategory = source.mainCategoryName ?: "Uncategorized",
+            category = source.categoryName ?: "Uncategorized",
+            colorHex = source.categoryColorHex ?: "#9E9E9E",
+            amount = payment.amount,
+            estimatedDate = payment.date,
+            dateIsEstimated = false,
+            dismissKey = dismissKey,
+            scheduledByBank = true
+        )
+    }
+
+    val predictedItems = groups.mapNotNull { group ->
         val sortedTxs = group.txs
-        val lastCategory = (sortedTxs.last().categoryName ?: "Uncategorized").trim().lowercase()
-        if (lastCategory in EXCLUDED_CATEGORIES) return@mapNotNull null
+        val last = sortedTxs.last()
+        val lastCategory = (last.categoryName ?: "Uncategorized").trim().lowercase()
+        if (lastCategory in EXCLUDED_CATEGORIES || isExcludedTransfer(last)) return@mapNotNull null
 
-        val lastCategoryId = sortedTxs.last().categoryId
+        val lastCategoryId = last.categoryId
         if (lastCategoryId == null || lastCategoryId !in fixedCategoryIds) return@mapNotNull null
         if (sortedTxs.any { monthBucketOf(it.date) == targetBucket }) return@mapNotNull null
+        // The bank already has this bill scheduled for this month or later — its date wins.
+        val bankHasIt = upcomingScheduled.any { payment ->
+            payment.accountId == group.accountId && group.matches(identityTokensOf(payment.note))
+        }
+        if (bankHasIt) return@mapNotNull null
 
         val qualification = qualifyFixedExpense(sortedTxs, nowBucket, targetBucket)
         if (!qualification.qualifies) return@mapNotNull null
@@ -210,18 +269,33 @@ fun anticipatedRecurringExpenses(
         val dismissKey = dismissKeyFor(targetBucket, group)
         if (dismissKey in dismissedKeys) return@mapNotNull null
 
-        val mostRecent = sortedTxs.last()
         AnticipatedExpense(
-            label = mostRecent.note.ifBlank { mostRecent.categoryName ?: "Recurring expense" },
-            mainCategory = mostRecent.mainCategoryName ?: "Uncategorized",
-            category = mostRecent.categoryName ?: "Uncategorized",
-            colorHex = mostRecent.categoryColorHex ?: "#9E9E9E",
-            amount = mostRecent.amount,
+            label = last.note.ifBlank { last.categoryName ?: "Recurring expense" },
+            mainCategory = last.mainCategoryName ?: "Uncategorized",
+            category = last.categoryName ?: "Uncategorized",
+            colorHex = last.categoryColorHex ?: "#9E9E9E",
+            amount = last.amount,
             estimatedDate = qualification.predictedDate,
             dateIsEstimated = qualification.dateIsEstimated,
             dismissKey = dismissKey
         )
-    }.sortedBy { it.estimatedDate }
+    }
+
+    return (bankItems + predictedItems).sortedBy { it.estimatedDate }
+}
+
+private const val POSTED_MATCH_WINDOW_DAYS = 3
+
+/** A scheduled payment the bank has since booked, if the sync that removed it from the
+ * scheduled list hasn't run yet: same account, merchant and amount, within a few days. */
+private fun isAlreadyPosted(payment: TransactionWithDetails, expenses: List<TransactionWithDetails>): Boolean {
+    val identity = identityTokensOf(payment.note)
+    return expenses.any {
+        it.accountId == payment.accountId &&
+            abs(it.amount - payment.amount) < 0.005 &&
+            abs(daysBetween(it.date, payment.date)) <= POSTED_MATCH_WINDOW_DAYS &&
+            sameMerchant(identityTokensOf(it.note), identity)
+    }
 }
 
 /** Sum of [anticipatedRecurringExpenses] — what the Dashboard Expenses tile adds on top of what's
@@ -231,5 +305,9 @@ fun anticipatedRecurringExpenseTotal(
     now: Long = System.currentTimeMillis(),
     monthsAhead: Int = 0,
     dismissedKeys: Set<String> = emptySet(),
-    fixedCategoryIds: Set<Long> = emptySet()
-): Double = anticipatedRecurringExpenses(transactions, now, monthsAhead, dismissedKeys, fixedCategoryIds).sumOf { it.amount }
+    fixedCategoryIds: Set<Long> = emptySet(),
+    scheduled: List<TransactionWithDetails> = emptyList(),
+    excludeTransfers: Boolean = false
+): Double = anticipatedRecurringExpenses(
+    transactions, now, monthsAhead, dismissedKeys, fixedCategoryIds, scheduled, excludeTransfers
+).sumOf { it.amount }

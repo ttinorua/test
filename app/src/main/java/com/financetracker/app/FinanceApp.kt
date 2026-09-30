@@ -10,6 +10,7 @@ import com.financetracker.app.data.db.AppDatabase
 import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
+import com.financetracker.app.data.prefs.BankScheduledPayments
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
@@ -35,6 +36,7 @@ class FinanceApp : Application() {
         LearnedCategoryRules.init(this)
         ThemeSettings.init(this)
         MainAccountSettings.init(this)
+        BankScheduledPayments.init(this)
         BudgetSettings.init(this)
         BudgetLimits.init(this)
         AiInsightsCache.init(this)

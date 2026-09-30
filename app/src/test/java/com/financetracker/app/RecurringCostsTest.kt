@@ -534,13 +534,52 @@ class RecurringCostsTest {
     }
 
     @Test
-    fun `two identical bank-scheduled payments get distinct dismiss keys`() {
+    fun `the bank listing the same scheduled payment twice shows it once`() {
         val scheduled = listOf(
             expense(utcMillis(2026, 3, 28), 100.0, "MobilePay Jens"),
             expense(utcMillis(2026, 3, 28), 100.0, "MobilePay Jens")
         )
-        val items = anticipatedRecurringExpenses(emptyList(), now, scheduled = scheduled)
-        assertEquals(2, items.size)
-        assertEquals(2, items.map { it.dismissKey }.toSet().size)
+        assertEquals(1, anticipatedRecurringExpenses(emptyList(), now, scheduled = scheduled).size)
+    }
+
+    @Test
+    fun `a scheduled note worded differently from the booked postings still replaces the prediction`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 26), 699.0, "MCD 01900 TELENOR"),
+            expense(utcMillis(2026, 2, 26), 699.0, "MCD 01978 TELENOR")
+        )
+        val scheduled = listOf(expense(utcMillis(2026, 3, 27), 699.0, "TELENOR A/S"))
+        val items = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed, scheduled = scheduled)
+        assertEquals(1, items.size)
+        assertTrue(items.first().scheduledByBank)
+    }
+
+    @Test
+    fun `a scheduled payment with a different note but the same amount near the predicted date replaces the prediction`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 20), 600.0, "Norlys"),
+            expense(utcMillis(2026, 2, 20), 600.0, "Norlys")
+        )
+        val scheduled = listOf(expense(utcMillis(2026, 3, 21), 600.0, "BS 000123 ELSELSKAB"))
+        val items = anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed, scheduled = scheduled)
+        assertEquals(1, items.size)
+        assertTrue(items.first().scheduledByBank)
+    }
+
+    @Test
+    fun `a scheduled payment for a different bill doesn't hide the prediction`() {
+        val transactions = listOf(
+            expense(utcMillis(2026, 1, 15), 200.0, "Telia"),
+            expense(utcMillis(2026, 2, 15), 210.0, "Telia")
+        )
+        val scheduled = listOf(expense(utcMillis(2026, 3, 16), 3055.0, "Tryg forsikring"))
+        assertEquals(2, anticipatedRecurringExpenses(transactions, now, fixedCategoryIds = fixed, scheduled = scheduled).size)
+    }
+
+    @Test
+    fun `a scheduled payment already booked under a differently worded note is not listed`() {
+        val transactions = listOf(expense(utcMillis(2026, 3, 14), 700.0, "MCD 02100 TELENOR"))
+        val scheduled = listOf(expense(utcMillis(2026, 3, 15), 700.0, "TELENOR"))
+        assertTrue(anticipatedRecurringExpenses(transactions, now, scheduled = scheduled).isEmpty())
     }
 }

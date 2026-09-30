@@ -106,6 +106,26 @@ private fun sameMerchant(a: List<String>, b: List<String>): Boolean =
         x == y || (minOf(x.length, y.length) >= MIN_PREFIX_MATCH_LENGTH && (x.startsWith(y) || y.startsWith(x)))
     }
 
+/** Payment-channel words that say how a payment was made, not who it went to — e.g. Sydbank's
+ * "MCD" card prefix on a booked card payment, which the same bill's scheduled entry lacks. */
+private val CHANNEL_TOKENS = setOf(
+    "mcd", "bs", "pbs", "betalingsservice", "mobilepay", "dankort", "visa", "mastercard",
+    "overførsel", "overforsel", "fra", "til"
+)
+
+private fun merchantWords(tokens: List<String>) =
+    tokens.filter { it.length >= MIN_PREFIX_MATCH_LENGTH && it !in CHANNEL_TOKENS }
+
+/** Looser than [sameMerchant], for deciding whether a bank-scheduled payment is a bill already
+ * known some other way — its note is often worded differently from the booked postings ("TELENOR"
+ * scheduled vs "MCD 02027 TELENOR" booked). Same merchant if they share a merchant word (or one
+ * word is a prefix of the other, "netflix" vs "netflix.com"). */
+private fun looselySameMerchant(a: List<String>, b: List<String>): Boolean {
+    if (sameMerchant(a, b)) return true
+    val wordsB = merchantWords(b)
+    return merchantWords(a).any { x -> wordsB.any { y -> x == y || x.startsWith(y) || y.startsWith(x) } }
+}
+
 /** One recurring series: same account and same merchant, regardless of category — re-categorizing
  * one month's posting (e.g. Prime Video moved to a different category) must not split the series,
  * or the recategorized posting would never count as the bill having already posted. */
@@ -114,6 +134,8 @@ private class RecurringGroup(val accountId: Long, val identity: List<String>) {
     val txs = mutableListOf<TransactionWithDetails>()
 
     fun matches(other: List<String>) = variants.any { sameMerchant(it, other) }
+
+    fun looselyMatches(other: List<String>) = variants.any { looselySameMerchant(it, other) }
 }
 
 /** Groups oldest-first, so a group's [RecurringGroup.identity] (and therefore its dismiss key)
@@ -215,7 +237,9 @@ fun anticipatedRecurringExpenses(
     fun isExcludedTransfer(tx: TransactionWithDetails) =
         excludeTransfers && isTransferCategory(tx.mainCategoryName, tx.categoryName)
 
-    val upcomingScheduled = scheduled.filter { payment ->
+    // Identical entries (same account, date, amount and note) are the bank listing one payment
+    // twice, not two payments.
+    val upcomingScheduled = scheduled.distinctBy { listOf(it.accountId, it.date, it.amount, it.note.trim()) }.filter { payment ->
         payment.type == TransactionType.EXPENSE &&
             monthBucketOf(payment.date).index() >= targetBucket.index() &&
             !isAlreadyPosted(payment, expenses)
@@ -225,6 +249,7 @@ fun anticipatedRecurringExpenses(
     val bankItems = scheduledThisMonth.sortedBy { it.date }.mapNotNull { payment ->
         val identity = identityTokensOf(payment.note)
         val series = groups.firstOrNull { it.accountId == payment.accountId && it.matches(identity) }
+            ?: groups.firstOrNull { it.accountId == payment.accountId && it.looselyMatches(identity) }
         val source = series?.txs?.last() ?: payment
         if (isExcludedTransfer(source)) return@mapNotNull null
 
@@ -257,14 +282,21 @@ fun anticipatedRecurringExpenses(
         val lastCategoryId = last.categoryId
         if (lastCategoryId == null || lastCategoryId !in fixedCategoryIds) return@mapNotNull null
         if (sortedTxs.any { monthBucketOf(it.date) == targetBucket }) return@mapNotNull null
-        // The bank already has this bill scheduled for this month or later — its date wins.
-        val bankHasIt = upcomingScheduled.any { payment ->
-            payment.accountId == group.accountId && group.matches(identityTokensOf(payment.note))
-        }
-        if (bankHasIt) return@mapNotNull null
 
         val qualification = qualifyFixedExpense(sortedTxs, nowBucket, targetBucket)
         if (!qualification.qualifies) return@mapNotNull null
+
+        // The bank already has this bill scheduled — its date and amount win over a guess. Matched
+        // by merchant (loosely, since the scheduled note is often worded differently), or failing
+        // that by a near-identical amount close to the predicted date.
+        val bankHasIt = upcomingScheduled.any { payment ->
+            payment.accountId == group.accountId && (
+                group.looselyMatches(identityTokensOf(payment.note)) ||
+                    (isNearlySameAmount(payment.amount, last.amount) &&
+                        abs(daysBetween(qualification.predictedDate, payment.date)) <= SCHEDULED_MATCH_WINDOW_DAYS)
+                )
+        }
+        if (bankHasIt) return@mapNotNull null
 
         val dismissKey = dismissKeyFor(targetBucket, group)
         if (dismissKey in dismissedKeys) return@mapNotNull null
@@ -285,6 +317,9 @@ fun anticipatedRecurringExpenses(
 }
 
 private const val POSTED_MATCH_WINDOW_DAYS = 3
+private const val SCHEDULED_MATCH_WINDOW_DAYS = 5
+
+private fun isNearlySameAmount(a: Double, b: Double): Boolean = abs(a - b) <= maxOf(0.01, 0.01 * maxOf(a, b))
 
 /** A scheduled payment the bank has since booked, if the sync that removed it from the
  * scheduled list hasn't run yet: same account, merchant and amount, within a few days. */
@@ -294,7 +329,7 @@ private fun isAlreadyPosted(payment: TransactionWithDetails, expenses: List<Tran
         it.accountId == payment.accountId &&
             abs(it.amount - payment.amount) < 0.005 &&
             abs(daysBetween(it.date, payment.date)) <= POSTED_MATCH_WINDOW_DAYS &&
-            sameMerchant(identityTokensOf(it.note), identity)
+            looselySameMerchant(identityTokensOf(it.note), identity)
     }
 }
 

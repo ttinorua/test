@@ -40,7 +40,7 @@ object BankScheduledPayments {
     }
 
     fun replaceForAccount(accountId: Long, payments: List<ScheduledPayment>) {
-        _payments.update { current -> current.filterNot { it.accountId == accountId } + payments }
+        _payments.update { current -> current.filterNot { it.accountId == accountId } + payments.distinct() }
         persist()
     }
 

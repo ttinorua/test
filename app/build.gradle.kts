@@ -1,3 +1,4 @@
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -18,12 +19,21 @@ val anthropicApiKey: String =
     (localProperties.getProperty("ANTHROPIC_API_KEY") ?: System.getenv("ANTHROPIC_API_KEY") ?: "")
 
 // Enable Banking (Sydbank open-banking sync). Same local.properties + env var fallback pattern
-// as the Anthropic key. The private key is stored base64-encoded (of the whole PEM text) so it
-// survives as a single Properties line.
-val enableBankingApplicationId: String =
-    (localProperties.getProperty("ENABLE_BANKING_APPLICATION_ID") ?: System.getenv("ENABLE_BANKING_APPLICATION_ID") ?: "")
+// as the Anthropic key. The app expects the private key base64-encoded (of the whole PEM text) —
+// either supply that as ENABLE_BANKING_PRIVATE_KEY_B64, or paste the .pem file's text as-is into
+// ENABLE_BANKING_PRIVATE_KEY and it's encoded here.
+fun buildSecret(name: String): String? =
+    (localProperties.getProperty(name) ?: System.getenv(name))?.takeIf { it.isNotBlank() }
+
+val enableBankingApplicationId: String = buildSecret("ENABLE_BANKING_APPLICATION_ID")?.trim() ?: ""
 val enableBankingPrivateKeyB64: String =
-    (localProperties.getProperty("ENABLE_BANKING_PRIVATE_KEY_B64") ?: System.getenv("ENABLE_BANKING_PRIVATE_KEY_B64") ?: "")
+    buildSecret("ENABLE_BANKING_PRIVATE_KEY_B64")?.trim()
+        ?: buildSecret("ENABLE_BANKING_PRIVATE_KEY")
+            // An env var editor may keep the line breaks as literal "\n" text.
+            ?.replace("\\n", "\n")
+            ?.trim()
+            ?.let { Base64.getEncoder().encodeToString(it.toByteArray(Charsets.UTF_8)) }
+        ?: ""
 
 android {
     namespace = "com.financetracker.app"

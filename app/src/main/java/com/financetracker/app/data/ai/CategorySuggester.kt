@@ -1,5 +1,6 @@
 package com.financetracker.app.data.ai
 
+import com.anthropic.models.messages.OutputConfig
 import com.financetracker.app.data.db.entity.Category
 
 /**
@@ -47,7 +48,13 @@ object CategorySuggester {
                 "new categories, and do not skip, merge or add lines. If nothing fits well for " +
                 "an item, reply \"N. Uncategorized|Uncategorized\" for that item."
 
-        return ClaudeService.ask(systemPrompt, numberedNotes, maxTokens = 40L * nonBlank.size + 100L).map { reply ->
+        return ClaudeService.ask(
+            systemPrompt,
+            numberedNotes,
+            maxTokens = 40L * nonBlank.size + 100L,
+            // A multiple-choice lookup — little to gain from deeper thinking.
+            effort = OutputConfig.Effort.LOW
+        ).map { reply ->
             val results = MutableList<Category?>(notes.size) { null }
             val byNumber = reply.trim().lines().mapNotNull { line ->
                 val match = Regex("""^(\d+)\.\s*(.+)$""").find(line.trim()) ?: return@mapNotNull null

@@ -48,4 +48,6 @@ object DuplicateTransactionFilter {
      * account-merge/deduplication tools use to decide "is this the same transaction as that one" —
      * exposed so every place that needs that definition (import, merge, cleanup) agrees on it. */
     fun keyOf(transaction: Transaction): Key = keyOf(transaction.date, transaction.amount, transaction.type, transaction.note)
+
+    fun keyOf(row: ParsedTransactionRow): Key = keyOf(row.date, row.amount, row.type, row.note)
 }

@@ -78,6 +78,10 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
         )
     ) { uri -> if (uri != null) viewModel.exportTransactions(uri, ExportFormat.XLSX) }
 
+    val restoreLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) viewModel.restoreCategories(uri) }
+
     LaunchedEffect(state.exportMessage) {
         state.exportMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -231,6 +235,42 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
                     }
                 }
             }
+
+            item {
+                Text("Restore categories from backup", style = MaterialTheme.typography.titleMedium)
+            }
+            item {
+                Card {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            "Pick a spreadsheet you exported from this app. Transactions already here " +
+                                "that match one in the backup (same date, amount and text) get the " +
+                                "backup's category back. Nothing is added or deleted.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Button(
+                            onClick = { restoreLauncher.launch(SPREADSHEET_MIME_TYPES) },
+                            enabled = !state.isRestoring,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (state.isRestoring) {
+                                CircularProgressIndicator(modifier = Modifier.padding(2.dp))
+                            } else {
+                                Icon(Icons.Filled.FileUpload, contentDescription = null)
+                                Text(" Choose backup file", modifier = Modifier.padding(start = 4.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        state.restoreMessage?.let { message ->
+            AlertDialog(
+                onDismissRequest = viewModel::dismissRestoreMessage,
+                title = { Text("Restore categories") },
+                text = { Text(message) },
+                confirmButton = { TextButton(onClick = viewModel::dismissRestoreMessage) { Text("OK") } }
+            )
         }
         SnackbarHost(
             hostState = snackbarHostState,

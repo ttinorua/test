@@ -8,6 +8,7 @@ import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.importexport.BalanceReconciler
+import com.financetracker.app.data.importexport.CategoryRestore
 import com.financetracker.app.data.importexport.DuplicateTransactionFilter
 import com.financetracker.app.data.importexport.FileImportHelper
 import com.financetracker.app.data.importexport.ImportResult
@@ -40,7 +41,9 @@ data class ImportExportUiState(
     val showResult: Boolean = false,
     val isExporting: Boolean = false,
     val exportMessage: String? = null,
-    val importError: String? = null
+    val importError: String? = null,
+    val isRestoring: Boolean = false,
+    val restoreMessage: String? = null
 )
 
 class ImportExportViewModel(
@@ -196,6 +199,69 @@ class ImportExportViewModel(
 
     fun dismissExportMessage() {
         _uiState.update { it.copy(exportMessage = null) }
+    }
+
+    /** Re-applies the categories from one of the app's own exported spreadsheets onto the
+     * matching transactions already in the app (see [CategoryRestore]) — the way to get a
+     * category history back after reinstalling and re-syncing from the bank. */
+    fun restoreCategories(uri: Uri) {
+        if (_uiState.value.isRestoring) return
+        _uiState.update { it.copy(isRestoring = true, restoreMessage = null) }
+        viewModelScope.launch {
+            val message = try {
+                withContext(Dispatchers.IO) {
+                    val parsed = FileImportHelper.parse(appContext, uri)
+                    if (parsed.rows.isEmpty()) {
+                        "No transactions found in that file." +
+                            (parsed.errors.firstOrNull()?.let { " $it" } ?: "")
+                    } else {
+                        val plan = CategoryRestore.plan(repository.getAllTransactions(), parsed.rows)
+                        val changed = applyRestore(plan)
+                        buildString {
+                            append("Restored categories for $changed transactions.")
+                            val unchanged = plan.matches.size - changed
+                            if (unchanged > 0) append(" $unchanged already had the right category.")
+                            if (plan.unmatchedCount > 0) {
+                                append(" ${plan.unmatchedCount} from the backup weren't found in the app (e.g. history not synced yet).")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Throwable) {
+                "Restore failed: ${describeError(e)}"
+            }
+            _uiState.update { it.copy(isRestoring = false, restoreMessage = message) }
+        }
+    }
+
+    /** Returns how many transactions actually changed category. An existing category with the
+     * same main + name is reused whatever its income/expense type (e.g. an incoming transfer
+     * categorized "Other (Transfer)"), rather than creating a duplicate of it. */
+    private suspend fun applyRestore(plan: CategoryRestore.Plan): Int {
+        val categories = repository.getCategories()
+        val resolved = mutableMapOf<Triple<String, String, TransactionType>, Long>()
+        var changed = 0
+        for ((transaction, row) in plan.matches) {
+            val categoryId = resolved.getOrPut(Triple(row.mainCategoryName, row.categoryName, row.type)) {
+                categories.firstOrNull {
+                    it.mainCategory.equals(row.mainCategoryName.trim(), ignoreCase = true) &&
+                        it.name.equals(row.categoryName.trim(), ignoreCase = true) &&
+                        it.type == row.type
+                }?.id ?: categories.firstOrNull {
+                    it.mainCategory.equals(row.mainCategoryName.trim(), ignoreCase = true) &&
+                        it.name.equals(row.categoryName.trim(), ignoreCase = true)
+                }?.id ?: repository.getOrCreateCategory(row.mainCategoryName.trim(), row.categoryName.trim(), row.type).id
+            }
+            if (transaction.categoryId != categoryId) {
+                repository.updateTransaction(transaction.copy(categoryId = categoryId))
+                changed++
+            }
+        }
+        return changed
+    }
+
+    fun dismissRestoreMessage() {
+        _uiState.update { it.copy(restoreMessage = null) }
     }
 
     fun dismissImportError() {

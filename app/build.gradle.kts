@@ -52,6 +52,27 @@ android {
         buildConfigField("String", "ENABLE_BANKING_PRIVATE_KEY_B64", "\"$enableBankingPrivateKeyB64\"")
     }
 
+    // The app's permanent signing key. Android only installs an update signed with the same key as
+    // the installed app, so this must never change — it lives in the build environment
+    // (ANDROID_KEYSTORE_B64 = the .p12 file base64-encoded, ANDROID_KEYSTORE_PASSWORD), never in
+    // this repository. Without it, release builds come out unsigned.
+    val releaseKeystoreB64 = buildSecret("ANDROID_KEYSTORE_B64")
+    val releaseKeystorePassword = buildSecret("ANDROID_KEYSTORE_PASSWORD")
+    if (releaseKeystoreB64 != null && releaseKeystorePassword != null) {
+        signingConfigs {
+            create("release") {
+                val keystoreFile = layout.buildDirectory.file("signing/release.p12").get().asFile
+                keystoreFile.parentFile.mkdirs()
+                keystoreFile.writeBytes(Base64.getMimeDecoder().decode(releaseKeystoreB64.trim()))
+                storeFile = keystoreFile
+                storeType = "pkcs12"
+                storePassword = releaseKeystorePassword.trim()
+                keyAlias = "financetracker"
+                keyPassword = releaseKeystorePassword.trim()
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -59,6 +80,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.findByName("release")
         }
         debug {
             isMinifyEnabled = false

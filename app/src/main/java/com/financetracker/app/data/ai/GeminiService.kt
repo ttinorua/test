@@ -33,8 +33,8 @@ internal object GeminiService {
             val body = request(systemPrompt, listOf(ChatTurn(isUser = true, text = userMessage)), maxTokens, quick = false)
             body.getJSONObject("generationConfig")
                 .put("responseMimeType", "application/json")
-                .put("responseJsonSchema", insightsSchema())
-            parseInsights(textOf(send(key, body)))
+                .put("responseJsonSchema", AiJson.insightsSchema())
+            AiJson.parseInsights(textOf(send(key, body)))
         }
 
     suspend fun chatWithBudgetTool(
@@ -47,10 +47,20 @@ internal object GeminiService {
         val body = request(context, history + ChatTurn(isUser = true, text = userMessage), maxTokens, quick = false)
         body.put(
             "tools",
-            JSONArray().put(JSONObject().put("functionDeclarations", JSONArray().put(proposeBudgetDeclaration())))
+            JSONArray().put(
+                JSONObject().put(
+                    "functionDeclarations",
+                    JSONArray().put(
+                        JSONObject()
+                            .put("name", "propose_budget")
+                            .put("description", AiJson.PROPOSE_BUDGET_DESCRIPTION)
+                            .put("parameters", AiJson.proposeBudgetParameters())
+                    )
+                )
+            )
         )
         val response = send(key, body)
-        val proposal = functionCallArgs(response, "propose_budget")?.let(::parseBudgetProposal)
+        val proposal = functionCallArgs(response, "propose_budget")?.let(AiJson::parseBudgetProposal)
         AiChatResult(textOf(response), proposal)
     }
 
@@ -137,90 +147,4 @@ internal object GeminiService {
         parts(response).firstNotNullOfOrNull { part ->
             part.optJSONObject("functionCall")?.takeIf { it.optString("name") == name }?.optJSONObject("args")
         }
-
-    private fun insightsSchema(): JSONObject = JSONObject("""
-        {
-          "type": "object",
-          "properties": {
-            "insights": {
-              "type": "array",
-              "description": "2 to 4 short, concrete insights, most important first.",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "label": {"type": "string", "description": "Short headline, 2-4 words, e.g. \"Media spending\"."},
-                  "value": {"type": "string", "description": "The headline figure, already formatted with the display currency or unit, e.g. \"3,319.99 kr\" or \"37% of outflows\"."},
-                  "detail": {"type": "string", "description": "One short sentence of concrete context."},
-                  "tone": {"type": "string", "enum": ["positive", "neutral", "warning"]}
-                },
-                "required": ["label", "value", "detail", "tone"]
-              }
-            }
-          },
-          "required": ["insights"]
-        }
-    """.trimIndent())
-
-    private fun parseInsights(text: String): List<InsightCard> = runCatching {
-        val json = JSONObject(text.removePrefix("```json").removePrefix("```").removeSuffix("```").trim())
-        val items = json.optJSONArray("insights") ?: return emptyList()
-        (0 until items.length()).mapNotNull { i ->
-            val item = items.optJSONObject(i) ?: return@mapNotNull null
-            val label = item.optString("label").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val value = item.optString("value").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val tone = when (item.optString("tone").lowercase()) {
-                "positive" -> InsightTone.POSITIVE
-                "warning" -> InsightTone.WARNING
-                else -> InsightTone.NEUTRAL
-            }
-            InsightCard(label, value, item.optString("detail"), tone)
-        }
-    }.getOrDefault(emptyList())
-
-    private fun proposeBudgetDeclaration(): JSONObject = JSONObject("""
-        {
-          "name": "propose_budget",
-          "description": "Propose a monthly budget based on the user's transaction history, for whatever time range or categories they ask about. This only shows a proposal for the user to review; it does NOT apply the budget automatically.",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "account_name": {"type": "string", "description": "Exact account name from the ACCOUNTS list this budget applies to, or \"All accounts\" for a combined budget."},
-              "overall_amount": {"type": "number", "description": "Suggested overall monthly spending limit across all expense categories combined. Omit if not proposing one."},
-              "category_budgets": {
-                "type": "array",
-                "description": "Suggested monthly limits for specific categories.",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "main_category": {"type": "string"},
-                    "category": {"type": "string"},
-                    "amount": {"type": "number"}
-                  },
-                  "required": ["main_category", "category", "amount"]
-                }
-              },
-              "summary": {"type": "string", "description": "One or two sentences explaining the reasoning behind this budget proposal, to show the user."}
-            }
-          }
-        }
-    """.trimIndent())
-
-    private fun parseBudgetProposal(args: JSONObject): BudgetProposal? {
-        val overall = if (args.has("overall_amount")) args.optDouble("overall_amount").takeIf { !it.isNaN() } else null
-        val items = args.optJSONArray("category_budgets")
-        val categories = (0 until (items?.length() ?: 0)).mapNotNull { i ->
-            val item = items?.optJSONObject(i) ?: return@mapNotNull null
-            val main = item.optString("main_category").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val category = item.optString("category").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val amount = item.optDouble("amount").takeIf { !it.isNaN() } ?: return@mapNotNull null
-            BudgetCategoryProposal(main, category, amount)
-        }
-        if (overall == null && categories.isEmpty()) return null
-        return BudgetProposal(
-            accountName = args.optString("account_name").takeIf { it.isNotBlank() },
-            overallAmount = overall,
-            categoryBudgets = categories,
-            summary = args.optString("summary").takeIf { it.isNotBlank() }
-        )
-    }
 }

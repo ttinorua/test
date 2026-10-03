@@ -8,6 +8,7 @@ import androidx.work.WorkManager
 import com.financetracker.app.data.ai.AiCategorizationWorker
 import com.financetracker.app.data.ai.AiSettings
 import com.financetracker.app.data.db.AppDatabase
+import com.financetracker.app.data.enablebanking.EnableBankingCredentials
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import kotlin.system.exitProcess
 
@@ -30,7 +31,7 @@ object FullBackup {
         "enable_banking_sync_imported",
         "ai_categorization_total",
         "ai_categorization_categorized"
-    ) + AutoBackupSettings.KEYS + AiSettings.SECRET_KEYS
+    ) + AutoBackupSettings.KEYS + AiSettings.SECRET_KEYS + EnableBankingCredentials.SECRET_KEYS
 
     /** The live bank sessions. Together with the app itself they give read access to the bank
      * accounts, so they're only ever written into a password-protected backup. */
@@ -82,7 +83,7 @@ object FullBackup {
         } else {
             prefs.all.filterKeys { it in BANK_CONNECTION_KEYS }
         }
-        val keptAutoBackup = prefs.all.filterKeys { it in AutoBackupSettings.KEYS || it in AiSettings.SECRET_KEYS }
+        val keptAutoBackup = prefs.all.filterKeys { it in AutoBackupSettings.KEYS || it in AiSettings.SECRET_KEYS || it in EnableBankingCredentials.SECRET_KEYS }
         val editor = prefs.edit().clear()
         (contents.prefs.filterKeys { it !in TRANSIENT_KEYS } + keptConnections + keptAutoBackup).forEach { (key, value) ->
             when (value) {

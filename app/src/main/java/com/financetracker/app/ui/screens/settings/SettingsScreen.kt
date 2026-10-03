@@ -1044,15 +1044,12 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             modifier = Modifier.padding(bottom = 16.dp, top = 4.dp)
         )
 
-        if (!state.isConfigured) {
-            Text(
-                "Not configured. Add ENABLE_BANKING_APPLICATION_ID and " +
-                    "ENABLE_BANKING_PRIVATE_KEY_B64 to local.properties and rebuild.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error
-            )
-            return@Column
-        }
+        EnableBankingAppRow(
+            ownApplicationId = state.ownApplicationId,
+            isConfigured = state.isConfigured,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+        if (!state.isConfigured) return@Column
 
         state.statusMessage?.let { message ->
             Card(modifier = Modifier.padding(bottom = 12.dp)) {

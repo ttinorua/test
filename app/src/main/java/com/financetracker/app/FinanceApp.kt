@@ -10,6 +10,7 @@ import com.financetracker.app.data.db.AppDatabase
 import com.financetracker.app.data.ai.AiSettings
 import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.backup.AutoBackupSettings
+import com.financetracker.app.data.enablebanking.EnableBankingCredentials
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BankScheduledPayments
@@ -46,6 +47,7 @@ class FinanceApp : Application() {
         DismissedRecurringExpenses.init(this)
         FixedExpenseCategories.init(this)
         EnableBankingPrefs.init(this)
+        EnableBankingCredentials.init(this)
         AutoBackupSettings.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
 

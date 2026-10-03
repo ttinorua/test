@@ -8,44 +8,56 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-enum class AiProvider(val label: String) {
-    GEMINI("Gemini"),
-    CLAUDE("Claude")
+/** The AIs the app can use, in their default fallback order. */
+enum class AiProvider(val label: String, val free: Boolean) {
+    GEMINI("Gemini", free = true),
+    GROQ("Groq", free = true),
+    CLAUDE("Claude", free = false);
+
+    /** The key built into the app for this AI (empty if the build has none). */
+    val builtInKey: String
+        get() = when (this) {
+            GEMINI -> BuildConfig.GEMINI_API_KEY
+            GROQ -> BuildConfig.GROQ_API_KEY
+            CLAUDE -> BuildConfig.ANTHROPIC_API_KEY
+        }
 }
 
 data class AiSettingsState(
-    val provider: AiProvider = AiProvider.GEMINI,
-    val hasOwnGeminiKey: Boolean = false,
-    val hasOwnClaudeKey: Boolean = false
+    val primary: AiProvider = AiProvider.GEMINI,
+    val ownKeys: Set<AiProvider> = emptySet()
 ) {
-    val hasBuiltInGeminiKey: Boolean get() = BuildConfig.GEMINI_API_KEY.isNotBlank()
-    val hasBuiltInClaudeKey: Boolean get() = BuildConfig.ANTHROPIC_API_KEY.isNotBlank()
+    fun hasOwnKey(provider: AiProvider): Boolean = provider in ownKeys
+    fun hasBuiltInKey(provider: AiProvider): Boolean = provider.builtInKey.isNotBlank()
+    fun hasKey(provider: AiProvider): Boolean = hasOwnKey(provider) || hasBuiltInKey(provider)
 
-    fun hasKey(provider: AiProvider): Boolean = when (provider) {
-        AiProvider.GEMINI -> hasOwnGeminiKey || hasBuiltInGeminiKey
-        AiProvider.CLAUDE -> hasOwnClaudeKey || hasBuiltInClaudeKey
-    }
+    /** The order AI requests are tried in: [primary] first, then the rest in their default order,
+     * leaving out any AI with no key. */
+    val chain: List<AiProvider> get() = aiChain(primary, ::hasKey)
 }
 
+/** [primary] first, then the other AIs in their default order, keeping only those [hasKey] allows. */
+fun aiChain(primary: AiProvider, hasKey: (AiProvider) -> Boolean): List<AiProvider> =
+    (listOf(primary) + AiProvider.entries.filter { it != primary }).filter(hasKey)
+
 /**
- * Which AI the app uses (Settings > General > AI assistant) and the user's own API keys.
+ * Which AI the app tries first (Settings > General > AI assistant) and each person's own API keys.
  *
- * Gemini is the default: Google's Gemini API has a free tier, and a build can include a shared
- * free key (GEMINI_API_KEY) so AI works out of the box for everyone the app is shared with.
- * Claude needs a key — normally each person's own, entered here; a build can still include one
- * (FINANCE_APP_ANTHROPIC_API_KEY), but every copy of that build then spends from it.
+ * Gemini and Groq both have free tiers, and a build can include a shared free key for each
+ * (GEMINI_API_KEY, GROQ_API_KEY) so AI works out of the box for everyone the app is shared with.
+ * Claude is paid, so it's normally each person's own key, entered here. When the first AI fails
+ * (its free limit is used up, it's down, …) the next one in [AiSettingsState.chain] takes over.
  *
  * Keys entered in the app are stored encrypted with this phone's Android Keystore key, so they
  * never leave the phone (and are left out of backups).
  */
 object AiSettings {
     private const val PREFS_NAME = "finance_prefs"
-    private const val KEY_PROVIDER = "ai_provider"
-    private const val KEY_OWN_GEMINI = "ai_own_gemini_key"
-    private const val KEY_OWN_CLAUDE = "ai_own_claude_key"
+    private const val KEY_PRIMARY = "ai_provider"
+    private fun ownKeyPref(provider: AiProvider) = "ai_own_${provider.name.lowercase()}_key"
 
     /** Phone-specific secrets, never written into a backup. */
-    val SECRET_KEYS = setOf(KEY_OWN_GEMINI, KEY_OWN_CLAUDE)
+    val SECRET_KEYS: Set<String> = AiProvider.entries.map(::ownKeyPref).toSet()
 
     private lateinit var prefs: SharedPreferences
     private val _state = MutableStateFlow(AiSettingsState())
@@ -57,45 +69,49 @@ object AiSettings {
     }
 
     private fun refresh() {
-        val hasOwnClaude = prefs.contains(KEY_OWN_CLAUDE)
-        // With no choice made yet, a build that includes a Claude key keeps using Claude (as it
-        // did before this setting existed); anything else starts on the free Gemini.
-        val default = if (hasOwnClaude || BuildConfig.ANTHROPIC_API_KEY.isNotBlank()) AiProvider.CLAUDE else AiProvider.GEMINI
+        val ownKeys = AiProvider.entries.filter { prefs.contains(ownKeyPref(it)) }.toSet()
+        // With no choice made yet, a build that includes a Claude key keeps using Claude first (as
+        // it did before this setting existed); anything else starts on the free Gemini.
+        val default = if (AiProvider.CLAUDE in ownKeys || AiProvider.CLAUDE.builtInKey.isNotBlank()) {
+            AiProvider.CLAUDE
+        } else {
+            AiProvider.GEMINI
+        }
         _state.value = AiSettingsState(
-            provider = prefs.getString(KEY_PROVIDER, null)
+            primary = prefs.getString(KEY_PRIMARY, null)
                 ?.let { name -> AiProvider.entries.firstOrNull { it.name == name } }
                 ?: default,
-            hasOwnGeminiKey = prefs.contains(KEY_OWN_GEMINI),
-            hasOwnClaudeKey = hasOwnClaude
+            ownKeys = ownKeys
         )
     }
 
-    val provider: AiProvider get() = _state.value.provider
+    val chain: List<AiProvider> get() = _state.value.chain
 
-    fun setProvider(provider: AiProvider) {
-        prefs.edit().putString(KEY_PROVIDER, provider.name).apply()
+    fun setPrimary(provider: AiProvider) {
+        prefs.edit().putString(KEY_PRIMARY, provider.name).apply()
         refresh()
     }
 
     /** Saves (or with a blank [key], removes) the user's own key for [provider]. */
     fun setOwnKey(provider: AiProvider, key: String?) {
-        val prefKey = if (provider == AiProvider.GEMINI) KEY_OWN_GEMINI else KEY_OWN_CLAUDE
         val trimmed = key?.trim().orEmpty()
         prefs.edit().apply {
-            if (trimmed.isEmpty()) remove(prefKey) else putString(prefKey, DeviceSecret.encrypt(trimmed.toByteArray(Charsets.UTF_8)))
+            if (trimmed.isEmpty()) {
+                remove(ownKeyPref(provider))
+            } else {
+                putString(ownKeyPref(provider), DeviceSecret.encrypt(trimmed.toByteArray(Charsets.UTF_8)))
+            }
         }.commit()
         refresh()
     }
 
     /** The key to use for [provider]: the user's own if set, otherwise the one built into the app. */
     fun keyFor(provider: AiProvider): String? {
-        val prefKey = if (provider == AiProvider.GEMINI) KEY_OWN_GEMINI else KEY_OWN_CLAUDE
         val own = if (::prefs.isInitialized) {
-            prefs.getString(prefKey, null)?.let { DeviceSecret.decrypt(it) }?.let { String(it, Charsets.UTF_8) }
+            prefs.getString(ownKeyPref(provider), null)?.let { DeviceSecret.decrypt(it) }?.let { String(it, Charsets.UTF_8) }
         } else {
             null
         }
-        val builtIn = if (provider == AiProvider.GEMINI) BuildConfig.GEMINI_API_KEY else BuildConfig.ANTHROPIC_API_KEY
-        return own?.takeIf { it.isNotBlank() } ?: builtIn.takeIf { it.isNotBlank() }
+        return own?.takeIf { it.isNotBlank() } ?: provider.builtInKey.takeIf { it.isNotBlank() }
     }
 }

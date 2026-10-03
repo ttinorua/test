@@ -30,9 +30,10 @@ val anthropicApiKey: String =
 // is the default. The app expects the private key base64-encoded (of the whole PEM text): either
 // supply that as ENABLE_BANKING_PRIVATE_KEY_B64, or paste the .pem file's text as-is into
 // ENABLE_BANKING_PRIVATE_KEY and it's encoded here.
-// A shared free Gemini key (Google AI Studio), so AI works out of the box for everyone the app is
-// shared with. Optional; each person can also enter their own Gemini or Claude key in Settings.
+// Shared free Gemini (Google AI Studio) and Groq keys, so AI works out of the box for everyone the
+// app is shared with. Optional; each person can also enter their own keys in Settings.
 val geminiApiKey: String = buildSecret("GEMINI_API_KEY")?.trim() ?: ""
+val groqApiKey: String = buildSecret("GROQ_API_KEY")?.trim() ?: ""
 
 // OneDrive automatic backup: the "Application (client) ID" of the app's Microsoft registration
 // (not a secret — it's sent in the clear during sign-in). Without it the OneDrive option is hidden.
@@ -66,6 +67,7 @@ android {
         buildConfigField("String", "ENABLE_BANKING_PRIVATE_KEY_B64", "\"$enableBankingPrivateKeyB64\"")
         buildConfigField("String", "ONEDRIVE_CLIENT_ID", "\"$oneDriveClientId\"")
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
+        buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
     }
 
     // The app's permanent signing key. Android only installs an update signed with the same key as

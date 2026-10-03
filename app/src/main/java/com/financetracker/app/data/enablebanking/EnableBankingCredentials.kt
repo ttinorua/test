@@ -14,7 +14,7 @@ import java.security.spec.PKCS8EncodedKeySpec
 
 /** Where the app sends the browser back to after a bank approval. Every Enable Banking
  * registration used with this app must list it as a redirect URL. */
-const val ENABLE_BANKING_REDIRECT_URL = "https://ttinorua.github.io/enablebanking-redirect/"
+const val ENABLE_BANKING_REDIRECT_URL = "https://myfinance-tracker.github.io/redirect/"
 
 data class EnableBankingCredentialsState(
     /** The user's own registration's Application ID, or null when using the one built into the app. */

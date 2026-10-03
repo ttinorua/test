@@ -20,6 +20,7 @@ import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.FixedExpenseCategories
+import com.financetracker.app.data.prefs.LoansAndGoals
 import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.prefs.ThemeSettings
 import com.financetracker.app.data.repository.FinanceRepository
@@ -49,6 +50,7 @@ class FinanceApp : Application() {
         EnableBankingPrefs.init(this)
         EnableBankingCredentials.init(this)
         AutoBackupSettings.init(this)
+        LoansAndGoals.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
 
         // Retroactively adds any starter category the currently selected/connected bank has

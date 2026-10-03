@@ -92,7 +92,7 @@ private fun isReferenceToken(token: String): Boolean =
  * (and sometimes a payment code) into every note, e.g. "MCD 01943 Spotify P4545..." vs
  * "MCD 01990 SpotifySE" for the same subscription. Falls back to the whole note if nothing is
  * left. */
-private fun identityTokensOf(note: String): List<String> {
+internal fun identityTokensOf(note: String): List<String> {
     val tokens = note.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
     return tokens.filterNot(::isReferenceToken).ifEmpty { tokens }
 }

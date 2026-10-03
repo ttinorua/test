@@ -68,6 +68,8 @@ class FinanceRepository(private val db: AppDatabase) {
 
     suspend fun getAllTransactions(): List<Transaction> = transactionDao.getAll()
 
+    suspend fun getTransaction(id: Long): Transaction? = transactionDao.getById(id)
+
     suspend fun updateTransaction(transaction: Transaction) = transactionDao.update(transaction)
 
     suspend fun deleteTransaction(transaction: Transaction) = transactionDao.delete(transaction)

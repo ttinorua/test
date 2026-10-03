@@ -38,19 +38,6 @@ object AiService {
             cards.ifEmpty { throw AiRequestException("${provider.label} didn't return any insights.") }
         }
 
-    suspend fun chatWithBudgetTool(
-        cachedContext: String,
-        history: List<ChatTurn>,
-        userMessage: String,
-        maxTokens: Long = 2048L
-    ): Result<AiChatResult> = firstSuccess { provider, key ->
-        when (provider) {
-            AiProvider.CLAUDE -> ClaudeService.chatWithBudgetTool(cachedContext, history, userMessage, maxTokens).getOrThrow()
-            AiProvider.GEMINI -> GeminiService.chatWithBudgetTool(key, cachedContext, history, userMessage, maxTokens.toInt())
-            AiProvider.GROQ -> GroqService.chatWithBudgetTool(key, cachedContext, history, userMessage, maxTokens.toInt())
-        }
-    }
-
     /** Tries [block] with each AI in the chain until one succeeds; if all fail, returns the first
      * AI's error (usually the most relevant one). */
     private suspend fun <T> firstSuccess(block: suspend (AiProvider, String) -> T): Result<T> {

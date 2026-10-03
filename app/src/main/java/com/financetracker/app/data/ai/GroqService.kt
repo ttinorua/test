@@ -34,39 +34,7 @@ internal object GroqService {
             AiJson.parseInsights(messageOf(send(key, body)).optString("content"))
         }
 
-    suspend fun chatWithBudgetTool(
-        key: String,
-        context: String,
-        history: List<ChatTurn>,
-        userMessage: String,
-        maxTokens: Int
-    ): AiChatResult = withContext(Dispatchers.IO) {
-        val body = request(context, history + ChatTurn(isUser = true, text = userMessage), maxTokens, quick = false)
-            .put(
-                "tools",
-                JSONArray().put(
-                    JSONObject()
-                        .put("type", "function")
-                        .put(
-                            "function",
-                            JSONObject()
-                                .put("name", "propose_budget")
-                                .put("description", AiJson.PROPOSE_BUDGET_DESCRIPTION)
-                                .put("parameters", AiJson.proposeBudgetParameters())
-                        )
-                )
-            )
-        val message = messageOf(send(key, body))
-        val calls = message.optJSONArray("tool_calls")
-        val proposal = (0 until (calls?.length() ?: 0)).firstNotNullOfOrNull { i ->
-            val function = calls?.optJSONObject(i)?.optJSONObject("function") ?: return@firstNotNullOfOrNull null
-            if (function.optString("name") != "propose_budget") return@firstNotNullOfOrNull null
-            runCatching { JSONObject(function.optString("arguments")) }.getOrNull()?.let(AiJson::parseBudgetProposal)
-        }
-        AiChatResult(message.optString("content").takeIf { it != "null" }.orEmpty().trim(), proposal)
-    }
-
-    private fun request(system: String, turns: List<ChatTurn>, maxTokens: Int, quick: Boolean): JSONObject {
+    fun request(system: String, turns: List<ChatTurn>, maxTokens: Int, quick: Boolean): JSONObject {
         val messages = JSONArray().put(JSONObject().put("role", "system").put("content", system))
         turns.forEach { turn ->
             messages.put(JSONObject().put("role", if (turn.isUser) "user" else "assistant").put("content", turn.text))
@@ -79,8 +47,16 @@ internal object GroqService {
     }
 
     /** Sends [body]; if Groq rejects an optional setting (400), retries once without it. */
-    private fun send(key: String, body: JSONObject): JSONObject {
-        val first = post(key, body)
+    fun send(key: String, body: JSONObject): JSONObject {
+        var first = post(key, body)
+        // A per-minute limit (several advisor steps in a row can hit it): wait it out once if short.
+        if (first.first == 429) {
+            val wait = Regex("try again in ([0-9.]+)s").find(first.second)?.groupValues?.get(1)?.toDoubleOrNull()
+            if (wait != null && wait <= 20.0) {
+                Thread.sleep((wait * 1000).toLong() + 500)
+                first = post(key, body)
+            }
+        }
         val (status, text) = if (first.first == 400) {
             body.remove("reasoning_effort")
             post(key, body)
@@ -92,7 +68,7 @@ internal object GroqService {
             val message = json?.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() } ?: text.take(200)
             throw AiRequestException(
                 when (status) {
-                    429 -> "Groq's free limit is used up for now."
+                    429 -> "Groq's free limit is used up for now (${message.take(160)})."
                     413 -> "That request is too large for Groq's free tier."
                     else -> "Groq request failed ($status): $message"
                 }
@@ -119,7 +95,7 @@ internal object GroqService {
         }
     }
 
-    private fun messageOf(response: JSONObject): JSONObject =
+    fun messageOf(response: JSONObject): JSONObject =
         response.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")
             ?: throw AiRequestException("Groq sent an empty reply.")
 }

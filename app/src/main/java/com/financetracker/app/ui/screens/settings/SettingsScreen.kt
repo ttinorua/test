@@ -453,6 +453,8 @@ fun SettingsScreen(
 
                     AiAssistantSettings(modifier = Modifier.padding(top = 24.dp))
 
+                    LoansAndGoalsSettings(modifier = Modifier.padding(top = 24.dp))
+
                     Text(
                         "AI categorization",
                         style = MaterialTheme.typography.titleMedium,

@@ -8,7 +8,7 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.financetracker.app.data.ai.AiCategorizationWorker
 import com.financetracker.app.data.ai.CategorizationProgress
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
@@ -115,8 +115,8 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
      * is closed. */
     fun categorizeWithAi() {
         if (isCategorizing.value) return
-        if (!ClaudeService.isConfigured) {
-            _categorizationMessage.value = "Add your Anthropic API key to local.properties and rebuild first."
+        if (!AiService.isConfigured) {
+            _categorizationMessage.value = "Set up an AI first in AI assistant above."
             return
         }
         _categorizationMessage.value = null

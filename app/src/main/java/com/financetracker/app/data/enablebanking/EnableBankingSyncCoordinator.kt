@@ -1,7 +1,7 @@
 package com.financetracker.app.data.enablebanking
 
 import com.financetracker.app.data.ai.CategorySuggester
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
 import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.ai.LocalCategoryMatcher
 import com.financetracker.app.data.bank.SupportedBanks
@@ -155,7 +155,7 @@ object EnableBankingSyncCoordinator {
             val match = LearnedCategoryRules.suggest(note, categories) ?: LocalCategoryMatcher.suggest(note, categories)
             if (match != null) suggestionByKey[key] = match else unresolvedKeys += key
         }
-        if (ClaudeService.isConfigured) {
+        if (AiService.isConfigured) {
             for (chunk in unresolvedKeys.chunked(CategorySuggester.BATCH_SIZE)) {
                 val notes = chunk.map { noteByKey.getValue(it) }
                 val matches = CategorySuggester.suggestBatch(notes, categories).getOrNull()

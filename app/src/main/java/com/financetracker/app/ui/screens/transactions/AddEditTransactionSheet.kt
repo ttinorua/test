@@ -41,7 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.ai.CategorySuggester
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
 import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
@@ -187,7 +187,7 @@ fun AddEditTransactionSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            if (ClaudeService.isConfigured && note.isNotBlank()) {
+            if (AiService.isConfigured && note.isNotBlank()) {
                 OutlinedButton(
                     onClick = { requestAiSuggestion() },
                     enabled = !isSuggesting,

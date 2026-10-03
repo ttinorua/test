@@ -38,7 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
 import com.financetracker.app.data.ai.InsightCard
 import com.financetracker.app.data.ai.InsightTone
 import com.financetracker.app.data.db.entity.TransactionType
@@ -106,7 +106,7 @@ fun DashboardScreen(
                     IconButton(onClick = onOpenTrends) {
                         Icon(Icons.Filled.ShowChart, contentDescription = "Trends")
                     }
-                    if (ClaudeService.isConfigured) {
+                    if (AiService.isConfigured) {
                         IconButton(onClick = onOpenAskAi) {
                             Icon(Icons.Filled.Chat, contentDescription = "Ask your finances")
                         }
@@ -285,7 +285,7 @@ fun DashboardScreen(
                     )
                 }
             }
-            if (ClaudeService.isConfigured) {
+            if (AiService.isConfigured) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {

@@ -451,6 +451,8 @@ fun SettingsScreen(
                         )
                     }
 
+                    AiAssistantSettings(modifier = Modifier.padding(top = 24.dp))
+
                     Text(
                         "AI categorization",
                         style = MaterialTheme.typography.titleMedium,
@@ -459,7 +461,7 @@ fun SettingsScreen(
                     Text(
                         "One-time cleanup for transactions with no real category (mainly bank " +
                             "sync history, since it carries no category data at all). Uses your " +
-                            "Anthropic API key and can take a while for a large history.",
+                            "chosen AI above and can take a while for a large history.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)

@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
 import com.financetracker.app.data.ai.InsightCard
 import com.financetracker.app.data.ai.InsightTone
 import com.financetracker.app.data.db.entity.Account
@@ -318,7 +318,7 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
                 }
             }
 
-            ClaudeService.generateInsights(systemPrompt, summary, maxTokens = 600L)
+            AiService.generateInsights(systemPrompt, summary, maxTokens = 600L)
                 .onSuccess { cards ->
                     AiInsightsCache.save(
                         cards.ifEmpty {

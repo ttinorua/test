@@ -12,7 +12,6 @@ import com.anthropic.models.messages.StopReason
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.Tool
 import com.anthropic.models.messages.ToolUseBlock
-import com.financetracker.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -52,26 +51,25 @@ data class BudgetProposal(
 data class AiChatResult(val text: String, val proposal: BudgetProposal?)
 
 class AiNotConfiguredException :
-    Exception("This build has no Anthropic API key. Add FINANCE_APP_ANTHROPIC_API_KEY to the build environment and rebuild.")
+    Exception("No AI key is set up. Add one in Settings > General > AI assistant.")
 
 class AiRequestException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
- * Thin wrapper around the Anthropic Java SDK. The API key ships inside this app's
- * BuildConfig (set via local.properties, never committed) rather than a backend
- * server — a deliberate tradeoff acceptable only because this app is shared
- * privately with family, never published.
+ * Thin wrapper around the Anthropic Java SDK, used when Claude is the chosen provider (see
+ * [AiService]). The API key is the user's own from Settings, or else one built into the app
+ * (see [AiSettings]) — there's no backend server in between.
  */
 object ClaudeService {
 
-    val isConfigured: Boolean get() = BuildConfig.ANTHROPIC_API_KEY.isNotBlank()
+    @Volatile
+    private var cachedClient: Pair<String, AnthropicClient>? = null
 
-    private val client: AnthropicClient? by lazy {
-        if (isConfigured) {
-            AnthropicOkHttpClient.builder().apiKey(BuildConfig.ANTHROPIC_API_KEY).build()
-        } else {
-            null
-        }
+    /** A client for the current Claude key, rebuilt only when the key changes. */
+    private fun client(): AnthropicClient? {
+        val key = AiSettings.keyFor(AiProvider.CLAUDE) ?: return null
+        cachedClient?.takeIf { it.first == key }?.let { return it.second }
+        return AnthropicOkHttpClient.builder().apiKey(key).build().also { cachedClient = key to it }
     }
 
     /** One-shot request: a plain system prompt plus a single user message. [maxTokens] is the
@@ -82,7 +80,7 @@ object ClaudeService {
         maxTokens: Long = 1024L,
         effort: OutputConfig.Effort = OutputConfig.Effort.MEDIUM
     ): Result<String> {
-        val anthropic = client ?: return Result.failure(AiNotConfiguredException())
+        val anthropic = client() ?: return Result.failure(AiNotConfiguredException())
         return withContext(Dispatchers.IO) {
             try {
                 val params = baseParams(maxTokens, effort)
@@ -104,7 +102,7 @@ object ClaudeService {
      * a failure) if no usable tool call came back — the caller decides how to surface that.
      */
     suspend fun generateInsights(systemPrompt: String, userMessage: String, maxTokens: Long = 1024L): Result<List<InsightCard>> {
-        val anthropic = client ?: return Result.failure(AiNotConfiguredException())
+        val anthropic = client() ?: return Result.failure(AiNotConfiguredException())
         return withContext(Dispatchers.IO) {
             try {
                 val params = baseParams(maxTokens, OutputConfig.Effort.MEDIUM)
@@ -133,7 +131,7 @@ object ClaudeService {
         userMessage: String,
         maxTokens: Long = 2048L
     ): Result<String> {
-        val anthropic = client ?: return Result.failure(AiNotConfiguredException())
+        val anthropic = client() ?: return Result.failure(AiNotConfiguredException())
         return withContext(Dispatchers.IO) {
             try {
                 val builder = baseParams(maxTokens, OutputConfig.Effort.MEDIUM)
@@ -168,7 +166,7 @@ object ClaudeService {
         userMessage: String,
         maxTokens: Long = 2048L
     ): Result<AiChatResult> {
-        val anthropic = client ?: return Result.failure(AiNotConfiguredException())
+        val anthropic = client() ?: return Result.failure(AiNotConfiguredException())
         return withContext(Dispatchers.IO) {
             try {
                 val builder = baseParams(maxTokens, OutputConfig.Effort.MEDIUM)

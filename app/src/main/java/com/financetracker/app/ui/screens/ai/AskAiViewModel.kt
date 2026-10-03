@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.ai.BudgetProposal
 import com.financetracker.app.data.ai.ChatTurn
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionWithDetails
@@ -34,7 +34,7 @@ data class AiChatMessage(
 data class AskAiUiState(
     val messages: List<AiChatMessage> = emptyList(),
     val isSending: Boolean = false,
-    val isConfigured: Boolean = ClaudeService.isConfigured
+    val isConfigured: Boolean = AiService.isConfigured
 )
 
 private const val MAX_TRANSACTIONS_IN_CONTEXT = 3000
@@ -63,7 +63,7 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
             val balances = accounts.associate { it.id to repository.getAccountBalance(it) }
             val context = buildContext(transactions, accounts, categories, balances)
 
-            ClaudeService.chatWithBudgetTool(context, history, trimmed)
+            AiService.chatWithBudgetTool(context, history, trimmed)
                 .onSuccess { result ->
                     val text = when {
                         result.text.isNotBlank() -> result.text

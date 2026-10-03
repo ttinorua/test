@@ -1,10 +1,10 @@
 package com.financetracker.app.data.ai
 
-import com.anthropic.models.messages.OutputConfig
 import com.financetracker.app.data.db.entity.Category
 
 /**
- * Matches a transaction description against the user's existing categories using Claude,
+ * Matches a transaction description against the user's existing categories using the chosen AI
+ * ([AiService]),
  * shared by the manual "suggest category" button and any automatic categorization (Enable
  * Banking sync, the bulk "Categorize with AI" backfill).
  */
@@ -48,12 +48,12 @@ object CategorySuggester {
                 "new categories, and do not skip, merge or add lines. If nothing fits well for " +
                 "an item, reply \"N. Uncategorized|Uncategorized\" for that item."
 
-        return ClaudeService.ask(
+        return AiService.ask(
             systemPrompt,
             numberedNotes,
             maxTokens = 40L * nonBlank.size + 100L,
             // A multiple-choice lookup — little to gain from deeper thinking.
-            effort = OutputConfig.Effort.LOW
+            quick = true
         ).map { reply ->
             val results = MutableList<Category?>(notes.size) { null }
             val byNumber = reply.trim().lines().mapNotNull { line ->

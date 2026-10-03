@@ -51,7 +51,7 @@ object AiCategorizationCoordinator {
         knownTotal: Int? = null,
         onProgress: suspend (CategorizationProgress) -> Unit
     ): CategorizationOutcome {
-        if (!ClaudeService.isConfigured) return CategorizationOutcome(0, knownTotal ?: 0, 0)
+        if (!AiService.isConfigured) return CategorizationOutcome(0, knownTotal ?: 0, 0)
 
         val categories = repository.getCategories()
         val excludedIds = categories

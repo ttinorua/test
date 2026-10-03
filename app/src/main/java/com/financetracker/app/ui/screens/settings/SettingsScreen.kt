@@ -93,6 +93,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private const val MAX_SCHEDULED_SHOWN = 8
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -1157,21 +1159,41 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             modifier = Modifier.padding(top = 2.dp)
         )
         if (state.lastSyncedAt != null) {
-            Text(
-                "Upcoming payments received from bank: ${scheduledPayments.size}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            scheduledPayments.sortedBy { it.date }.forEach { payment ->
+            // Collapsed by default and capped: this sits above the connections list and the Sync
+            // button in a non-scrolling column, so a long list would push them off screen.
+            var showScheduled by remember { mutableStateOf(false) }
+            TextButton(
+                onClick = { showScheduled = !showScheduled },
+                enabled = scheduledPayments.isNotEmpty(),
+                contentPadding = PaddingValues(0.dp)
+            ) {
                 Text(
-                    "${Formatters.date(payment.date)} · ${payment.note.ifBlank { "(no text)" }} · " +
-                        "-${Formatters.amount(payment.amount)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 8.dp)
+                    "Upcoming payments received from bank: ${scheduledPayments.size}" +
+                        if (scheduledPayments.isEmpty()) "" else if (showScheduled) " · Hide" else " · Show",
+                    style = MaterialTheme.typography.bodySmall
                 )
+            }
+            if (showScheduled) {
+                val sorted = scheduledPayments.sortedBy { it.date }
+                sorted.take(MAX_SCHEDULED_SHOWN).forEach { payment ->
+                    Text(
+                        "${Formatters.date(payment.date)} · ${payment.note.ifBlank { "(no text)" }} · " +
+                            "-${Formatters.amount(payment.amount)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                if (sorted.size > MAX_SCHEDULED_SHOWN) {
+                    Text(
+                        "+ ${sorted.size - MAX_SCHEDULED_SHOWN} more",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(12.dp))

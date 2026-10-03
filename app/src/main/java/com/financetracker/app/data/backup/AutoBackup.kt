@@ -163,6 +163,7 @@ object AutoBackupSettings {
             throw CloudException("The OneDrive sign-in expired. Try again from Settings > Import/Export.")
         }
         val tokens = OneDriveBackup.completeSignIn(code, verifier)
+        OneDriveBackup.provisionAppFolder(tokens.accessToken)
         val password = prefs.getString(KEY_PENDING_PASSWORD, null)
             ?.let { DeviceSecret.decrypt(it) }
             ?.let { String(it, Charsets.UTF_8).toCharArray() }

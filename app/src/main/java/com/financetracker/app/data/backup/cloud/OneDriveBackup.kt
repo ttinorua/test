@@ -10,8 +10,9 @@ import java.security.SecureRandom
 /**
  * Uploads the automatic backup to the user's OneDrive through Microsoft Graph, signed in with the
  * standard browser sign-in (OAuth 2.0 authorization code + PKCE — no password ever passes through
- * the app). The app only asks for its own folder (OneDrive > Apps > the app's name), never the
- * rest of the user's files.
+ * the app). Backups go to the app's own folder (OneDrive > Apps > the app's name); sign-in also
+ * asks for normal file access once, only so OneDrive sets that folder up (see [SIGN_IN_SCOPES]),
+ * and every upload uses a token limited to the app's folder.
  *
  * Needs the app's Microsoft "Application (client) ID" (ONEDRIVE_CLIENT_ID in the build
  * environment), registered as a mobile app with the redirect URI [REDIRECT_URI].
@@ -19,7 +20,13 @@ import java.security.SecureRandom
 object OneDriveBackup {
     const val REDIRECT_URI = "financetracker://onedrive-auth"
     private const val AUTHORITY = "https://login.microsoftonline.com/common/oauth2/v2.0"
-    private const val SCOPES = "openid profile offline_access Files.ReadWrite.AppFolder"
+    /** What weekly uploads use: only the app's own folder. */
+    private const val UPLOAD_SCOPES = "openid profile offline_access Files.ReadWrite.AppFolder"
+
+    /** Sign-in also asks for normal file access once: OneDrive only sets up a new app's own
+     * folder when that's granted (with the app-folder scope alone a new app's folder stays
+     * "not found" — a known OneDrive problem). After that, uploads go back to [UPLOAD_SCOPES]. */
+    private const val SIGN_IN_SCOPES = "$UPLOAD_SCOPES Files.ReadWrite"
     private const val GRAPH = "https://graph.microsoft.com/v1.0"
 
     val isConfigured: Boolean get() = BuildConfig.ONEDRIVE_CLIENT_ID.isNotBlank()
@@ -38,7 +45,7 @@ object OneDriveBackup {
             .appendQueryParameter("response_type", "code")
             .appendQueryParameter("redirect_uri", REDIRECT_URI)
             .appendQueryParameter("response_mode", "query")
-            .appendQueryParameter("scope", SCOPES)
+            .appendQueryParameter("scope", SIGN_IN_SCOPES)
             .appendQueryParameter("state", state)
             .appendQueryParameter("code_challenge", challenge)
             .appendQueryParameter("code_challenge_method", "S256")
@@ -50,6 +57,7 @@ object OneDriveBackup {
 
     /** Exchanges the sign-in redirect's code for tokens. Blocking — call off the main thread. */
     fun completeSignIn(code: String, codeVerifier: String): Tokens = token(
+        SIGN_IN_SCOPES,
         "grant_type" to "authorization_code",
         "code" to code,
         "redirect_uri" to REDIRECT_URI,
@@ -58,9 +66,23 @@ object OneDriveBackup {
 
     /** A fresh access token (and possibly a new refresh token) for a background upload. */
     fun refresh(refreshToken: String): Tokens = token(
+        UPLOAD_SCOPES,
         "grant_type" to "refresh_token",
         "refresh_token" to refreshToken
     )
+
+    /** Makes OneDrive create the app's own folder (OneDrive > Apps > the app's name), using the
+     * sign-in token that has normal file access — see [SIGN_IN_SCOPES]. */
+    fun provisionAppFolder(accessToken: String) {
+        val response = CloudHttp.request(
+            "GET",
+            "$GRAPH/me/drive/special/approot",
+            headers = mapOf("Authorization" to "Bearer $accessToken")
+        )
+        if (!response.ok) {
+            throw CloudException("OneDrive couldn't set up the app's folder (${response.status}): ${errorText(response.body)}", response.status)
+        }
+    }
 
     /** Writes [bytes] to [fileName] in the app's OneDrive folder, replacing the previous copy. */
     fun upload(accessToken: String, fileName: String, bytes: ByteArray) {
@@ -74,11 +96,11 @@ object OneDriveBackup {
         if (!response.ok) throw CloudException("OneDrive upload failed (${response.status}): ${errorText(response.body)}", response.status)
     }
 
-    private fun token(vararg grant: Pair<String, String>): Tokens {
+    private fun token(scopes: String, vararg grant: Pair<String, String>): Tokens {
         val response = CloudHttp.request(
             "POST",
             "$AUTHORITY/token",
-            body = CloudHttp.form("client_id" to BuildConfig.ONEDRIVE_CLIENT_ID, "scope" to SCOPES, *grant),
+            body = CloudHttp.form("client_id" to BuildConfig.ONEDRIVE_CLIENT_ID, "scope" to scopes, *grant),
             contentType = "application/x-www-form-urlencoded"
         )
         if (!response.ok) {

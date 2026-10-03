@@ -43,6 +43,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="financetracker" android:host="enablebanking-callback" />
             </intent-filter>
+            <!-- Microsoft sign-in redirect for the automatic backup to OneDrive. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="financetracker" android:host="onedrive-auth" />
+            </intent-filter>
         </activity>
 
         <!-- WorkManager's own SystemForegroundService (used by setForeground()) needs its

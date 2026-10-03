@@ -1,6 +1,10 @@
 package com.financetracker.app.ui.screens.importexport
 
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,6 +55,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.financetracker.app.data.backup.AutoBackupSettings
+import com.financetracker.app.data.backup.BackupDestination
+import com.financetracker.app.data.backup.cloud.GoogleDriveBackup
+import com.financetracker.app.data.backup.cloud.OneDriveBackup
+import com.google.android.gms.auth.api.identity.AuthorizationResult
+import com.google.android.gms.auth.api.identity.Identity
 import com.financetracker.app.ui.theme.ExpenseRed
 import com.financetracker.app.ui.theme.IncomeGreen
 import com.financetracker.app.util.Formatters
@@ -71,7 +80,9 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
     var showCreateBackupDialog by remember { mutableStateOf(false) }
     val autoBackupState by AutoBackupSettings.state.collectAsState()
     var showAutoBackupSetup by remember { mutableStateOf(false) }
+    var autoBackupDestination by remember { mutableStateOf<BackupDestination?>(null) }
     var autoBackupPassword by remember { mutableStateOf<CharArray?>(null) }
+    val activity = LocalContext.current as? Activity
     val snackbarHostState = remember { SnackbarHostState() }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -105,7 +116,60 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
     ) { uri ->
         val password = autoBackupPassword ?: CharArray(0)
         autoBackupPassword = null
-        if (uri != null) backupViewModel.enableAutoBackup(uri, password) else password.fill('\u0000')
+        if (uri != null) backupViewModel.enableAutoBackupOnPhone(uri, password) else password.fill('\u0000')
+    }
+
+    fun finishGoogleDrive(result: AuthorizationResult) {
+        val password = autoBackupPassword ?: CharArray(0)
+        autoBackupPassword = null
+        backupViewModel.enableAutoBackupToGoogleDrive(GoogleDriveBackup.accountOf(result), password)
+    }
+
+    val googleAuthLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val authorization = activity?.let {
+            runCatching { Identity.getAuthorizationClient(it).getAuthorizationResultFromIntent(result.data) }.getOrNull()
+        }
+        if (result.resultCode == Activity.RESULT_OK && authorization != null) {
+            finishGoogleDrive(authorization)
+        } else {
+            autoBackupPassword?.fill('\u0000')
+            autoBackupPassword = null
+            backupViewModel.showMessage("Google Drive wasn't connected.")
+        }
+    }
+
+    fun startAutoBackup(destination: BackupDestination, password: CharArray) {
+        when (destination) {
+            BackupDestination.PHONE -> {
+                autoBackupPassword = password
+                autoBackupLauncher.launch(AutoBackupSettings.FILE_NAME)
+            }
+            BackupDestination.ONEDRIVE -> {
+                val url = backupViewModel.beginOneDriveSignIn(password)
+                runCatching { activity?.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    .onFailure { backupViewModel.showMessage("Couldn't open the browser to sign in.") }
+            }
+            BackupDestination.GOOGLE_DRIVE -> {
+                val host = activity ?: return
+                autoBackupPassword = password
+                Identity.getAuthorizationClient(host).authorize(GoogleDriveBackup.request)
+                    .addOnSuccessListener { result ->
+                        val pending = result.pendingIntent
+                        if (result.hasResolution() && pending != null) {
+                            googleAuthLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+                        } else {
+                            finishGoogleDrive(result)
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        autoBackupPassword?.fill('\u0000')
+                        autoBackupPassword = null
+                        backupViewModel.showMessage("Google Drive isn't available: ${e.message}")
+                    }
+            }
+        }
     }
 
     val openBackupLauncher = rememberLauncherForActivityResult(
@@ -339,13 +403,22 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
             )
         }
         if (showAutoBackupSetup) {
-            CreateBackupDialog(
-                title = "Automatic weekly backup",
+            ChooseBackupDestinationDialog(
+                oneDriveAvailable = OneDriveBackup.isConfigured,
                 onDismiss = { showAutoBackupSetup = false },
-                onConfirm = { password ->
+                onChoose = { destination ->
                     showAutoBackupSetup = false
-                    autoBackupPassword = password
-                    autoBackupLauncher.launch(AutoBackupSettings.FILE_NAME)
+                    autoBackupDestination = destination
+                }
+            )
+        }
+        autoBackupDestination?.let { destination ->
+            CreateBackupDialog(
+                title = "Weekly backup to ${destination.label}",
+                onDismiss = { autoBackupDestination = null },
+                onConfirm = { password ->
+                    autoBackupDestination = null
+                    startAutoBackup(destination, password)
                 }
             )
         }

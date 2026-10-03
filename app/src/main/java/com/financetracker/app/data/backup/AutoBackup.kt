@@ -16,6 +16,8 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.financetracker.app.data.backup.cloud.CloudException
+import com.financetracker.app.data.backup.cloud.OneDriveBackup
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,9 +28,16 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+enum class BackupDestination(val label: String) {
+    PHONE("This phone"),
+    ONEDRIVE("OneDrive"),
+    GOOGLE_DRIVE("Google Drive")
+}
+
 data class AutoBackupState(
     val enabled: Boolean = false,
-    /** Where the backup file is, e.g. "FinanceTracker-auto-backup.ftbackup · Google Drive". */
+    val destination: BackupDestination? = null,
+    /** Where the backup goes, e.g. "OneDrive · name@outlook.com" or a file name on the phone. */
     val locationLabel: String? = null,
     val passwordProtected: Boolean = false,
     val lastSuccessAt: Long? = null,
@@ -36,26 +45,40 @@ data class AutoBackupState(
 )
 
 /**
- * The weekly automatic backup (Settings > Import/Export). The user picks a file once — in Google
- * Drive, OneDrive or anywhere else the system file picker offers — and the app keeps permission
- * to write it; [AutoBackupWorker] then overwrites that one file with a fresh full backup every
- * week, so it always holds the latest data (Google Drive and OneDrive keep earlier versions).
+ * The weekly automatic backup (Settings > Import/Export), to one of three places:
+ * - [BackupDestination.PHONE]: a file the user picks once with the system file picker; the app
+ *   keeps permission to write it.
+ * - [BackupDestination.ONEDRIVE]: the app's own folder in the user's OneDrive, after a Microsoft
+ *   sign-in in the browser ([OneDriveBackup]).
+ * - [BackupDestination.GOOGLE_DRIVE]: a file the app creates in the user's Google Drive, after
+ *   approving access with Google's account picker ([GoogleDriveBackup]).
  *
- * The backup password, if any, is kept on this phone encrypted with a key from the Android
- * Keystore, so the worker can encrypt without asking.
+ * [AutoBackupWorker] replaces that one file with a fresh full backup every week, so it always
+ * holds the latest data (OneDrive and Google Drive also keep earlier versions). The backup
+ * password and the OneDrive sign-in are kept on this phone encrypted with a key from the Android
+ * Keystore, so the worker can run without asking.
  */
 object AutoBackupSettings {
     private const val PREFS_NAME = "finance_prefs"
-    const val KEY_ENABLED = "auto_backup_enabled"
-    const val KEY_URI = "auto_backup_uri"
-    const val KEY_LOCATION = "auto_backup_location"
-    const val KEY_PASSWORD = "auto_backup_password"
-    const val KEY_LAST_SUCCESS = "auto_backup_last_success"
-    const val KEY_LAST_ERROR = "auto_backup_last_error"
+    private const val KEY_ENABLED = "auto_backup_enabled"
+    private const val KEY_DESTINATION = "auto_backup_destination"
+    private const val KEY_URI = "auto_backup_uri"
+    private const val KEY_LOCATION = "auto_backup_location"
+    private const val KEY_PASSWORD = "auto_backup_password"
+    private const val KEY_LAST_SUCCESS = "auto_backup_last_success"
+    private const val KEY_LAST_ERROR = "auto_backup_last_error"
+    private const val KEY_ONEDRIVE_REFRESH = "auto_backup_onedrive_refresh"
+    private const val KEY_GDRIVE_FILE_ID = "auto_backup_gdrive_file_id"
+    private const val KEY_PENDING_PASSWORD = "auto_backup_pending_password"
+    private const val KEY_PENDING_STATE = "auto_backup_pending_state"
+    private const val KEY_PENDING_VERIFIER = "auto_backup_pending_verifier"
 
-    /** Device-specific (a file permission and a Keystore-encrypted password), so never part of a
-     * backup itself. */
-    val KEYS = setOf(KEY_ENABLED, KEY_URI, KEY_LOCATION, KEY_PASSWORD, KEY_LAST_SUCCESS, KEY_LAST_ERROR)
+    /** Device-specific (file permissions, Keystore-encrypted secrets, cloud sign-ins), so never
+     * part of a backup itself, and kept as they are when a backup is restored. */
+    val KEYS = setOf(
+        KEY_ENABLED, KEY_DESTINATION, KEY_URI, KEY_LOCATION, KEY_PASSWORD, KEY_LAST_SUCCESS, KEY_LAST_ERROR,
+        KEY_ONEDRIVE_REFRESH, KEY_GDRIVE_FILE_ID, KEY_PENDING_PASSWORD, KEY_PENDING_STATE, KEY_PENDING_VERIFIER
+    )
 
     const val FILE_NAME = "FinanceTracker-auto-backup.ftbackup"
     private const val PERIODIC_WORK = "auto_backup_weekly"
@@ -73,12 +96,17 @@ object AutoBackupSettings {
     private fun refresh() {
         _state.value = AutoBackupState(
             enabled = prefs.getBoolean(KEY_ENABLED, false),
+            destination = destination,
             locationLabel = prefs.getString(KEY_LOCATION, null),
             passwordProtected = prefs.contains(KEY_PASSWORD),
             lastSuccessAt = prefs.getLong(KEY_LAST_SUCCESS, -1L).takeIf { it > 0 },
             lastError = prefs.getString(KEY_LAST_ERROR, null)
         )
     }
+
+    val destination: BackupDestination?
+        get() = prefs.getString(KEY_DESTINATION, null)?.let { name -> BackupDestination.entries.firstOrNull { it.name == name } }
+            ?: if (prefs.contains(KEY_URI)) BackupDestination.PHONE else null
 
     val backupUri: Uri? get() = if (::prefs.isInitialized) prefs.getString(KEY_URI, null)?.let(Uri::parse) else null
 
@@ -96,32 +124,96 @@ object AutoBackupSettings {
         class Set(val chars: CharArray) : Password()
     }
 
-    /** Keeps write access to [uri] (a file the user just created with the system picker),
-     * schedules the weekly backup and runs the first one right away. Throws if the chosen
-     * location doesn't allow lasting access. */
-    fun enable(context: Context, uri: Uri, password: CharArray?) {
-        val resolver = context.contentResolver
-        resolver.takePersistableUriPermission(
+    /** Backs up weekly to [uri] (a file the user just created with the system picker), keeping
+     * write access to it. Throws if the chosen location doesn't allow lasting access. */
+    fun enableOnPhone(context: Context, uri: Uri, password: CharArray?) {
+        context.contentResolver.takePersistableUriPermission(
             uri,
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
-        backupUri?.takeIf { it != uri }?.let { old -> releasePermission(context, old) }
-        prefs.edit().apply {
-            putBoolean(KEY_ENABLED, true)
+        val oldUri = backupUri?.takeIf { it != uri }
+        activate(context, BackupDestination.PHONE, describe(context, uri), password) {
             putString(KEY_URI, uri.toString())
-            putString(KEY_LOCATION, describe(context, uri))
+        }
+        oldUri?.let { releasePermission(context, it) }
+    }
+
+    /** Starts the OneDrive sign-in: remembers the chosen password and the sign-in's PKCE secrets
+     * until the browser comes back to [completeOneDrive]. Returns the URL to open. */
+    fun beginOneDrive(password: CharArray?): String {
+        val pending = OneDriveBackup.startSignIn()
+        prefs.edit().apply {
+            putString(KEY_PENDING_STATE, pending.state)
+            putString(KEY_PENDING_VERIFIER, pending.codeVerifier)
+            if (password != null && password.isNotEmpty()) {
+                putString(KEY_PENDING_PASSWORD, DeviceSecret.encrypt(String(password).toByteArray(Charsets.UTF_8)))
+            } else {
+                remove(KEY_PENDING_PASSWORD)
+            }
+        }.commit()
+        return pending.url
+    }
+
+    /** Finishes the OneDrive sign-in from the browser redirect. Blocking (network) — call off the
+     * main thread. Returns the signed-in account. */
+    fun completeOneDrive(context: Context, code: String, state: String?): String? {
+        val expectedState = prefs.getString(KEY_PENDING_STATE, null)
+        val verifier = prefs.getString(KEY_PENDING_VERIFIER, null)
+        if (expectedState == null || verifier == null || state != expectedState) {
+            throw CloudException("The OneDrive sign-in expired. Try again from Settings > Import/Export.")
+        }
+        val tokens = OneDriveBackup.completeSignIn(code, verifier)
+        val password = prefs.getString(KEY_PENDING_PASSWORD, null)
+            ?.let { DeviceSecret.decrypt(it) }
+            ?.let { String(it, Charsets.UTF_8).toCharArray() }
+        val label = "OneDrive" + (tokens.account?.let { " · $it" } ?: "")
+        val oldUri = backupUri
+        activate(context, BackupDestination.ONEDRIVE, label, password) {
+            putString(KEY_ONEDRIVE_REFRESH, DeviceSecret.encrypt(tokens.refreshToken.toByteArray(Charsets.UTF_8)))
+        }
+        password?.fill('\u0000')
+        oldUri?.let { releasePermission(context, it) }
+        return tokens.account
+    }
+
+    fun enableGoogleDrive(context: Context, account: String?, password: CharArray?) {
+        val oldUri = backupUri
+        activate(context, BackupDestination.GOOGLE_DRIVE, "Google Drive" + (account?.let { " · $it" } ?: ""), password) {}
+        oldUri?.let { releasePermission(context, it) }
+    }
+
+    private fun activate(
+        context: Context,
+        destination: BackupDestination,
+        location: String,
+        password: CharArray?,
+        extra: SharedPreferences.Editor.() -> Unit
+    ) {
+        prefs.edit().apply {
+            KEYS.forEach { remove(it) }
+            putBoolean(KEY_ENABLED, true)
+            putString(KEY_DESTINATION, destination.name)
+            putString(KEY_LOCATION, location)
             if (password != null && password.isNotEmpty()) {
                 putString(KEY_PASSWORD, DeviceSecret.encrypt(String(password).toByteArray(Charsets.UTF_8)))
-            } else {
-                remove(KEY_PASSWORD)
             }
-            remove(KEY_LAST_ERROR)
-            remove(KEY_LAST_SUCCESS)
+            extra()
         }.commit()
         refresh()
         schedule(context)
         backUpNow(context)
     }
+
+    fun oneDriveRefreshToken(): String? =
+        prefs.getString(KEY_ONEDRIVE_REFRESH, null)?.let { DeviceSecret.decrypt(it) }?.let { String(it, Charsets.UTF_8) }
+
+    fun saveOneDriveRefreshToken(token: String) {
+        prefs.edit().putString(KEY_ONEDRIVE_REFRESH, DeviceSecret.encrypt(token.toByteArray(Charsets.UTF_8))).apply()
+    }
+
+    var googleDriveFileId: String?
+        get() = prefs.getString(KEY_GDRIVE_FILE_ID, null)
+        set(value) { prefs.edit().putString(KEY_GDRIVE_FILE_ID, value).apply() }
 
     fun disable(context: Context) {
         val workManager = WorkManager.getInstance(context)
@@ -159,7 +251,7 @@ object AutoBackupSettings {
             .enqueueUniquePeriodicWork(PERIODIC_WORK, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
-    // A cloud location (Google Drive, OneDrive) uploads the file, so wait for a connection.
+    // A cloud destination uploads the file, so wait for a connection.
     private fun constraints() = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .setRequiresBatteryNotLow(true)
@@ -180,14 +272,7 @@ object AutoBackupSettings {
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             }
         }.getOrNull() ?: FILE_NAME
-        val authority = uri.authority.orEmpty()
-        val place = when {
-            "google.android.apps.docs" in authority -> "Google Drive"
-            "skydrive" in authority || "onedrive" in authority.lowercase() -> "OneDrive"
-            "com.android.externalstorage" in authority || "downloads" in authority -> "this phone"
-            else -> null
-        }
-        return if (place != null) "$name · $place" else name
+        return "$name · this phone"
     }
 }
 

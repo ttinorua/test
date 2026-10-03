@@ -153,19 +153,31 @@ class BackupViewModel(private val context: Context) : ViewModel() {
 
     fun restartApp() = FullBackup.restartApp(context)
 
-    /** Turns on the weekly backup to [uri], a file the user just created in Google Drive, OneDrive
-     * or elsewhere, protected with [password] (empty for none). */
-    fun enableAutoBackup(uri: Uri, password: CharArray) {
-        val result = runCatching { AutoBackupSettings.enable(context, uri, password.takeIf { it.isNotEmpty() }) }
+    /** Turns on the weekly backup to [uri], a file the user just created on the phone,
+     * protected with [password] (empty for none). */
+    fun enableAutoBackupOnPhone(uri: Uri, password: CharArray) {
+        val result = runCatching { AutoBackupSettings.enableOnPhone(context, uri, password.takeIf { it.isNotEmpty() }) }
         password.fill('\u0000')
         result.onFailure {
-            _uiState.update {
-                it.copy(
-                    message = "This location doesn't allow automatic backups. Choose a file in Google Drive, " +
-                        "OneDrive or on the phone instead."
-                )
-            }
+            _uiState.update { it.copy(message = "This location doesn't allow automatic backups. Choose another folder.") }
         }
+    }
+
+    /** Remembers [password] and returns the Microsoft sign-in page to open in the browser; the
+     * browser comes back to the app (MainActivity), which finishes turning the backup on. */
+    fun beginOneDriveSignIn(password: CharArray): String {
+        val url = AutoBackupSettings.beginOneDrive(password.takeIf { it.isNotEmpty() })
+        password.fill('\u0000')
+        return url
+    }
+
+    fun enableAutoBackupToGoogleDrive(account: String?, password: CharArray) {
+        AutoBackupSettings.enableGoogleDrive(context, account, password.takeIf { it.isNotEmpty() })
+        password.fill('\u0000')
+    }
+
+    fun showMessage(message: String) {
+        _uiState.update { it.copy(message = message) }
     }
 
     fun disableAutoBackup() = AutoBackupSettings.disable(context)

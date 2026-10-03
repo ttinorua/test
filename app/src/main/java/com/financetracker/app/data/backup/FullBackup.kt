@@ -101,9 +101,17 @@ object FullBackup {
     suspend fun writeTo(context: Context, uri: Uri, password: CharArray?): BackupContents {
         val contents = create(context, includeBankConnections = password != null && password.isNotEmpty())
         val bytes = BackupCodec.encode(contents, password)
+        writeBytes(context, uri, bytes)
+        return contents
+    }
+
+    /** A fresh full backup file's bytes, encrypted with [password] when given. */
+    suspend fun encode(context: Context, password: CharArray?): ByteArray =
+        BackupCodec.encode(create(context, includeBankConnections = password != null && password.isNotEmpty()), password)
+
+    private fun writeBytes(context: Context, uri: Uri, bytes: ByteArray) {
         context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
             ?: error("Couldn't open the backup file for writing.")
-        return contents
     }
 
     /** Relaunches the app from scratch, so everything reloads from the restored data. */

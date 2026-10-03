@@ -25,6 +25,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.financetracker.app.data.backup.AutoBackupSettings
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.enablebanking.EnableBankingService
@@ -51,7 +52,9 @@ import com.financetracker.app.ui.screens.trends.TrendsViewModel
 import com.financetracker.app.ui.theme.PersonalFinanceTheme
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.ViewModelFactory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -245,6 +248,10 @@ class MainActivity : ComponentActivity() {
      * page. Any other intent (e.g. the normal launcher intent) is ignored. */
     private fun handleIncomingIntent(intent: Intent) {
         val data = intent.data ?: return
+        if (data.scheme == "financetracker" && data.host == "onedrive-auth") {
+            handleOneDriveSignIn(data)
+            return
+        }
         if (data.scheme != "financetracker" || data.host != "enablebanking-callback") return
 
         val error = data.getQueryParameter("error")
@@ -269,6 +276,28 @@ class MainActivity : ComponentActivity() {
                 .onFailure { e ->
                     Toast.makeText(this@MainActivity, "Bank connection failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
+        }
+    }
+
+    /** Finishes turning on the automatic backup to OneDrive once Microsoft's sign-in page sends
+     * the browser back here (financetracker://onedrive-auth?code=...&state=...). */
+    private fun handleOneDriveSignIn(data: Uri) {
+        val code = data.getQueryParameter("code")
+        if (code == null) {
+            val reason = data.getQueryParameter("error_description") ?: data.getQueryParameter("error") ?: "cancelled"
+            Toast.makeText(this, "OneDrive sign-in failed: $reason", Toast.LENGTH_LONG).show()
+            return
+        }
+        val state = data.getQueryParameter("state")
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { AutoBackupSettings.completeOneDrive(applicationContext, code, state) }
+            }
+            val message = result.fold(
+                onSuccess = { account -> "Weekly backup to OneDrive is on" + (account?.let { " ($it)" } ?: "") + "." },
+                onFailure = { it.message ?: "OneDrive sign-in failed." }
+            )
+            Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
         }
     }
 }

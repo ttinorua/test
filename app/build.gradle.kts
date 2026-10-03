@@ -30,6 +30,10 @@ val anthropicApiKey: String =
 // is the default. The app expects the private key base64-encoded (of the whole PEM text): either
 // supply that as ENABLE_BANKING_PRIVATE_KEY_B64, or paste the .pem file's text as-is into
 // ENABLE_BANKING_PRIVATE_KEY and it's encoded here.
+// OneDrive automatic backup: the "Application (client) ID" of the app's Microsoft registration
+// (not a secret — it's sent in the clear during sign-in). Without it the OneDrive option is hidden.
+val oneDriveClientId: String = buildSecret("ONEDRIVE_CLIENT_ID")?.trim() ?: ""
+
 val enableBankingApplicationId: String =
     buildSecret("ENABLE_BANKING_APPLICATION_ID")?.trim() ?: "7bf8c383-b4b9-41c5-b126-11cc4f76c1c5"
 val enableBankingPrivateKeyB64: String =
@@ -56,6 +60,7 @@ android {
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicApiKey\"")
         buildConfigField("String", "ENABLE_BANKING_APPLICATION_ID", "\"$enableBankingApplicationId\"")
         buildConfigField("String", "ENABLE_BANKING_PRIVATE_KEY_B64", "\"$enableBankingPrivateKeyB64\"")
+        buildConfigField("String", "ONEDRIVE_CLIENT_ID", "\"$oneDriveClientId\"")
     }
 
     // The app's permanent signing key. Android only installs an update signed with the same key as
@@ -155,6 +160,9 @@ dependencies {
         exclude(group = "org.apache.xmlbeans", module = "xmlbeans")
     }
     implementation("org.apache.xmlbeans:xmlbeans:5.2.0")
+
+    // Google sign-in for the automatic backup to Google Drive
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
 
     // Claude API (chat, category suggestions, spending insights)
     implementation("com.anthropic:anthropic-java:2.52.0")

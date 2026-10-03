@@ -1,5 +1,6 @@
 package com.financetracker.app.ui.screens.importexport
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,12 +11,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -29,10 +34,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.backup.AutoBackupState
+import com.financetracker.app.data.backup.BackupDestination
 import com.financetracker.app.ui.theme.IncomeGreen
 import com.financetracker.app.util.Formatters
 
@@ -96,12 +104,6 @@ fun CreateBackupDialog(
                     "Leave both empty for an unencrypted backup without bank connections.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    "Next, Android asks where to save. It opens on the phone's own storage — tap ☰ " +
-                        "(top left) to choose Google Drive or OneDrive instead.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
                 )
                 PasswordField(value = password, onValueChange = { password = it }, label = "Password")
                 PasswordField(
@@ -177,6 +179,54 @@ fun RestoreCompleteDialog(onRestart: () -> Unit) {
     )
 }
 
+/** Where the weekly backup should go. OneDrive is offered only when the app is set up for it. */
+@Composable
+fun ChooseBackupDestinationDialog(
+    oneDriveAvailable: Boolean,
+    onDismiss: () -> Unit,
+    onChoose: (BackupDestination) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Where should the backup go?") },
+        text = {
+            Column {
+                BackupDestination.entries.forEach { destination ->
+                    val enabled = destination != BackupDestination.ONEDRIVE || oneDriveAvailable
+                    ListItem(
+                        headlineContent = { Text(destination.label) },
+                        supportingContent = {
+                            Text(
+                                when (destination) {
+                                    BackupDestination.ONEDRIVE ->
+                                        if (enabled) "Sign in with Microsoft. Saved in OneDrive > Apps." else "Not set up in this version of the app yet."
+                                    BackupDestination.GOOGLE_DRIVE -> "Choose your Google account. Saved in My Drive."
+                                    BackupDestination.PHONE -> "Pick a folder, e.g. Documents. Survives reinstalling the app, not losing the phone."
+                                }
+                            )
+                        },
+                        leadingContent = {
+                            Icon(
+                                when (destination) {
+                                    BackupDestination.PHONE -> Icons.Filled.PhoneAndroid
+                                    else -> Icons.Filled.Cloud
+                                },
+                                contentDescription = null
+                            )
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier
+                            .clickable(enabled = enabled) { onChoose(destination) }
+                            .alpha(if (enabled) 1f else 0.4f)
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
 @Composable
 fun AutoBackupCard(
     state: AutoBackupState,
@@ -203,10 +253,10 @@ fun AutoBackupCard(
             }
             if (!state.enabled) {
                 Text(
-                    "Once a week the app updates one backup file in Google Drive, OneDrive or on " +
-                        "the phone — you pick where when you turn this on (Google Drive or OneDrive " +
-                        "must be installed to appear). The file always holds your latest data; " +
-                        "Google Drive and OneDrive also keep its earlier versions.",
+                    "Once a week the app saves a fresh backup to OneDrive, Google Drive or this " +
+                        "phone — you choose when you turn this on. It replaces the previous one, so " +
+                        "it always holds your latest data; OneDrive and Google Drive also keep " +
+                        "earlier versions.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -112,7 +112,8 @@ object AdvisorActions {
         }
         is ActionPlan.SaveGoal -> {
             val previous = LoansAndGoals.goals.value.firstOrNull { it.id == plan.goal.id }
-            LoansAndGoals.saveGoal(plan.goal)
+            val balance = plan.goal.accountId?.let { id -> repository.getAccounts().firstOrNull { it.id == id }?.let { repository.getAccountBalance(it) } }
+            LoansAndGoals.saveGoal(plan.goal, balance ?: plan.goal.savedAmount)
             "Saved to My loans & goals." to UndoInfo.Goals(previous, plan.goal.id)
         }
     }
@@ -141,7 +142,7 @@ object AdvisorActions {
             "Undone."
         }
         is UndoInfo.Goals -> {
-            if (undo.previous != null) LoansAndGoals.saveGoal(undo.previous) else LoansAndGoals.deleteGoal(undo.id)
+            if (undo.previous != null) LoansAndGoals.restoreGoal(undo.previous) else LoansAndGoals.deleteGoal(undo.id)
             "Undone."
         }
     }

@@ -43,7 +43,12 @@ data class SavingsGoal(
     val targetAmount: Double? = null,
     val savedAmount: Double? = null,
     val monthlySaving: Double? = null,
-    val targetDate: String = ""
+    val targetDate: String = "",
+    /** When set, the goal's saved amount is this account's balance, kept up to date by syncs. */
+    val accountId: Long? = null,
+    /** When tracking started and the amount saved then — the baseline for measuring progress. */
+    val startedAt: Long? = null,
+    val startAmount: Double? = null
 )
 
 /** The user's loans and savings goals, for the AI advisor's loan and goal advice. Stored as JSON
@@ -75,7 +80,18 @@ object LoansAndGoals {
         prefs.edit().putString(KEY_LOANS, JSONArray(_loans.value.map(::loanToJson)).toString()).apply()
     }
 
-    fun saveGoal(goal: SavingsGoal) {
+    /** Saves [goal]. A new goal (or one switched to a different account) starts tracking now,
+     * from [currentAmount] — its saved amount, or the linked account's balance. */
+    fun saveGoal(goal: SavingsGoal, currentAmount: Double? = goal.savedAmount) {
+        val previous = _goals.value.firstOrNull { it.id == goal.id }
+        val restart = goal.startedAt == null || (previous != null && previous.accountId != goal.accountId)
+        val saved = if (restart) goal.copy(startedAt = System.currentTimeMillis(), startAmount = currentAmount) else goal
+        _goals.value = _goals.value.map { if (it.id == goal.id) saved else it }.let { if (previous == null) it + saved else it }
+        prefs.edit().putString(KEY_GOALS, JSONArray(_goals.value.map(::goalToJson)).toString()).apply()
+    }
+
+    /** Puts [goal] back exactly as it was (Undo). */
+    fun restoreGoal(goal: SavingsGoal) {
         _goals.value = _goals.value.filterNot { it.id == goal.id } + goal
         prefs.edit().putString(KEY_GOALS, JSONArray(_goals.value.map(::goalToJson)).toString()).apply()
     }
@@ -116,13 +132,17 @@ object LoansAndGoals {
         .put("id", goal.id).put("name", goal.name)
         .putOpt("target_amount", goal.targetAmount).putOpt("saved_amount", goal.savedAmount)
         .putOpt("monthly_saving", goal.monthlySaving).put("target_date", goal.targetDate)
+        .putOpt("account_id", goal.accountId).putOpt("started_at", goal.startedAt).putOpt("start_amount", goal.startAmount)
 
     private fun goalFromJson(json: JSONObject): SavingsGoal {
         fun num(key: String): Double? = if (json.isNull(key) || !json.has(key)) null else json.optDouble(key).takeIf { !it.isNaN() }
         return SavingsGoal(
             id = json.optString("id").ifBlank { UUID.randomUUID().toString() },
             name = json.optString("name"), targetAmount = num("target_amount"), savedAmount = num("saved_amount"),
-            monthlySaving = num("monthly_saving"), targetDate = json.optString("target_date")
+            monthlySaving = num("monthly_saving"), targetDate = json.optString("target_date"),
+            accountId = if (json.has("account_id") && !json.isNull("account_id")) json.optLong("account_id") else null,
+            startedAt = if (json.has("started_at") && !json.isNull("started_at")) json.optLong("started_at") else null,
+            startAmount = num("start_amount")
         )
     }
 

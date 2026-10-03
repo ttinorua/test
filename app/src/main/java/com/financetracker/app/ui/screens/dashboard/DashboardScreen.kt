@@ -1,5 +1,24 @@
 package com.financetracker.app.ui.screens.dashboard
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import com.financetracker.app.data.advisor.AttentionMonitor
+import com.financetracker.app.ui.screens.ai.AdvisorLaunch
+import com.financetracker.app.util.advisor.AttentionFilter
+import com.financetracker.app.util.advisor.AttentionItem
+import com.financetracker.app.util.advisor.AttentionLevel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -78,6 +97,15 @@ fun DashboardScreen(
     val isGeneratingInsights by viewModel.isGeneratingInsights.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val lastSyncedAt by viewModel.lastSyncedAt.collectAsState()
+    val attentionItems by viewModel.attentionItems.collectAsState()
+    val context = LocalContext.current
+    val askNotificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(attentionItems.isNotEmpty()) {
+        if (attentionItems.isNotEmpty() && AttentionMonitor.shouldAskPermission(context)) {
+            AttentionMonitor.markPermissionAsked()
+            askNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -285,6 +313,31 @@ fun DashboardScreen(
                     )
                 }
             }
+            if (attentionItems.isNotEmpty()) {
+                item {
+                    NeedsAttentionCard(
+                        items = attentionItems,
+                        canAsk = AiService.isConfigured,
+                        onAsk = { prompt ->
+                            AdvisorLaunch.ask(prompt)
+                            onOpenAskAi()
+                        },
+                        onSeeTransactions = { filter ->
+                            onOpenTransactions(
+                                filter.type,
+                                filter.categoryId,
+                                filter.label,
+                                if (filter.thisMonthOnly) PeriodOption.THIS_MONTH else PeriodOption.ALL_TIME,
+                                null,
+                                false,
+                                filter.accountId,
+                                filter.uncategorizedOnly
+                            )
+                        },
+                        onDismiss = viewModel::dismissAttention
+                    )
+                }
+            }
             if (AiService.isConfigured) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
@@ -401,6 +454,108 @@ private fun InsightCardItem(card: InsightCard) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp)
             )
+        }
+    }
+}
+
+/** "Needs your attention": what the app's checks found (see AttentionChecks), most important
+ * first. Only shown when there's something; each item can be opened, taken to the advisor or
+ * dismissed. */
+@Composable
+private fun NeedsAttentionCard(
+    items: List<AttentionItem>,
+    canAsk: Boolean,
+    onAsk: (String) -> Unit,
+    onSeeTransactions: (AttentionFilter) -> Unit,
+    onDismiss: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.NotificationsActive, contentDescription = null)
+                Text(
+                    text = "Needs your attention",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .weight(1f)
+                )
+                Text("${items.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            val visible = if (expanded) items else items.take(3)
+            Column(modifier = Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                visible.forEach { item ->
+                    AttentionRow(item, canAsk, onAsk, onSeeTransactions, onDismiss)
+                }
+            }
+            if (items.size > 3) {
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(if (expanded) "Show less" else "Show all ${items.size}")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttentionRow(
+    item: AttentionItem,
+    canAsk: Boolean,
+    onAsk: (String) -> Unit,
+    onSeeTransactions: (AttentionFilter) -> Unit,
+    onDismiss: (String) -> Unit
+) {
+    val accent = when (item.level) {
+        AttentionLevel.URGENT, AttentionLevel.WARNING -> ExpenseRed
+        AttentionLevel.GOOD -> IncomeGreen
+        AttentionLevel.INFO -> MaterialTheme.colorScheme.primary
+    }
+    val icon = when (item.level) {
+        AttentionLevel.URGENT -> Icons.Filled.Error
+        AttentionLevel.WARNING -> Icons.Filled.Warning
+        AttentionLevel.GOOD -> Icons.Filled.CheckCircle
+        AttentionLevel.INFO -> Icons.Filled.Info
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(10.dp))
+            .background(accent.copy(alpha = 0.08f))
+    ) {
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .fillMaxHeight()
+                .background(accent)
+        )
+        Column(modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 4.dp).weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
+                Text(
+                    item.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(start = 6.dp)
+                )
+            }
+            Text(
+                item.detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Row {
+                item.filter?.let { filter ->
+                    TextButton(onClick = { onSeeTransactions(filter) }) { Text("See transactions") }
+                }
+                if (canAsk && item.prompt != null) {
+                    TextButton(onClick = { onAsk(item.prompt) }) { Text(item.promptLabel) }
+                }
+            }
+        }
+        IconButton(onClick = { onDismiss(item.key) }) {
+            Icon(Icons.Filled.Close, contentDescription = "Dismiss", modifier = Modifier.size(18.dp))
         }
     }
 }

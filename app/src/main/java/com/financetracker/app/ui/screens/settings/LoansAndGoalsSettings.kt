@@ -1,5 +1,13 @@
 package com.financetracker.app.ui.screens.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.Switch
+import androidx.core.content.ContextCompat
+import com.financetracker.app.data.advisor.AttentionMonitor
+import com.financetracker.app.util.advisor.GoalTracking
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,7 +57,7 @@ import kotlinx.coroutines.launch
 /** Settings > General > My loans & goals: what the AI advisor knows about the user's loans and
  * savings goals. A loan can be typed in or read from its (Danish) document by the AI. */
 @Composable
-fun LoansAndGoalsSettings(modifier: Modifier = Modifier) {
+fun LoansAndGoalsSettings(accounts: List<AccountUi>, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val loans by LoansAndGoals.loans.collectAsState()
@@ -94,13 +102,31 @@ fun LoansAndGoalsSettings(modifier: Modifier = Modifier) {
             )
         }
         goals.forEach { goal ->
+            val linked = goal.accountId?.let { id -> accounts.firstOrNull { it.account.id == id } }
+            val saved = linked?.balance ?: goal.savedAmount
+            val target = goal.targetAmount
+            val status = if (target != null && target > 0 && saved != null) {
+                GoalTracking.status(
+                    target, saved, GoalTracking.parseTargetDate(goal.targetDate), goal.startedAt, goal.startAmount,
+                    goal.monthlySaving, System.currentTimeMillis()
+                )
+            } else {
+                null
+            }
             ItemRow(
                 title = goal.name.ifBlank { "Goal" },
                 detail = listOfNotNull(
-                    goal.savedAmount?.let { Formatters.currency(it, currency) },
-                    goal.targetAmount?.let { "of ${Formatters.currency(it, currency)}" },
-                    goal.targetDate.takeIf { it.isNotBlank() }?.let { "by $it" }
-                ).joinToString(" "),
+                    saved?.let { Formatters.currency(it, currency) + (target?.let { t -> " of ${Formatters.currency(t, currency)}" } ?: "") },
+                    goal.targetDate.takeIf { it.isNotBlank() }?.let { "by $it" },
+                    linked?.let { "linked to ${it.account.name}" },
+                    when {
+                        status == null -> null
+                        status.reached -> "reached"
+                        status.behind -> "behind by ${Formatters.currency(status.behindBy, currency)}"
+                        status.monthsLeft != null -> "on track"
+                        else -> null
+                    }
+                ).joinToString(" · "),
                 onClick = { editingGoal = goal }
             )
         }
@@ -155,9 +181,10 @@ fun LoansAndGoalsSettings(modifier: Modifier = Modifier) {
     editingGoal?.let { goal ->
         GoalDialog(
             goal = goal,
+            accounts = accounts,
             isNew = goals.none { it.id == goal.id },
             onSave = {
-                LoansAndGoals.saveGoal(it)
+                LoansAndGoals.saveGoal(it, it.accountId?.let { id -> accounts.firstOrNull { a -> a.account.id == id }?.balance } ?: it.savedAmount)
                 editingGoal = null
             },
             onDelete = {
@@ -250,18 +277,59 @@ private fun LoanDialog(loan: Loan, isNew: Boolean, onSave: (Loan) -> Unit, onDel
 }
 
 @Composable
-private fun GoalDialog(goal: SavingsGoal, isNew: Boolean, onSave: (SavingsGoal) -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
+private fun GoalDialog(
+    goal: SavingsGoal,
+    accounts: List<AccountUi>,
+    isNew: Boolean,
+    onSave: (SavingsGoal) -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
     var draft by remember(goal.id) { mutableStateOf(goal) }
+    val currency by CurrencySettings.currencyCode.collectAsState()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (isNew) "Savings goal" else "Edit goal") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 Field("Name, e.g. Emergency fund", draft.name) { draft = draft.copy(name = it) }
                 NumberField("Target amount", draft.targetAmount) { draft = draft.copy(targetAmount = it) }
-                NumberField("Saved so far", draft.savedAmount) { draft = draft.copy(savedAmount = it) }
-                NumberField("Saving per month", draft.monthlySaving) { draft = draft.copy(monthlySaving = it) }
+                Text("Saved in", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    FilterChip(selected = draft.accountId == null, onClick = { draft = draft.copy(accountId = null) }, label = { Text("I'll enter it") })
+                    accounts.forEach { account ->
+                        FilterChip(
+                            selected = draft.accountId == account.account.id,
+                            onClick = { draft = draft.copy(accountId = account.account.id) },
+                            label = { Text(account.account.name) }
+                        )
+                    }
+                }
+                val linked = draft.accountId?.let { id -> accounts.firstOrNull { it.account.id == id } }
+                if (linked != null) {
+                    Text(
+                        "Progress follows this account's balance (now ${Formatters.currency(linked.balance, currency)}) and updates with every bank sync.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    NumberField("Saved so far", draft.savedAmount) { draft = draft.copy(savedAmount = it) }
+                }
+                NumberField("Planned saving per month", draft.monthlySaving) { draft = draft.copy(monthlySaving = it) }
                 Field("Target date (YYYY-MM-DD)", draft.targetDate) { draft = draft.copy(targetDate = it) }
+                Text(
+                    "With a target date, the app checks daily whether you're on pace and tells you if you fall behind.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 if (!isNew) TextButton(onClick = onDelete) { Text("Delete goal", color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -270,6 +338,40 @@ private fun GoalDialog(goal: SavingsGoal, isNew: Boolean, onSave: (SavingsGoal) 
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+/** Settings > General > Needs your attention: phone notifications on or off. */
+@Composable
+fun AttentionSettings(modifier: Modifier = Modifier) {
+    val enabled by AttentionMonitor.notificationsEnabled.collectAsState()
+    val context = LocalContext.current
+    val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    Column(modifier = modifier) {
+        Text("Needs your attention", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Every day and after each bank sync, the app checks your budgets, subscriptions and price rises, unusual " +
+                "payments, balances, goals, loans, bank connection and backups. Anything worth a look shows on the " +
+                "Dashboard, plus a monthly review at the start of each month. Phone notifications tell you when " +
+                "something new comes up.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = enabled,
+                onCheckedChange = { on ->
+                    AttentionMonitor.setNotificationsEnabled(on)
+                    if (on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        askPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            )
+            Text(if (enabled) "Phone notifications on" else "Phone notifications off", modifier = Modifier.padding(start = 8.dp))
+        }
+    }
 }
 
 @Composable

@@ -7,6 +7,7 @@ import com.financetracker.app.data.bank.BankCategories
 import com.financetracker.app.data.bank.CategoryCleanup
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.AppDatabase
+import com.financetracker.app.data.advisor.AttentionMonitor
 import com.financetracker.app.data.ai.AiSettings
 import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.backup.AutoBackupSettings
@@ -52,6 +53,7 @@ class FinanceApp : Application() {
         AutoBackupSettings.init(this)
         LoansAndGoals.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
+        AttentionMonitor.init(this)
 
         // Retroactively adds any starter category the currently selected/connected bank has
         // that an existing install is still missing (the starter set has grown since some

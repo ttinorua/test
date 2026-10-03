@@ -2,7 +2,10 @@ package com.financetracker.app.util.advisor
 
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.util.countsTowardTotals
+import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.identityTokensOf
+import com.financetracker.app.util.transfersInCountAsIncome
 import java.util.Calendar
 import java.util.TimeZone
 import kotlin.math.abs
@@ -21,6 +24,26 @@ object FinanceAnalysis {
 
     private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
     private const val DAY = 24L * 60 * 60 * 1000
+
+    /** The transactions that count toward totals for [accountId] (null = all accounts), under the
+     * app's transfer rules, with salaries moved to the month they're for when that's switched on. */
+    fun counted(
+        transactions: List<TransactionWithDetails>,
+        accountId: Long?,
+        excludeTransfers: Boolean,
+        shiftSalary: Boolean,
+        mainAccountId: Long?
+    ): List<TransactionWithDetails> {
+        val transfersIn = transfersInCountAsIncome(accountId, mainAccountId)
+        return transactions.asSequence()
+            .filter { accountId == null || it.accountId == accountId }
+            .filter { countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersIn) }
+            .map { tx ->
+                val date = effectiveReportingDate(tx.date, tx.type, tx.mainCategoryName, tx.categoryName, shiftSalary)
+                if (date == tx.date) tx else tx.copy(date = date)
+            }
+            .toList()
+    }
 
     fun monthStart(time: Long, offsetMonths: Int = 0): Long = Calendar.getInstance(UTC).apply {
         timeInMillis = time
@@ -81,7 +104,8 @@ object FinanceAnalysis {
         /** The amount before the latest change, when the latest payment differs from the one before. */
         val previousAmount: Double?,
         val occurrences: Int,
-        val category: String?
+        val category: String?,
+        val firstDate: Long = lastDate
     ) {
         val yearlyCost: Double get() = lastAmount * cadence.perYear
         val priceChangePct: Double? get() = previousAmount?.takeIf { it > 0 }?.let { (lastAmount - it) / it * 100 }
@@ -117,7 +141,8 @@ object FinanceAnalysis {
                 lastDate = last.date,
                 previousAmount = previous,
                 occurrences = sorted.size,
-                category = last.categoryName
+                category = last.categoryName,
+                firstDate = sorted.first().date
             )
         }.sortedByDescending { it.yearlyCost }
     }
@@ -215,5 +240,78 @@ object FinanceCalculators {
         val grown = current * (1 + r).pow(months)
         val remaining = (target - grown).coerceAtLeast(0.0)
         return if (r == 0.0) remaining / months else remaining * r / ((1 + r).pow(months) - 1)
+    }
+}
+
+/** How a savings goal is going. */
+data class GoalStatus(
+    val saved: Double,
+    val target: Double,
+    val reached: Boolean,
+    /** Whole months until the target date (null without a date). */
+    val monthsLeft: Int?,
+    /** Saving per month so far (measured since tracking started), or the planned monthly saving. */
+    val pacePerMonth: Double?,
+    val paceMeasured: Boolean,
+    /** Months to reach the target at [pacePerMonth] (null if it never gets there). */
+    val projectedMonths: Int?,
+    /** Saving needed per month from now to make the target date. */
+    val neededPerMonth: Double?,
+    /** How far below the straight path to the target the goal is now (0 when on track). */
+    val behindBy: Double,
+    /** True when, at this pace, the target date will be missed. */
+    val behind: Boolean
+)
+
+object GoalTracking {
+    private const val DAY = 24L * 60 * 60 * 1000
+    private const val MONTH = 30.44 * DAY
+
+    /** Reads "YYYY-MM-DD" or "YYYY-MM" (end of that month); null otherwise. */
+    fun parseTargetDate(raw: String): Long? {
+        val match = Regex("""(\d{4})-(\d{1,2})(?:-(\d{1,2}))?""").find(raw.trim()) ?: return null
+        val (y, m, d) = match.destructured
+        return java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).run {
+            clear()
+            set(y.toInt(), m.toInt() - 1, 1)
+            if (d.isEmpty()) set(java.util.Calendar.DAY_OF_MONTH, getActualMaximum(java.util.Calendar.DAY_OF_MONTH)) else set(java.util.Calendar.DAY_OF_MONTH, d.toInt())
+            timeInMillis
+        }
+    }
+
+    fun status(
+        target: Double,
+        saved: Double,
+        targetDate: Long?,
+        startedAt: Long?,
+        startAmount: Double?,
+        plannedMonthly: Double?,
+        now: Long
+    ): GoalStatus {
+        val reached = saved >= target
+        val monthsLeft = targetDate?.let { kotlin.math.ceil((it - now) / MONTH).toInt().coerceAtLeast(0) }
+        val elapsedMonths = startedAt?.let { (now - it) / MONTH }
+        val measured = elapsedMonths != null && elapsedMonths >= 1.0 && startAmount != null
+        val pace = if (measured) (saved - startAmount!!) / elapsedMonths!! else plannedMonthly
+        val projected = when {
+            reached -> 0
+            pace == null || pace <= 0 -> null
+            else -> FinanceCalculators.monthsToGoal(target, saved, pace)
+        }
+        val needed = if (reached || monthsLeft == null) null else FinanceCalculators.monthlyNeeded(target, saved, monthsLeft.coerceAtLeast(1))
+        // Where the goal should be by now on a straight line from its start to the target date.
+        val expectedNow = if (targetDate != null && startedAt != null && startAmount != null && targetDate > startedAt) {
+            startAmount + (target - startAmount) * ((now - startedAt).toDouble() / (targetDate - startedAt)).coerceIn(0.0, 1.0)
+        } else {
+            null
+        }
+        val shortfallAtDate = if (monthsLeft != null && !reached) (target - saved - (pace ?: 0.0).coerceAtLeast(0.0) * monthsLeft).coerceAtLeast(0.0) else 0.0
+        val behindBy = when {
+            reached -> 0.0
+            expectedNow != null -> (expectedNow - saved).coerceAtLeast(0.0)
+            else -> shortfallAtDate
+        }
+        val behind = !reached && monthsLeft != null && (projected == null || projected > monthsLeft) && shortfallAtDate > target * 0.01
+        return GoalStatus(saved, target, reached, monthsLeft, pace, measured, projected, needed, if (!behind) 0.0 else if (behindBy > target * 0.01) behindBy else shortfallAtDate, behind)
     }
 }

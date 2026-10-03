@@ -1,5 +1,10 @@
 package com.financetracker.app.ui.screens.dashboard
 
+import com.financetracker.app.data.advisor.AttentionMonitor
+import com.financetracker.app.data.prefs.LoansAndGoals
+import com.financetracker.app.util.advisor.AttentionItem
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -109,7 +114,24 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
         viewModelScope.launch {
             MainAccountSettings.mainAccountId.drop(1).collect { _selectedAccountId.value = it }
         }
+        // Keeps "Needs your attention" current as transactions, budgets and goals change.
+        viewModelScope.launch {
+            combine(
+                repository.observeTransactions(),
+                BudgetLimits.overallBudgets,
+                BudgetLimits.categoryBudgets,
+                LoansAndGoals.goals,
+                LoansAndGoals.loans
+            ) { _, _, _, _, _ -> Unit }.collectLatest {
+                delay(400)
+                runCatching { AttentionMonitor.refresh(repository, seen = true) }
+            }
+        }
     }
+
+    val attentionItems: StateFlow<List<AttentionItem>> = AttentionMonitor.items
+
+    fun dismissAttention(key: String) = AttentionMonitor.dismiss(key)
 
     /** Whether a bank sync ([EnableBankingSyncWorker]) is currently running — read straight from
      * WorkManager (not tied to any particular screen's lifecycle) so the header's sync spinner

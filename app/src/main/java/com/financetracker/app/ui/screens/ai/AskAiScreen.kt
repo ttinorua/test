@@ -72,6 +72,11 @@ fun AskAiScreen(viewModel: AskAiViewModel, onBack: () -> Unit) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
+    // Opened from a "Needs your attention" card: ask its question straight away.
+    LaunchedEffect(Unit) {
+        AdvisorLaunch.take()?.let(viewModel::sendMessage)
+    }
+
     LaunchedEffect(state.messages.size, state.isSending) {
         val lastIndex = state.messages.size - 1 + if (state.isSending) 1 else 0
         if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)

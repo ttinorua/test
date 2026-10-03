@@ -2,10 +2,11 @@ package com.financetracker.app.ui.screens.settings
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,24 +18,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,9 +48,10 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
@@ -65,7 +72,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -74,16 +84,16 @@ import com.financetracker.app.data.bank.Bank
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
-import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BankScheduledPayments
+import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.prefs.LinkedBankAccount
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.prefs.SUPPORTED_CURRENCIES
 import com.financetracker.app.data.prefs.ThemeMode
 import com.financetracker.app.data.prefs.ThemeSettings
-import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.ui.components.AccountSelectorChip
 import com.financetracker.app.ui.components.CategoryColorDot
 import com.financetracker.app.ui.screens.importexport.ImportExportScreen
@@ -273,84 +283,42 @@ fun SettingsScreen(
                                 )
                             }
                         }
-                        grouped.forEach { (mainCategory, subcategories) ->
+                        val groups = grouped.entries.toList()
+                        groups.forEachIndexed { groupIndex, (mainCategory, subcategories) ->
                             val isExpanded = mainCategory !in collapsedMains
+                            val isLastGroup = groupIndex == groups.lastIndex
+                            val sortedSubcategories = subcategories.sortedBy { it.name.lowercase() }
                             item(key = "header_$mainCategory") {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            collapsedMains = if (isExpanded) {
-                                                collapsedMains + mainCategory
-                                            } else {
-                                                collapsedMains - mainCategory
-                                            }
+                                CategoryGroupHeader(
+                                    title = mainCategory,
+                                    count = subcategories.size,
+                                    expanded = isExpanded,
+                                    shape = accordionShape(top = groupIndex == 0, bottom = isLastGroup && !isExpanded),
+                                    onToggle = {
+                                        collapsedMains = if (isExpanded) {
+                                            collapsedMains + mainCategory
+                                        } else {
+                                            collapsedMains - mainCategory
                                         }
-                                        .padding(top = 12.dp, bottom = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = "$mainCategory (${subcategories.size})",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.padding(start = 4.dp)
-                                    )
-                                }
+                                    },
+                                    modifier = Modifier.padding(top = if (groupIndex == 0) 0.dp else 2.dp)
+                                )
                             }
                             if (isExpanded) {
-                                items(subcategories, key = { it.id }) { category ->
-                                Card(modifier = Modifier.padding(vertical = 4.dp)) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .padding(end = 8.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
-                                                Text(
-                                                    category.name,
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.padding(start = 12.dp)
-                                                )
-                                            }
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = if (category.type == TransactionType.INCOME) "Income" else "Expense",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                                IconButton(onClick = { deleteCategoryTarget = category }) {
-                                                    Icon(Icons.Filled.Delete, contentDescription = "Delete category")
-                                                }
-                                            }
-                                        }
-                                        if (category.type == TransactionType.EXPENSE) {
-                                            val isFixed = category.id in fixedExpenseCategoryIds
-                                            FilterChip(
-                                                selected = isFixed,
-                                                onClick = { FixedExpenseCategories.setFixed(category.id, !isFixed) },
-                                                label = { Text("Fixe") },
-                                                modifier = Modifier.padding(top = 4.dp)
-                                            )
-                                        }
-                                    }
+                                itemsIndexed(sortedSubcategories, key = { _, category -> category.id }) { index, category ->
+                                    val isLastRow = index == sortedSubcategories.lastIndex
+                                    CategoryAccordionRow(
+                                        category = category,
+                                        isFixed = category.id in fixedExpenseCategoryIds,
+                                        onToggleFixed = { FixedExpenseCategories.setFixed(category.id, it) },
+                                        onDelete = { deleteCategoryTarget = category },
+                                        showDivider = !isLastRow,
+                                        shape = accordionShape(top = false, bottom = isLastGroup && isLastRow)
+                                    )
                                 }
                             }
                         }
                     }
-                }
                 }
 
                 2 -> BudgetsTab(
@@ -1396,3 +1364,120 @@ private fun BankAccountRow(account: LinkedBankAccount, selected: Boolean, onTogg
 
 private fun formatBankDate(epochMillis: Long): String =
     SimpleDateFormat("MMM d, yyyy", Locale.US).format(Date(epochMillis))
+
+private val ACCORDION_CORNER = 12.dp
+
+/** Rounds only the outer corners of the accordion: the first header's top, the last visible row's
+ * bottom — so the whole list reads as one card, like the rest of Settings. */
+private fun accordionShape(top: Boolean, bottom: Boolean): Shape = RoundedCornerShape(
+    topStart = if (top) ACCORDION_CORNER else 0.dp,
+    topEnd = if (top) ACCORDION_CORNER else 0.dp,
+    bottomStart = if (bottom) ACCORDION_CORNER else 0.dp,
+    bottomEnd = if (bottom) ACCORDION_CORNER else 0.dp
+)
+
+/** A main-category header. Collapsed it's filled with the app's accent container color (the same
+ * as the add button); expanded it blends into the card color of its subcategories below. */
+@Composable
+private fun CategoryGroupHeader(
+    title: String,
+    count: Int,
+    expanded: Boolean,
+    shape: Shape,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val container = if (expanded) CardDefaults.cardColors().containerColor else MaterialTheme.colorScheme.primaryContainer
+    val content = if (expanded) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(container)
+            .clickable(onClickLabel = if (expanded) "Collapse" else "Expand", onClick = onToggle)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = if (expanded) Icons.Filled.Remove else Icons.Filled.AddCircle,
+            contentDescription = null,
+            tint = content,
+            modifier = Modifier.size(22.dp)
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = content,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp, end = 8.dp)
+        )
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .border(1.5.dp, content, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("$count", style = MaterialTheme.typography.labelMedium, color = content)
+        }
+    }
+}
+
+@Composable
+private fun CategoryAccordionRow(
+    category: Category,
+    isFixed: Boolean,
+    onToggleFixed: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+    showDivider: Boolean,
+    shape: Shape
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(CardDefaults.cardColors().containerColor)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 20.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CategoryColorDot(category.colorHex, modifier = Modifier.size(10.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp, end = 8.dp)
+            ) {
+                Text(
+                    category.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (category.type == TransactionType.INCOME) "Income" else "Expense",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (category.type == TransactionType.EXPENSE) {
+                FilterChip(
+                    selected = isFixed,
+                    onClick = { onToggleFixed(!isFixed) },
+                    label = { Text("Fixe") }
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Filled.Delete, contentDescription = "Delete category")
+            }
+        }
+        if (showDivider) {
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 42.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+        }
+    }
+}

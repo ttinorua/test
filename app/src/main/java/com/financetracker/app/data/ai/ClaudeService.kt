@@ -52,7 +52,7 @@ data class BudgetProposal(
 data class AiChatResult(val text: String, val proposal: BudgetProposal?)
 
 class AiNotConfiguredException :
-    Exception("Add your Anthropic API key to local.properties (ANTHROPIC_API_KEY=...) and rebuild.")
+    Exception("This build has no Anthropic API key. Add FINANCE_APP_ANTHROPIC_API_KEY to the build environment and rebuild.")
 
 class AiRequestException(message: String, cause: Throwable? = null) : Exception(message, cause)
 

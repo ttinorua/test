@@ -98,8 +98,8 @@ fun AskAiScreen(viewModel: AskAiViewModel, onBack: () -> Unit) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                message = "Add your Anthropic API key to local.properties " +
-                    "(ANTHROPIC_API_KEY=...) and rebuild to enable AI features."
+                message = "This build has no Anthropic API key. Add FINANCE_APP_ANTHROPIC_API_KEY " +
+                    "to the build environment and rebuild to enable AI features."
             )
             state.messages.isEmpty() -> EmptyState(
                 modifier = Modifier

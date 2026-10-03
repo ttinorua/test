@@ -14,18 +14,24 @@ val localProperties = Properties().apply {
         file.inputStream().use { load(it) }
     }
 }
-// Falls back to an env var so CI can inject it without a local.properties file.
-val anthropicApiKey: String =
-    (localProperties.getProperty("ANTHROPIC_API_KEY") ?: System.getenv("ANTHROPIC_API_KEY") ?: "")
-
-// Enable Banking (Sydbank open-banking sync). Same local.properties + env var fallback pattern
-// as the Anthropic key. The app expects the private key base64-encoded (of the whole PEM text) —
-// either supply that as ENABLE_BANKING_PRIVATE_KEY_B64, or paste the .pem file's text as-is into
-// ENABLE_BANKING_PRIVATE_KEY and it's encoded here.
+/** A build secret from local.properties, or else the environment (a cloud build environment's
+ * variables). */
 fun buildSecret(name: String): String? =
     (localProperties.getProperty(name) ?: System.getenv(name))?.takeIf { it.isNotBlank() }
 
-val enableBankingApplicationId: String = buildSecret("ENABLE_BANKING_APPLICATION_ID")?.trim() ?: ""
+// The app's own Anthropic key. FINANCE_APP_ANTHROPIC_API_KEY is checked first because the Claude
+// Code cloud environment keeps ANTHROPIC_* variables for its own connection and doesn't pass an
+// ANTHROPIC_API_KEY through to builds.
+val anthropicApiKey: String =
+    (buildSecret("FINANCE_APP_ANTHROPIC_API_KEY") ?: buildSecret("ANTHROPIC_API_KEY"))?.trim() ?: ""
+
+// Enable Banking (Sydbank open-banking sync). The application ID isn't secret — it's sent in the
+// clear with every request and is useless without the private key — so the app's registered ID
+// is the default. The app expects the private key base64-encoded (of the whole PEM text): either
+// supply that as ENABLE_BANKING_PRIVATE_KEY_B64, or paste the .pem file's text as-is into
+// ENABLE_BANKING_PRIVATE_KEY and it's encoded here.
+val enableBankingApplicationId: String =
+    buildSecret("ENABLE_BANKING_APPLICATION_ID")?.trim() ?: "7bf8c383-b4b9-41c5-b126-11cc4f76c1c5"
 val enableBankingPrivateKeyB64: String =
     buildSecret("ENABLE_BANKING_PRIVATE_KEY_B64")?.trim()
         ?: buildSecret("ENABLE_BANKING_PRIVATE_KEY")

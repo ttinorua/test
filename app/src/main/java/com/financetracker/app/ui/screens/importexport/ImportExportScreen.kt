@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.financetracker.app.data.backup.AutoBackupSettings
 import com.financetracker.app.ui.theme.ExpenseRed
 import com.financetracker.app.ui.theme.IncomeGreen
 import com.financetracker.app.util.Formatters
@@ -68,6 +69,9 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
     val backupViewModel: BackupViewModel = viewModel(factory = ViewModelFactory { BackupViewModel(appContext) })
     val backupState by backupViewModel.uiState.collectAsState()
     var showCreateBackupDialog by remember { mutableStateOf(false) }
+    val autoBackupState by AutoBackupSettings.state.collectAsState()
+    var showAutoBackupSetup by remember { mutableStateOf(false) }
+    var autoBackupPassword by remember { mutableStateOf<CharArray?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -95,6 +99,14 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
     val createBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri -> if (uri != null) backupViewModel.writeBackup(uri) }
+
+    val autoBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        val password = autoBackupPassword ?: CharArray(0)
+        autoBackupPassword = null
+        if (uri != null) backupViewModel.enableAutoBackup(uri, password) else password.fill('\u0000')
+    }
 
     val openBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -135,6 +147,14 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
                     isWorking = backupState.isWorking,
                     onCreate = { showCreateBackupDialog = true },
                     onRestore = { openBackupLauncher.launch(arrayOf("*/*")) }
+                )
+            }
+            item {
+                AutoBackupCard(
+                    state = autoBackupState,
+                    onToggle = { on -> if (on) showAutoBackupSetup = true else backupViewModel.disableAutoBackup() },
+                    onBackUpNow = backupViewModel::autoBackupNow,
+                    onChangeLocation = { showAutoBackupSetup = true }
                 )
             }
             item {
@@ -315,6 +335,17 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
                     backupViewModel.prepareBackup(password)
                     val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
                     createBackupLauncher.launch("FinanceTracker-backup-$date.ftbackup")
+                }
+            )
+        }
+        if (showAutoBackupSetup) {
+            CreateBackupDialog(
+                title = "Automatic weekly backup",
+                onDismiss = { showAutoBackupSetup = false },
+                onConfirm = { password ->
+                    showAutoBackupSetup = false
+                    autoBackupPassword = password
+                    autoBackupLauncher.launch(AutoBackupSettings.FILE_NAME)
                 }
             )
         }

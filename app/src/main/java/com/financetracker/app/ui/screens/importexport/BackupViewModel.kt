@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.backup.AutoBackupSettings
 import com.financetracker.app.data.backup.BackupCodec
 import com.financetracker.app.data.backup.BackupContents
 import com.financetracker.app.data.backup.BackupPasswordRequiredException
@@ -56,15 +57,7 @@ class BackupViewModel(private val context: Context) : ViewModel() {
         createPassword = null
         viewModelScope.launch {
             _uiState.update { it.copy(isWorking = true) }
-            val result = runCatching {
-                withContext(Dispatchers.IO) {
-                    val contents = FullBackup.create(context, includeBankConnections = password != null)
-                    val bytes = BackupCodec.encode(contents, password)
-                    context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
-                        ?: error("Couldn't open the file for writing.")
-                    contents
-                }
-            }
+            val result = runCatching { withContext(Dispatchers.IO) { FullBackup.writeTo(context, uri, password) } }
             password?.fill('\u0000')
             _uiState.update { state ->
                 state.copy(
@@ -159,6 +152,28 @@ class BackupViewModel(private val context: Context) : ViewModel() {
     }
 
     fun restartApp() = FullBackup.restartApp(context)
+
+    /** Turns on the weekly backup to [uri], a file the user just created in Google Drive, OneDrive
+     * or elsewhere, protected with [password] (empty for none). */
+    fun enableAutoBackup(uri: Uri, password: CharArray) {
+        val result = runCatching { AutoBackupSettings.enable(context, uri, password.takeIf { it.isNotEmpty() }) }
+        password.fill('\u0000')
+        result.onFailure {
+            _uiState.update {
+                it.copy(
+                    message = "This location doesn't allow automatic backups. Choose a file in Google Drive, " +
+                        "OneDrive or on the phone instead."
+                )
+            }
+        }
+    }
+
+    fun disableAutoBackup() = AutoBackupSettings.disable(context)
+
+    fun autoBackupNow() {
+        AutoBackupSettings.backUpNow(context)
+        _uiState.update { it.copy(message = "Backing up in the background…") }
+    }
 
     fun dismissMessage() {
         _uiState.update { it.copy(message = null) }

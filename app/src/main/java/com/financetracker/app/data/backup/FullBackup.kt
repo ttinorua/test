@@ -2,6 +2,7 @@ package com.financetracker.app.data.backup
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.room.withTransaction
 import androidx.work.WorkManager
 import com.financetracker.app.data.ai.AiCategorizationWorker
@@ -19,7 +20,8 @@ object FullBackup {
 
     private const val PREFS_NAME = "finance_prefs"
 
-    /** In-progress bookkeeping that would be wrong to carry over to another install. */
+    /** In-progress bookkeeping and this phone's own automatic-backup setup, which would be wrong
+     * to carry over to another install. */
     private val TRANSIENT_KEYS = setOf(
         "enablebanking_pending_auth_state",
         "enablebanking_pending_auth_bank_id",
@@ -27,7 +29,7 @@ object FullBackup {
         "enable_banking_sync_imported",
         "ai_categorization_total",
         "ai_categorization_categorized"
-    )
+    ) + AutoBackupSettings.KEYS
 
     /** The live bank sessions. Together with the app itself they give read access to the bank
      * accounts, so they're only ever written into a password-protected backup. */
@@ -56,7 +58,8 @@ object FullBackup {
     }
 
     /** Replaces all of the app's data with [contents]. A backup without bank connections keeps
-     * the connections this install already has, if any. Call [restartApp] afterwards. */
+     * the connections this install already has, if any, and this phone's automatic-backup setup
+     * is always kept. Call [restartApp] afterwards. */
     suspend fun restore(context: Context, contents: BackupContents) {
         val workManager = WorkManager.getInstance(context)
         workManager.cancelUniqueWork(EnableBankingSyncWorker.UNIQUE_WORK_NAME)
@@ -78,8 +81,9 @@ object FullBackup {
         } else {
             prefs.all.filterKeys { it in BANK_CONNECTION_KEYS }
         }
+        val keptAutoBackup = prefs.all.filterKeys { it in AutoBackupSettings.KEYS }
         val editor = prefs.edit().clear()
-        (contents.prefs.filterKeys { it !in TRANSIENT_KEYS } + keptConnections).forEach { (key, value) ->
+        (contents.prefs.filterKeys { it !in TRANSIENT_KEYS } + keptConnections + keptAutoBackup).forEach { (key, value) ->
             when (value) {
                 is String -> editor.putString(key, value)
                 is Int -> editor.putInt(key, value)
@@ -90,6 +94,16 @@ object FullBackup {
             }
         }
         editor.commit()
+    }
+
+    /** Writes a fresh full backup to [uri], encrypted with [password] (which also includes the
+     * bank connections) when given. */
+    suspend fun writeTo(context: Context, uri: Uri, password: CharArray?): BackupContents {
+        val contents = create(context, includeBankConnections = password != null && password.isNotEmpty())
+        val bytes = BackupCodec.encode(contents, password)
+        context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
+            ?: error("Couldn't open the backup file for writing.")
+        return contents
     }
 
     /** Relaunches the app from scratch, so everything reloads from the restored data. */

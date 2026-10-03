@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,10 +27,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.financetracker.app.data.backup.AutoBackupState
 import com.financetracker.app.ui.theme.IncomeGreen
 import com.financetracker.app.util.Formatters
 
@@ -71,13 +74,17 @@ fun FullBackupCard(isWorking: Boolean, onCreate: () -> Unit, onRestore: () -> Un
 
 /** Asks for the password to protect a new backup with (both fields empty means no password). */
 @Composable
-fun CreateBackupDialog(onDismiss: () -> Unit, onConfirm: (CharArray) -> Unit) {
+fun CreateBackupDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (CharArray) -> Unit,
+    title: String = "Protect the backup"
+) {
     var password by remember { mutableStateOf("") }
     var repeat by remember { mutableStateOf("") }
     val mismatch = password != repeat
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Protect the backup") },
+        title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -162,6 +169,59 @@ fun RestoreCompleteDialog(onRestart: () -> Unit) {
         text = { Text("The app will now restart with your restored data.") },
         confirmButton = { TextButton(onClick = onRestart) { Text("Restart") } }
     )
+}
+
+@Composable
+fun AutoBackupCard(
+    state: AutoBackupState,
+    onToggle: (Boolean) -> Unit,
+    onBackUpNow: () -> Unit,
+    onChangeLocation: () -> Unit
+) {
+    Card {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Automatic weekly backup", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (state.enabled) {
+                            "On" + if (state.passwordProtected) " · encrypted, with bank connections" else " · not encrypted"
+                        } else {
+                            "Off"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = state.enabled, onCheckedChange = onToggle)
+            }
+            if (!state.enabled) {
+                Text(
+                    "Once a week the app updates one backup file in Google Drive, OneDrive or on " +
+                        "the phone — you pick where when you turn this on (Google Drive or OneDrive " +
+                        "must be installed to appear). The file always holds your latest data; " +
+                        "Google Drive and OneDrive also keep its earlier versions.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                state.locationLabel?.let {
+                    Text("Saving to: $it", style = MaterialTheme.typography.bodyMedium)
+                }
+                Text(
+                    "Last backup: " + (state.lastSuccessAt?.let { Formatters.syncTimestamp(it) } ?: "not yet"),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                state.lastError?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = onBackUpNow, modifier = Modifier.weight(1f)) { Text("Back up now") }
+                    OutlinedButton(onClick = onChangeLocation, modifier = Modifier.weight(1f)) { Text("Change location") }
+                }
+            }
+        }
+    }
 }
 
 @Composable

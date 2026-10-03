@@ -8,6 +8,7 @@ import com.financetracker.app.data.bank.CategoryCleanup
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.AppDatabase
 import com.financetracker.app.data.ai.LearnedCategoryRules
+import com.financetracker.app.data.backup.AutoBackupSettings
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
 import com.financetracker.app.data.prefs.BankScheduledPayments
@@ -43,6 +44,7 @@ class FinanceApp : Application() {
         DismissedRecurringExpenses.init(this)
         FixedExpenseCategories.init(this)
         EnableBankingPrefs.init(this)
+        AutoBackupSettings.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
 
         // Retroactively adds any starter category the currently selected/connected bank has

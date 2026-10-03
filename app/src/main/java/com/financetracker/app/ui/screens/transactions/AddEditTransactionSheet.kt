@@ -11,7 +11,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -39,7 +38,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.ai.CategorySuggester
@@ -50,6 +48,7 @@ import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.ui.components.CategoryPickerField
 import com.financetracker.app.util.Formatters
 import com.financetracker.app.util.todayUtcMidnight
 import kotlinx.coroutines.launch
@@ -152,7 +151,7 @@ fun AddEditTransactionSheet(
                 onSelected = { selectedAccountId = it }
             )
 
-            CategoryDropdown(
+            CategoryPickerField(
                 categories = categoriesForType,
                 selectedId = selectedCategoryId,
                 onSelected = { selectedCategoryId = it }
@@ -275,71 +274,6 @@ private fun AccountDropdown(accounts: List<Account>, selectedId: Long?, onSelect
                         expanded = false
                     }
                 )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CategoryDropdown(categories: List<Category>, selectedId: Long?, onSelected: (Long?) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    val focusManager = LocalFocusManager.current
-    val selected = categories.firstOrNull { it.id == selectedId }
-    val selectedLabel = selected?.let { "${it.mainCategory} • ${it.name}" } ?: "Uncategorized"
-    val trimmedQuery = query.trim()
-    val matches = categories
-        .sortedWith(compareBy({ it.mainCategory }, { it.name }))
-        .filter { trimmedQuery.isEmpty() || "${it.mainCategory} ${it.name}".contains(trimmedQuery, ignoreCase = true) }
-    val showUncategorized = trimmedQuery.isEmpty() || "Uncategorized".contains(trimmedQuery, ignoreCase = true)
-
-    fun close() {
-        expanded = false
-        query = ""
-        focusManager.clearFocus()
-    }
-
-    fun select(categoryId: Long?) {
-        onSelected(categoryId)
-        close()
-    }
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { if (it) expanded = true else close() }
-    ) {
-        OutlinedTextField(
-            value = if (expanded) query else selectedLabel,
-            onValueChange = {
-                query = it
-                expanded = true
-            },
-            label = { Text("Category") },
-            placeholder = { Text("Search categories") },
-            leadingIcon = if (expanded) {
-                { Icon(Icons.Default.Search, contentDescription = null) }
-            } else {
-                null
-            },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor(MenuAnchorType.PrimaryEditable)
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { close() }) {
-            if (showUncategorized) {
-                DropdownMenuItem(text = { Text("Uncategorized") }, onClick = { select(null) })
-            }
-            matches.forEach { category ->
-                DropdownMenuItem(
-                    text = { Text("${category.mainCategory} • ${category.name}") },
-                    onClick = { select(category.id) }
-                )
-            }
-            if (matches.isEmpty() && !showUncategorized) {
-                DropdownMenuItem(text = { Text("No matching categories") }, onClick = {}, enabled = false)
             }
         }
     }

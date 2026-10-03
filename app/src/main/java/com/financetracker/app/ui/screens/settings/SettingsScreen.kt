@@ -3,7 +3,6 @@ package com.financetracker.app.ui.screens.settings
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,19 +20,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.AlertDialog
@@ -54,6 +48,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
@@ -96,8 +91,12 @@ import com.financetracker.app.data.prefs.ThemeMode
 import com.financetracker.app.data.prefs.ThemeSettings
 import com.financetracker.app.ui.components.AccountSelectorChip
 import com.financetracker.app.ui.components.CategoryColorDot
+import com.financetracker.app.ui.components.CategoryGroupHeader
+import com.financetracker.app.ui.components.CategoryPickerDialog
+import com.financetracker.app.ui.components.accordionShape
 import com.financetracker.app.ui.screens.importexport.ImportExportScreen
 import com.financetracker.app.ui.screens.importexport.ImportExportViewModel
+import com.financetracker.app.util.CategoryFilter
 import com.financetracker.app.util.Formatters
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -747,7 +746,7 @@ private fun BudgetsTab(categories: List<Category>, accounts: List<Account>, curr
         if (activeCategories.isEmpty()) {
             item {
                 Text(
-                    "No category budgets set yet. Search above to add one.",
+                    "No category budgets set yet. Tap the button above to add one.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp)
@@ -770,64 +769,34 @@ private fun BudgetsTab(categories: List<Category>, accounts: List<Account>, curr
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddCategoryBudgetSelector(
     availableCategories: List<Category>,
     onCategorySelected: (Category) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    val filtered = remember(query, availableCategories) {
-        if (query.isBlank()) {
-            availableCategories
-        } else {
-            availableCategories.filter {
-                it.name.contains(query, ignoreCase = true) || it.mainCategory.contains(query, ignoreCase = true)
-            }
-        }
-    }
-
-    ExposedDropdownMenuBox(
-        expanded = expanded && filtered.isNotEmpty(),
-        onExpandedChange = { expanded = it },
-        modifier = Modifier.padding(top = 8.dp)
+    var open by remember { mutableStateOf(false) }
+    OutlinedButton(
+        onClick = { open = true },
+        enabled = availableCategories.isNotEmpty(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
     ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = {
-                query = it
-                expanded = true
+        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+        Text("Add a category budget", modifier = Modifier.padding(start = 8.dp))
+    }
+    if (open) {
+        CategoryPickerDialog(
+            title = "Add a category budget",
+            categories = availableCategories,
+            selected = null,
+            onDismiss = { open = false },
+            onSelect = { filter ->
+                val id = (filter as? CategoryFilter.Single)?.categoryId
+                availableCategories.firstOrNull { it.id == id }?.let(onCategorySelected)
             },
-            label = { Text("Add a category budget") },
-            placeholder = { Text("Search categories…") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor(MenuAnchorType.PrimaryEditable)
+            allowUncategorized = false
         )
-        ExposedDropdownMenu(expanded = expanded && filtered.isNotEmpty(), onDismissRequest = { expanded = false }) {
-            filtered.forEach { category ->
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
-                            Text(
-                                text = "${category.mainCategory} • ${category.name}",
-                                modifier = Modifier.padding(start = 12.dp)
-                            )
-                        }
-                    },
-                    onClick = {
-                        onCategorySelected(category)
-                        query = ""
-                        expanded = false
-                    }
-                )
-            }
-        }
     }
 }
 
@@ -1364,66 +1333,6 @@ private fun BankAccountRow(account: LinkedBankAccount, selected: Boolean, onTogg
 
 private fun formatBankDate(epochMillis: Long): String =
     SimpleDateFormat("MMM d, yyyy", Locale.US).format(Date(epochMillis))
-
-private val ACCORDION_CORNER = 12.dp
-
-/** Rounds only the outer corners of the accordion: the first header's top, the last visible row's
- * bottom — so the whole list reads as one card, like the rest of Settings. */
-private fun accordionShape(top: Boolean, bottom: Boolean): Shape = RoundedCornerShape(
-    topStart = if (top) ACCORDION_CORNER else 0.dp,
-    topEnd = if (top) ACCORDION_CORNER else 0.dp,
-    bottomStart = if (bottom) ACCORDION_CORNER else 0.dp,
-    bottomEnd = if (bottom) ACCORDION_CORNER else 0.dp
-)
-
-/** A main-category header. Collapsed it's filled with the app's accent container color (the same
- * as the add button); expanded it blends into the card color of its subcategories below. */
-@Composable
-private fun CategoryGroupHeader(
-    title: String,
-    count: Int,
-    expanded: Boolean,
-    shape: Shape,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val container = if (expanded) CardDefaults.cardColors().containerColor else MaterialTheme.colorScheme.primaryContainer
-    val content = if (expanded) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(container)
-            .clickable(onClickLabel = if (expanded) "Collapse" else "Expand", onClick = onToggle)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = if (expanded) Icons.Filled.Remove else Icons.Filled.AddCircle,
-            contentDescription = null,
-            tint = content,
-            modifier = Modifier.size(22.dp)
-        )
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = content,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 12.dp, end = 8.dp)
-        )
-        Box(
-            modifier = Modifier
-                .size(26.dp)
-                .border(1.5.dp, content, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("$count", style = MaterialTheme.typography.labelMedium, color = content)
-        }
-    }
-}
 
 @Composable
 private fun CategoryAccordionRow(

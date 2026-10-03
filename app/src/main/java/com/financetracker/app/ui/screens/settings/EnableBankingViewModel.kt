@@ -9,6 +9,9 @@ import androidx.work.WorkManager
 import com.financetracker.app.data.bank.Bank
 import com.financetracker.app.data.bank.BankCategories
 import com.financetracker.app.data.bank.SupportedBanks
+import com.financetracker.app.data.enablebanking.ENABLE_BANKING_REDIRECT_URL
+import com.financetracker.app.data.enablebanking.EnableBankingCredentials
+import com.financetracker.app.data.enablebanking.EnableBankingCredentialsState
 import com.financetracker.app.data.enablebanking.EnableBankingService
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.importexport.describeError
@@ -24,12 +27,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-private const val REDIRECT_URL = "https://ttinorua.github.io/enablebanking-redirect/"
-
 private data class PrefsSnapshot(
     val connections: List<BankConnection>,
     val lastSyncedAt: Long?,
-    val selectedBankId: String
+    val selectedBankId: String,
+    val credentials: EnableBankingCredentialsState
 )
 
 private data class SyncState(val isSyncing: Boolean, val progress: SyncProgressUi?)
@@ -48,6 +50,8 @@ data class BankConnectionUi(
 
 data class EnableBankingUiState(
     val isConfigured: Boolean = false,
+    /** The user's own Enable Banking registration, or null when using the app's built-in one. */
+    val ownApplicationId: String? = null,
     val connections: List<BankConnectionUi> = emptyList(),
     /** Banks [SupportedBanks.ALL] doesn't already have a connection for — what the "connect
      * another bank" picker offers. */
@@ -96,9 +100,10 @@ class EnableBankingViewModel(private val repository: FinanceRepository, private 
         combine(
             EnableBankingPrefs.connections,
             EnableBankingPrefs.lastSyncedAt,
-            EnableBankingPrefs.selectedBankId
-        ) { connections, lastSyncedAt, selectedBankId ->
-            PrefsSnapshot(connections, lastSyncedAt, selectedBankId)
+            EnableBankingPrefs.selectedBankId,
+            EnableBankingCredentials.state
+        ) { connections, lastSyncedAt, selectedBankId, credentials ->
+            PrefsSnapshot(connections, lastSyncedAt, selectedBankId, credentials)
         },
         combine(isSyncing, syncProgress) { syncing, progress -> SyncState(syncing, progress) },
         _isStartingAuth,
@@ -107,7 +112,8 @@ class EnableBankingViewModel(private val repository: FinanceRepository, private 
     ) { prefs, syncState, isStartingAuth, statusMessage, authUrl ->
         val connectedIds = prefs.connections.map { it.bankId }.toSet()
         EnableBankingUiState(
-            isConfigured = EnableBankingService.isConfigured,
+            isConfigured = prefs.credentials.isConfigured,
+            ownApplicationId = prefs.credentials.ownApplicationId,
             connections = prefs.connections.map { connection ->
                 BankConnectionUi(
                     bankId = connection.bankId,
@@ -174,7 +180,7 @@ class EnableBankingViewModel(private val repository: FinanceRepository, private 
         _isStartingAuth.value = true
         _statusMessage.value = null
         viewModelScope.launch {
-            EnableBankingService.startAuth(REDIRECT_URL, SupportedBanks.byId(bankId))
+            EnableBankingService.startAuth(ENABLE_BANKING_REDIRECT_URL, SupportedBanks.byId(bankId))
                 .onSuccess { authStart -> _authUrl.value = authStart.url }
                 .onFailure { e -> _statusMessage.value = "Couldn't start bank login: ${describeError(e)}" }
             _isStartingAuth.value = false

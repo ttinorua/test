@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
 import com.financetracker.app.data.ai.InsightCard
 import com.financetracker.app.data.ai.InsightTone
 import com.financetracker.app.data.db.entity.Account
@@ -14,16 +14,21 @@ import com.financetracker.app.data.db.entity.CategorySpend
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
+import com.financetracker.app.data.prefs.BankScheduledPayments
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.FixedExpenseCategories
+import com.financetracker.app.data.prefs.MainAccountSettings
+import com.financetracker.app.data.prefs.ScheduledPayment
+import com.financetracker.app.data.prefs.toTransactionDetails
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.anticipatedRecurringExpenses
-import com.financetracker.app.util.countsTowardSpending
+import com.financetracker.app.util.countsTowardTotals
+import com.financetracker.app.util.transfersInCountAsIncome
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.periodRange
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +36,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -60,7 +66,11 @@ data class DashboardUiState(
     val customRange: Pair<Long, Long>? = null,
     val budgetStatus: BudgetStatus = BudgetStatus(),
     val accounts: List<Account> = emptyList(),
-    val selectedAccountId: Long? = null
+    val selectedAccountId: Long? = null,
+    /** All-time (not scoped to [periodOption]) count of transactions with no category at all,
+     * respecting [selectedAccountId] — a cleanup backlog, not a spending metric, so an old
+     * uncategorized transaction is just as worth surfacing as a new one. */
+    val uncategorizedCount: Int = 0
 )
 
 private data class DashboardFilters(
@@ -85,14 +95,21 @@ private data class DashboardExtras(
     val overallBudgets: Map<Long?, Double>,
     val categoryBudgets: Map<Pair<Long, Long?>, Double>,
     val dismissedRecurring: Set<String>,
-    val fixedCategoryIds: Set<Long>
+    val fixedCategoryIds: Set<Long>,
+    val scheduledPayments: List<ScheduledPayment>
 )
 
 class DashboardViewModel(private val repository: FinanceRepository, appContext: Context) : ViewModel() {
 
     private val _periodOption = MutableStateFlow(PeriodOption.THIS_MONTH)
     private val _customRange = MutableStateFlow<Pair<Long, Long>?>(null)
-    private val _selectedAccountId = MutableStateFlow<Long?>(null)
+    private val _selectedAccountId = MutableStateFlow(MainAccountSettings.mainAccountId.value)
+
+    init {
+        viewModelScope.launch {
+            MainAccountSettings.mainAccountId.drop(1).collect { _selectedAccountId.value = it }
+        }
+    }
 
     /** Whether a bank sync ([EnableBankingSyncWorker]) is currently running — read straight from
      * WorkManager (not tied to any particular screen's lifecycle) so the header's sync spinner
@@ -132,8 +149,9 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             },
             BudgetLimits.categoryBudgets,
             DismissedRecurringExpenses.dismissed,
-            FixedExpenseCategories.fixedCategoryIds
-        ) { partial, categoryBudgets, dismissedRecurring, fixedCategoryIds ->
+            FixedExpenseCategories.fixedCategoryIds,
+            BankScheduledPayments.payments
+        ) { partial, categoryBudgets, dismissedRecurring, fixedCategoryIds, scheduledPayments ->
             DashboardExtras(
                 partial.shiftSalary,
                 partial.excludeTransfers,
@@ -142,14 +160,15 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
                 partial.overallBudgets,
                 categoryBudgets,
                 dismissedRecurring,
-                fixedCategoryIds
+                fixedCategoryIds,
+                scheduledPayments
             )
         }
     ) { allTransactions, accounts, filters, extras ->
         val (periodOption, customRange, selectedAccountId) = filters
         val (
             shiftSalary, excludeTransfers, anticipateRecurring, categories,
-            overallBudgets, allCategoryBudgets, dismissedRecurring, fixedCategoryIds
+            overallBudgets, allCategoryBudgets, dismissedRecurring, fixedCategoryIds, scheduledPayments
         ) = extras
         val overallBudget = resolveOverallBudget(overallBudgets, selectedAccountId)
         val categoryBudgets = resolveCategoryBudgets(allCategoryBudgets, selectedAccountId)
@@ -158,6 +177,7 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
         } else {
             allTransactions
         }
+        val uncategorizedCount = transactions.count { it.categoryId == null }
         val netBalance = if (selectedAccountId != null) {
             val initial = accounts.firstOrNull { it.id == selectedAccountId }?.initialBalance ?: 0.0
             initial + transactions.sumOf { if (it.type == TransactionType.INCOME) it.amount else -it.amount }
@@ -172,10 +192,13 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             effectiveDate >= from && effectiveDate < to
         }
 
-        val income = inPeriod.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
+        val income = inPeriod.filter {
+            it.type == TransactionType.INCOME &&
+                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(selectedAccountId, MainAccountSettings.mainAccountId.value))
+        }.sumOf { it.amount }
         val expenseTx = inPeriod.filter {
             it.type == TransactionType.EXPENSE &&
-                countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
+                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(selectedAccountId, MainAccountSettings.mainAccountId.value))
         }
         val expense = expenseTx.sumOf { it.amount }
         val monthsAhead = when (periodOption) {
@@ -184,11 +207,16 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             else -> null
         }
         val anticipatedTotal = if (anticipateRecurring && monthsAhead != null) {
+            val categoriesById = categories.associateBy { it.id }
             anticipatedRecurringExpenses(
                 transactions,
                 monthsAhead = monthsAhead,
                 dismissedKeys = dismissedRecurring,
-                fixedCategoryIds = fixedCategoryIds
+                fixedCategoryIds = fixedCategoryIds,
+                scheduled = scheduledPayments
+                    .filter { selectedAccountId == null || it.accountId == selectedAccountId }
+                    .map { it.toTransactionDetails(categoriesById) },
+                excludeTransfers = excludeTransfers
             ).sumOf { it.amount }
         } else {
             0.0
@@ -213,7 +241,7 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             val effectiveDate =
                 effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
             it.type == TransactionType.EXPENSE && effectiveDate >= monthFrom && effectiveDate < monthTo &&
-                countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
+                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(selectedAccountId, MainAccountSettings.mainAccountId.value))
         }
         val spentByCategory = monthExpenses
             .filter { it.categoryId != null }
@@ -246,7 +274,8 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
                 categoryStatuses = categoryStatuses
             ),
             accounts = accounts,
-            selectedAccountId = selectedAccountId
+            selectedAccountId = selectedAccountId,
+            uncategorizedCount = uncategorizedCount
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 
@@ -289,7 +318,7 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
                 }
             }
 
-            ClaudeService.generateInsights(systemPrompt, summary, maxTokens = 600L)
+            AiService.generateInsights(systemPrompt, summary, maxTokens = 600L)
                 .onSuccess { cards ->
                     AiInsightsCache.save(
                         cards.ifEmpty {

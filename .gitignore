@@ -12,3 +12,5 @@ local.properties
 /app/release
 *.hprof
 .kotlin/
+# Built APKs copied out for delivery by build sessions
+*.apk

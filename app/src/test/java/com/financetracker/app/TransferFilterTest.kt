@@ -1,9 +1,9 @@
 package com.financetracker.app
 
 import com.financetracker.app.data.db.entity.TransactionType
-import com.financetracker.app.util.countsTowardSpending
+import com.financetracker.app.util.countsTowardTotals
 import com.financetracker.app.util.isTransferCategory
-import org.junit.Assert.assertEquals
+import com.financetracker.app.util.transfersInCountAsIncome
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -31,28 +31,43 @@ class TransferFilterTest {
         assertFalse(isTransferCategory(null, null))
     }
 
+    private val income = TransactionType.INCOME
+    private val expense = TransactionType.EXPENSE
+
     @Test
     fun `disabled setting always counts, even a transfer`() {
-        assertTrue(countsTowardSpending(TransactionType.EXPENSE, "Other", "Other (Transfer)", enabled = false))
+        assertTrue(countsTowardTotals(expense, "Other", "Other (Transfer)", excludeTransfers = false, transfersInAreIncome = false))
+        assertTrue(countsTowardTotals(income, "Other", "Other (Transfer)", excludeTransfers = false, transfersInAreIncome = false))
     }
 
     @Test
-    fun `enabled setting excludes a transfer expense`() {
-        assertFalse(countsTowardSpending(TransactionType.EXPENSE, "Other", "Other (Transfer)", enabled = true))
+    fun `across all accounts a transfer is excluded in either direction`() {
+        assertFalse(countsTowardTotals(expense, "Other", "Other (Transfer)", excludeTransfers = true, transfersInAreIncome = false))
+        assertFalse(countsTowardTotals(income, "Other", "Other (Transfer)", excludeTransfers = true, transfersInAreIncome = false))
     }
 
     @Test
-    fun `enabled setting still counts a non-transfer expense`() {
-        assertTrue(countsTowardSpending(TransactionType.EXPENSE, "Food", "Groceries", enabled = true))
+    fun `when transfers in are income an incoming transfer counts`() {
+        assertTrue(countsTowardTotals(income, "Other", "Other (Transfer)", excludeTransfers = true, transfersInAreIncome = true))
     }
 
     @Test
-    fun `enabled setting never excludes income, even with the same category strings`() {
-        assertTrue(countsTowardSpending(TransactionType.INCOME, "Other", "Other (Transfer)", enabled = true))
+    fun `when transfers in are income an outgoing transfer is still not spending`() {
+        assertFalse(countsTowardTotals(expense, "Other", "Other (Transfer)", excludeTransfers = true, transfersInAreIncome = true))
     }
 
     @Test
-    fun `enabled setting with null category counts`() {
-        assertEquals(true, countsTowardSpending(TransactionType.EXPENSE, null, null, enabled = true))
+    fun `non-transfers always count`() {
+        assertTrue(countsTowardTotals(expense, "Food", "Groceries", excludeTransfers = true, transfersInAreIncome = false))
+        assertTrue(countsTowardTotals(income, "Income", "Pay, benefits and pension", excludeTransfers = true, transfersInAreIncome = false))
+        assertTrue(countsTowardTotals(expense, null, null, excludeTransfers = true, transfersInAreIncome = false))
+    }
+
+    @Test
+    fun `transfers in are income only for a single account that isn't the main one`() {
+        assertTrue(transfersInCountAsIncome(selectedAccountId = 2L, mainAccountId = 1L))
+        assertTrue(transfersInCountAsIncome(selectedAccountId = 2L, mainAccountId = null))
+        assertFalse(transfersInCountAsIncome(selectedAccountId = 1L, mainAccountId = 1L))
+        assertFalse(transfersInCountAsIncome(selectedAccountId = null, mainAccountId = 1L))
     }
 }

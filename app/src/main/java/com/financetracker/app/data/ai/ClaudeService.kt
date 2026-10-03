@@ -7,14 +7,24 @@ import com.anthropic.errors.AnthropicServiceException
 import com.anthropic.models.messages.CacheControlEphemeral
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.OutputConfig
+import com.anthropic.models.messages.StopReason
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.Tool
 import com.anthropic.models.messages.ToolUseBlock
-import com.financetracker.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private const val MODEL_ID = "claude-opus-5"
+private const val MODEL_ID = "claude-opus-5-5"
+
+/** Claude Opus 5.5 always thinks before answering, and that thinking counts toward max_tokens —
+ * each caller's limit is sized for the reply alone, so this much is added on top. */
+private const val THINKING_HEADROOM_TOKENS = 8_000L
+
+/** Server-side refusal fallback: if a safety classifier declines a request (rare for a finance
+ * app, but a false positive would otherwise just fail), the API retries it on the model
+ * Anthropic recommends for that case, inside the same call. */
+private const val FALLBACK_BETA_HEADER = "server-side-fallback-2026-07-01"
 private const val PROPOSE_BUDGET_TOOL_NAME = "propose_budget"
 private const val PRESENT_INSIGHTS_TOOL_NAME = "present_insights"
 
@@ -41,40 +51,43 @@ data class BudgetProposal(
 data class AiChatResult(val text: String, val proposal: BudgetProposal?)
 
 class AiNotConfiguredException :
-    Exception("Add your Anthropic API key to local.properties (ANTHROPIC_API_KEY=...) and rebuild.")
+    Exception("No AI key is set up. Add one in Settings > General > AI assistant.")
 
 class AiRequestException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
- * Thin wrapper around the Anthropic Java SDK. The API key ships inside this app's
- * BuildConfig (set via local.properties, never committed) rather than a backend
- * server — a deliberate tradeoff acceptable only because this app is shared
- * privately with family, never published.
+ * Thin wrapper around the Anthropic Java SDK, used when Claude is the chosen provider (see
+ * [AiService]). The API key is the user's own from Settings, or else one built into the app
+ * (see [AiSettings]) — there's no backend server in between.
  */
 object ClaudeService {
 
-    val isConfigured: Boolean get() = BuildConfig.ANTHROPIC_API_KEY.isNotBlank()
+    @Volatile
+    private var cachedClient: Pair<String, AnthropicClient>? = null
 
-    private val client: AnthropicClient? by lazy {
-        if (isConfigured) {
-            AnthropicOkHttpClient.builder().apiKey(BuildConfig.ANTHROPIC_API_KEY).build()
-        } else {
-            null
-        }
+    /** A client for the current Claude key, rebuilt only when the key changes. */
+    private fun client(): AnthropicClient? {
+        val key = AiSettings.keyFor(AiProvider.CLAUDE) ?: return null
+        cachedClient?.takeIf { it.first == key }?.let { return it.second }
+        return AnthropicOkHttpClient.builder().apiKey(key).build().also { cachedClient = key to it }
     }
 
-    /** One-shot request: a plain system prompt plus a single user message. */
-    suspend fun ask(systemPrompt: String, userMessage: String, maxTokens: Long = 1024L): Result<String> {
-        val anthropic = client ?: return Result.failure(AiNotConfiguredException())
+    /** One-shot request: a plain system prompt plus a single user message. [maxTokens] is the
+     * budget for the reply itself; thinking headroom is added on top. */
+    suspend fun ask(
+        systemPrompt: String,
+        userMessage: String,
+        maxTokens: Long = 1024L,
+        effort: OutputConfig.Effort = OutputConfig.Effort.MEDIUM
+    ): Result<String> {
+        val anthropic = client() ?: return Result.failure(AiNotConfiguredException())
         return withContext(Dispatchers.IO) {
             try {
-                val params = MessageCreateParams.builder()
-                    .model(MODEL_ID)
-                    .maxTokens(maxTokens)
+                val params = baseParams(maxTokens, effort)
                     .system(systemPrompt)
                     .addUserMessage(userMessage)
                     .build()
-                Result.success(extractText(anthropic.messages().create(params)))
+                Result.success(extractText(send(anthropic, params)))
             } catch (e: Exception) {
                 Result.failure(mapError(e))
             }
@@ -82,24 +95,24 @@ object ClaudeService {
     }
 
     /**
-     * One-shot request that forces Claude to answer via the "present_insights" tool instead of
-     * prose, so the dashboard can render each observation as its own stat card rather than a
-     * wall of text. Returns an empty list (never a failure) if Claude's tool call didn't parse
-     * into anything usable — the caller decides how to surface that.
+     * One-shot request asking Claude to answer via the "present_insights" tool instead of prose,
+     * so the dashboard can render each observation as its own stat card rather than a wall of
+     * text. Claude Opus 5.5 rejects a forced tool choice, so the tool is requested in the prompt
+     * and the call retried once if Claude answered in prose instead. Returns an empty list (never
+     * a failure) if no usable tool call came back — the caller decides how to surface that.
      */
     suspend fun generateInsights(systemPrompt: String, userMessage: String, maxTokens: Long = 1024L): Result<List<InsightCard>> {
-        val anthropic = client ?: return Result.failure(AiNotConfiguredException())
+        val anthropic = client() ?: return Result.failure(AiNotConfiguredException())
         return withContext(Dispatchers.IO) {
             try {
-                val params = MessageCreateParams.builder()
-                    .model(MODEL_ID)
-                    .maxTokens(maxTokens)
-                    .system(systemPrompt)
+                val params = baseParams(maxTokens, OutputConfig.Effort.MEDIUM)
+                    .system("$systemPrompt\n\nRespond only by calling the $PRESENT_INSIGHTS_TOOL_NAME tool.")
                     .addUserMessage(userMessage)
                     .addTool(presentInsightsTool())
-                    .toolToolChoice(PRESENT_INSIGHTS_TOOL_NAME)
                     .build()
-                Result.success(extractInsightCards(anthropic.messages().create(params)))
+                val cards = extractInsightCards(send(anthropic, params))
+                    .ifEmpty { extractInsightCards(send(anthropic, params)) }
+                Result.success(cards)
             } catch (e: Exception) {
                 Result.failure(mapError(e))
             }
@@ -118,12 +131,10 @@ object ClaudeService {
         userMessage: String,
         maxTokens: Long = 2048L
     ): Result<String> {
-        val anthropic = client ?: return Result.failure(AiNotConfiguredException())
+        val anthropic = client() ?: return Result.failure(AiNotConfiguredException())
         return withContext(Dispatchers.IO) {
             try {
-                val builder = MessageCreateParams.builder()
-                    .model(MODEL_ID)
-                    .maxTokens(maxTokens)
+                val builder = baseParams(maxTokens, OutputConfig.Effort.MEDIUM)
                     .systemOfTextBlockParams(
                         listOf(
                             TextBlockParam.builder()
@@ -136,7 +147,7 @@ object ClaudeService {
                     if (turn.isUser) builder.addUserMessage(turn.text) else builder.addAssistantMessage(turn.text)
                 }
                 builder.addUserMessage(userMessage)
-                Result.success(extractText(anthropic.messages().create(builder.build())))
+                Result.success(extractText(send(anthropic, builder.build())))
             } catch (e: Exception) {
                 Result.failure(mapError(e))
             }
@@ -155,12 +166,10 @@ object ClaudeService {
         userMessage: String,
         maxTokens: Long = 2048L
     ): Result<AiChatResult> {
-        val anthropic = client ?: return Result.failure(AiNotConfiguredException())
+        val anthropic = client() ?: return Result.failure(AiNotConfiguredException())
         return withContext(Dispatchers.IO) {
             try {
-                val builder = MessageCreateParams.builder()
-                    .model(MODEL_ID)
-                    .maxTokens(maxTokens)
+                val builder = baseParams(maxTokens, OutputConfig.Effort.MEDIUM)
                     .systemOfTextBlockParams(
                         listOf(
                             TextBlockParam.builder()
@@ -174,11 +183,31 @@ object ClaudeService {
                     if (turn.isUser) builder.addUserMessage(turn.text) else builder.addAssistantMessage(turn.text)
                 }
                 builder.addUserMessage(userMessage)
-                Result.success(extractChatResult(anthropic.messages().create(builder.build())))
+                Result.success(extractChatResult(send(anthropic, builder.build())))
             } catch (e: Exception) {
                 Result.failure(mapError(e))
             }
         }
+    }
+
+    /** Model, token budget (reply + thinking headroom), effort, and the refusal fallback —
+     * shared by every request. */
+    private fun baseParams(replyTokens: Long, effort: OutputConfig.Effort): MessageCreateParams.Builder =
+        MessageCreateParams.builder()
+            .model(MODEL_ID)
+            .maxTokens(replyTokens + THINKING_HEADROOM_TOKENS)
+            .outputConfig(OutputConfig.builder().effort(effort).build())
+            .putAdditionalHeader("anthropic-beta", FALLBACK_BETA_HEADER)
+            .putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
+
+    /** A safety-classifier decline still comes back as HTTP 200, so check for it before reading
+     * the content — otherwise it would look like an empty answer. */
+    private fun send(anthropic: AnthropicClient, params: MessageCreateParams): Message {
+        val message = anthropic.messages().create(params)
+        if (message.stopReason().orElse(null) == StopReason.REFUSAL) {
+            throw AiRequestException("Claude declined this request. Try rephrasing it.")
+        }
+        return message
     }
 
     private fun proposeBudgetTool(): Tool {
@@ -393,6 +422,7 @@ object ClaudeService {
     }
 
     private fun mapError(t: Throwable): Throwable = when (t) {
+        is AiRequestException -> t
         is AnthropicServiceException -> AiRequestException(
             "Claude request failed (${t.statusCode()}): " +
                 t.errorType().map { it.toString() }.orElse(t.message ?: "unknown error"),

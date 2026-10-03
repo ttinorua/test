@@ -1,3 +1,4 @@
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -13,17 +14,43 @@ val localProperties = Properties().apply {
         file.inputStream().use { load(it) }
     }
 }
-// Falls back to an env var so CI can inject it without a local.properties file.
-val anthropicApiKey: String =
-    (localProperties.getProperty("ANTHROPIC_API_KEY") ?: System.getenv("ANTHROPIC_API_KEY") ?: "")
+/** A build secret from local.properties, or else the environment (a cloud build environment's
+ * variables). */
+fun buildSecret(name: String): String? =
+    (localProperties.getProperty(name) ?: System.getenv(name))?.takeIf { it.isNotBlank() }
 
-// Enable Banking (Sydbank open-banking sync). Same local.properties + env var fallback pattern
-// as the Anthropic key. The private key is stored base64-encoded (of the whole PEM text) so it
-// survives as a single Properties line.
+// The app's own Anthropic key. FINANCE_APP_ANTHROPIC_API_KEY is checked first because the Claude
+// Code cloud environment keeps ANTHROPIC_* variables for its own connection and doesn't pass an
+// ANTHROPIC_API_KEY through to builds.
+val anthropicApiKey: String =
+    (buildSecret("FINANCE_APP_ANTHROPIC_API_KEY") ?: buildSecret("ANTHROPIC_API_KEY"))?.trim() ?: ""
+
+// Enable Banking (Sydbank open-banking sync). The application ID isn't secret — it's sent in the
+// clear with every request and is useless without the private key — so the app's registered ID
+// is the default. The app expects the private key base64-encoded (of the whole PEM text): either
+// supply that as ENABLE_BANKING_PRIVATE_KEY_B64, or paste the .pem file's text as-is into
+// ENABLE_BANKING_PRIVATE_KEY and it's encoded here.
+// Shared free Gemini (Google AI Studio) and Groq keys, so AI works out of the box for everyone the
+// app is shared with. Optional; each person can also enter their own keys in Settings.
+val geminiApiKey: String = buildSecret("GEMINI_API_KEY")?.trim() ?: ""
+val groqApiKey: String = buildSecret("GROQ_API_KEY")?.trim() ?: ""
+
+// OneDrive automatic backup: the "Application (client) ID" of the app's Microsoft registration
+// (multitenant + personal accounts, redirect financetracker://onedrive-auth). Not a secret — it's
+// sent in the clear during sign-in — so the app's own registration is the default.
+val oneDriveClientId: String =
+    buildSecret("ONEDRIVE_CLIENT_ID")?.trim() ?: "695700a7-d16d-41f5-96cd-d136232061bc"
+
 val enableBankingApplicationId: String =
-    (localProperties.getProperty("ENABLE_BANKING_APPLICATION_ID") ?: System.getenv("ENABLE_BANKING_APPLICATION_ID") ?: "")
+    buildSecret("ENABLE_BANKING_APPLICATION_ID")?.trim() ?: "7bf8c383-b4b9-41c5-b126-11cc4f76c1c5"
 val enableBankingPrivateKeyB64: String =
-    (localProperties.getProperty("ENABLE_BANKING_PRIVATE_KEY_B64") ?: System.getenv("ENABLE_BANKING_PRIVATE_KEY_B64") ?: "")
+    buildSecret("ENABLE_BANKING_PRIVATE_KEY_B64")?.trim()
+        ?: buildSecret("ENABLE_BANKING_PRIVATE_KEY")
+            // An env var editor may keep the line breaks as literal "\n" text.
+            ?.replace("\\n", "\n")
+            ?.trim()
+            ?.let { Base64.getEncoder().encodeToString(it.toByteArray(Charsets.UTF_8)) }
+        ?: ""
 
 android {
     namespace = "com.financetracker.app"
@@ -40,6 +67,30 @@ android {
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicApiKey\"")
         buildConfigField("String", "ENABLE_BANKING_APPLICATION_ID", "\"$enableBankingApplicationId\"")
         buildConfigField("String", "ENABLE_BANKING_PRIVATE_KEY_B64", "\"$enableBankingPrivateKeyB64\"")
+        buildConfigField("String", "ONEDRIVE_CLIENT_ID", "\"$oneDriveClientId\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
+        buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
+    }
+
+    // The app's permanent signing key. Android only installs an update signed with the same key as
+    // the installed app, so this must never change — it lives in the build environment
+    // (ANDROID_KEYSTORE_B64 = the .p12 file base64-encoded, ANDROID_KEYSTORE_PASSWORD), never in
+    // this repository. Without it, release builds come out unsigned.
+    val releaseKeystoreB64 = buildSecret("ANDROID_KEYSTORE_B64")
+    val releaseKeystorePassword = buildSecret("ANDROID_KEYSTORE_PASSWORD")
+    if (releaseKeystoreB64 != null && releaseKeystorePassword != null) {
+        signingConfigs {
+            create("release") {
+                val keystoreFile = layout.buildDirectory.file("signing/release.p12").get().asFile
+                keystoreFile.parentFile.mkdirs()
+                keystoreFile.writeBytes(Base64.getMimeDecoder().decode(releaseKeystoreB64.trim()))
+                storeFile = keystoreFile
+                storeType = "pkcs12"
+                storePassword = releaseKeystorePassword.trim()
+                keyAlias = "financetracker"
+                keyPassword = releaseKeystorePassword.trim()
+            }
+        }
     }
 
     buildTypes {
@@ -49,6 +100,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.findByName("release")
         }
         debug {
             isMinifyEnabled = false
@@ -118,10 +170,15 @@ dependencies {
     }
     implementation("org.apache.xmlbeans:xmlbeans:5.2.0")
 
+    // Google sign-in for the automatic backup to Google Drive
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
+
     // Claude API (chat, category suggestions, spending insights)
     implementation("com.anthropic:anthropic-java:2.52.0")
 
     testImplementation("junit:junit:4.13.2")
+    // The real org.json for JVM unit tests (Android's own copy is a stub there).
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.09.00"))

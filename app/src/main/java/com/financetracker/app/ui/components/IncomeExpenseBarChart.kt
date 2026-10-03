@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
@@ -39,8 +40,8 @@ data class BarChartEntry(
 )
 
 private const val CHART_HEIGHT_DP = 160
-private const val BAR_WIDTH_DP = 16
-private const val COLUMN_WIDTH_DP = 72
+private const val BAR_WIDTH_DP = 22
+private const val COLUMN_WIDTH_DP = 60
 private const val MIN_LABEL_SPACE_DP = 20
 
 /**
@@ -58,23 +59,27 @@ fun IncomeExpenseBarChart(
 ) {
     val maxValue = entries.maxOfOrNull { maxOf(it.income, it.expense) }?.takeIf { it > 0 } ?: 1.0
 
+    // Only an account mixes income and expense; a legend for a single series is noise.
+    val showLegend = entries.any { it.income > 0 } && entries.any { it.expense > 0 }
+
     Column(modifier = modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            LegendDot(IncomeGreen)
-            Text(
-                "Income",
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(start = 6.dp, end = 16.dp)
-            )
-            LegendDot(ExpenseRed)
-            Text("Expense", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 6.dp))
+        if (showLegend) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LegendDot(IncomeGreen)
+                Text(
+                    "Income",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(start = 6.dp, end = 16.dp)
+                )
+                LegendDot(ExpenseRed)
+                Text("Expense", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 6.dp))
+            }
+            Spacer(modifier = Modifier.height(12.dp))
         }
-        Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                .horizontalScroll(rememberScrollState())
         ) {
             entries.forEach { entry ->
                 val isSelected = entry.key == selectedKey
@@ -115,7 +120,7 @@ fun IncomeExpenseBarChart(
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = entry.label,
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,
@@ -155,7 +160,9 @@ private fun Bar(value: Double, maxValue: Double, color: Color, formatValue: (Dou
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Visible,
+            textAlign = TextAlign.Center,
             modifier = Modifier
+                .requiredWidth(COLUMN_WIDTH_DP.dp)
                 .align(Alignment.BottomCenter)
                 .offset(y = if (labelInside) -(barHeightDp - 6.dp) else -(barHeightDp + 4.dp))
         )

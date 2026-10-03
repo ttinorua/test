@@ -8,12 +8,14 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.financetracker.app.data.ai.AiCategorizationWorker
 import com.financetracker.app.data.ai.CategorizationProgress
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.importexport.DuplicateTransactionFilter
+import com.financetracker.app.data.prefs.BankScheduledPayments
 import com.financetracker.app.data.prefs.EnableBankingPrefs
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -113,8 +115,8 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
      * is closed. */
     fun categorizeWithAi() {
         if (isCategorizing.value) return
-        if (!ClaudeService.isConfigured) {
-            _categorizationMessage.value = "Add your Anthropic API key to local.properties and rebuild first."
+        if (!AiService.isConfigured) {
+            _categorizationMessage.value = "Set up an AI first in AI assistant above."
             return
         }
         _categorizationMessage.value = null
@@ -152,7 +154,15 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
     }
 
     fun deleteAccount(account: Account) {
-        viewModelScope.launch { repository.deleteAccount(account) }
+        viewModelScope.launch {
+            repository.deleteAccount(account)
+            MainAccountSettings.onAccountRemoved(account.id)
+            BankScheduledPayments.onAccountRemoved(account.id)
+        }
+    }
+
+    fun setMainAccount(account: Account, isMain: Boolean) {
+        MainAccountSettings.setMainAccount(if (isMain) account.id else null)
     }
 
     /** Moves every transaction on [source] onto [target] — except ones [target] already has an
@@ -191,6 +201,8 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
             }
             EnableBankingPrefs.remapAccountLink(source.id, target.id)
             repository.deleteAccount(source)
+            MainAccountSettings.onAccountRemoved(source.id, replacementId = target.id)
+            BankScheduledPayments.onAccountRemoved(source.id)
         }
     }
 

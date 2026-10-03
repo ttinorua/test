@@ -41,12 +41,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.ai.CategorySuggester
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
+import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.ui.components.CategoryPickerField
 import com.financetracker.app.util.Formatters
 import com.financetracker.app.util.todayUtcMidnight
 import kotlinx.coroutines.launch
@@ -149,7 +151,7 @@ fun AddEditTransactionSheet(
                 onSelected = { selectedAccountId = it }
             )
 
-            CategoryDropdown(
+            CategoryPickerField(
                 categories = categoriesForType,
                 selectedId = selectedCategoryId,
                 onSelected = { selectedCategoryId = it }
@@ -168,15 +170,24 @@ fun AddEditTransactionSheet(
 
             OutlinedTextField(
                 value = note,
-                onValueChange = {
-                    note = it
+                onValueChange = { newNote ->
+                    note = newNote
                     suggestError = null
+                    // Only while adding a brand-new transaction — editing an existing one
+                    // already has its own category, and shouldn't change out from under the
+                    // user just because they touched the note field.
+                    if (existing == null) {
+                        LearnedCategoryRules.suggest(newNote, categories)?.let { match ->
+                            type = match.type
+                            selectedCategoryId = match.id
+                        }
+                    }
                 },
                 label = { Text("Note (optional)") },
                 modifier = Modifier.fillMaxWidth()
             )
 
-            if (ClaudeService.isConfigured && note.isNotBlank()) {
+            if (AiService.isConfigured && note.isNotBlank()) {
                 OutlinedButton(
                     onClick = { requestAiSuggestion() },
                     enabled = !isSuggesting,
@@ -260,46 +271,6 @@ private fun AccountDropdown(accounts: List<Account>, selectedId: Long?, onSelect
                     text = { Text(account.name) },
                     onClick = {
                         onSelected(account.id)
-                        expanded = false
-                    }
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CategoryDropdown(categories: List<Category>, selectedId: Long?, onSelected: (Long?) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val selected = categories.firstOrNull { it.id == selectedId }
-    val selectedLabel = selected?.let { "${it.mainCategory} • ${it.name}" } ?: "Uncategorized"
-    val sorted = categories.sortedWith(compareBy({ it.mainCategory }, { it.name }))
-
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-        OutlinedTextField(
-            value = selectedLabel,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("Category") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text("Uncategorized") },
-                onClick = {
-                    onSelected(null)
-                    expanded = false
-                }
-            )
-            sorted.forEach { category ->
-                DropdownMenuItem(
-                    text = { Text("${category.mainCategory} • ${category.name}") },
-                    onClick = {
-                        onSelected(category.id)
                         expanded = false
                     }
                 )

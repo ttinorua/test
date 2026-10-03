@@ -2,17 +2,21 @@ package com.financetracker.app.ui.screens.overview
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.BudgetSettings
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
+import com.financetracker.app.util.CategoryFilter
 import com.financetracker.app.util.GroupByOption
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.SimilarTransactionsPrompt
-import com.financetracker.app.util.countsTowardSpending
+import com.financetracker.app.util.countsTowardTotals
+import com.financetracker.app.util.transfersInCountAsIncome
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.findSimilarTransactions
 import com.financetracker.app.util.groupKeyOf
@@ -33,17 +37,21 @@ data class GroupTransactionsUiState(
     val categories: List<Category> = emptyList()
 )
 
-/** Shows every transaction in [key]'s [groupBy] bucket for the period the Spending tab was on,
- * further narrowed to [accountId] when that tab's own account filter had one selected (null
- * means every account) — the same scoping its own totals were computed from, so this drill-down
- * never shows a different account's transactions than the bar/row that was tapped to open it. */
+/** Shows every transaction in [key]'s [groupBy] bucket (every transaction when [groupBy] is null)
+ * for the period the screen it was opened from was on, further narrowed to [accountId] when that
+ * screen's own account filter had one selected (null means every account), to [type] when given
+ * and to [categoryFilter] — the same scoping its own totals were computed from, so this drill-down
+ * never shows different transactions than the bar/row that was tapped to open it. */
 class GroupTransactionsViewModel(
     private val repository: FinanceRepository,
-    groupBy: GroupByOption,
+    groupBy: GroupByOption?,
     key: String,
     periodOption: PeriodOption,
     customRange: Pair<Long, Long>?,
-    accountId: Long?
+    accountId: Long?,
+    type: TransactionType? = null,
+    categoryFilter: CategoryFilter = CategoryFilter.All,
+    title: String = key
 ) : ViewModel() {
 
     val uiState: StateFlow<GroupTransactionsUiState> = combine(
@@ -57,13 +65,16 @@ class GroupTransactionsViewModel(
         val filtered = transactions.filter {
             val effectiveDate =
                 effectiveReportingDate(it.date, it.type, it.mainCategoryName, it.categoryName, shiftSalary)
-            val inPeriod = effectiveDate >= from && effectiveDate < to && groupKeyOf(it, groupBy) == key
+            val inPeriod = effectiveDate >= from && effectiveDate < to
+            val inGroup = groupBy == null || groupKeyOf(it, groupBy) == key
             val matchesAccount = accountId == null || it.accountId == accountId
-            inPeriod && matchesAccount && countsTowardSpending(it.type, it.mainCategoryName, it.categoryName, excludeTransfers)
+            val matchesType = type == null || it.type == type
+            inPeriod && inGroup && matchesAccount && matchesType && categoryFilter.matches(it) &&
+                countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersInAreIncome = transfersInCountAsIncome(accountId, MainAccountSettings.mainAccountId.value))
         }.sortedByDescending { it.date }
 
-        GroupTransactionsUiState(groupLabel = key, transactions = filtered, accounts = accounts, categories = categories)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GroupTransactionsUiState(groupLabel = key))
+        GroupTransactionsUiState(groupLabel = title, transactions = filtered, accounts = accounts, categories = categories)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GroupTransactionsUiState(groupLabel = title))
 
     private val _similarPrompt = MutableStateFlow<SimilarTransactionsPrompt?>(null)
     val similarPrompt: StateFlow<SimilarTransactionsPrompt?> = _similarPrompt.asStateFlow()
@@ -80,6 +91,7 @@ class GroupTransactionsViewModel(
             repository.addTransaction(
                 Transaction(amount = amount, type = type, accountId = accountId, categoryId = categoryId, date = date, note = note)
             )
+            if (categoryId != null) LearnedCategoryRules.learn(note, categoryId)
         }
     }
 
@@ -98,6 +110,7 @@ class GroupTransactionsViewModel(
             repository.updateTransaction(
                 Transaction(id = id, amount = amount, type = type, accountId = accountId, categoryId = categoryId, date = date, note = note)
             )
+            if (categoryId != null) LearnedCategoryRules.learn(note, categoryId)
             if (original != null && categoryId != original.categoryId) {
                 val similar = findSimilarTransactions(allBefore, original, categoryId)
                 if (similar.isNotEmpty()) {

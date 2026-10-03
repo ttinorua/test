@@ -2,10 +2,10 @@ package com.financetracker.app.ui.screens.settings
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,21 +17,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -40,11 +42,13 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
@@ -63,7 +67,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,20 +79,30 @@ import com.financetracker.app.data.bank.Bank
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
+import com.financetracker.app.data.prefs.BankScheduledPayments
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.prefs.LinkedBankAccount
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.prefs.SUPPORTED_CURRENCIES
+import com.financetracker.app.data.prefs.ThemeMode
+import com.financetracker.app.data.prefs.ThemeSettings
 import com.financetracker.app.ui.components.AccountSelectorChip
 import com.financetracker.app.ui.components.CategoryColorDot
+import com.financetracker.app.ui.components.CategoryGroupHeader
+import com.financetracker.app.ui.components.CategoryPickerDialog
+import com.financetracker.app.ui.components.accordionShape
 import com.financetracker.app.ui.screens.importexport.ImportExportScreen
 import com.financetracker.app.ui.screens.importexport.ImportExportViewModel
+import com.financetracker.app.util.CategoryFilter
 import com.financetracker.app.util.Formatters
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private const val MAX_SCHEDULED_SHOWN = 8
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,6 +113,8 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
+    val themeMode by ThemeSettings.themeMode.collectAsState()
+    val mainAccountId by MainAccountSettings.mainAccountId.collectAsState()
     val shiftSalaryToNextMonth by BudgetSettings.shiftSalaryToNextMonth.collectAsState()
     val excludeTransfersFromSpending by BudgetSettings.excludeTransfersFromSpending.collectAsState()
     val anticipateRecurringBills by BudgetSettings.anticipateRecurringBills.collectAsState()
@@ -193,6 +212,27 @@ fun SettingsScreen(
                                         Icon(Icons.Filled.Delete, contentDescription = "Delete account")
                                     }
                                 }
+                                val isMain = mainAccountId == accountUi.account.id
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .toggleable(
+                                            value = isMain,
+                                            role = Role.Checkbox,
+                                            onValueChange = { viewModel.setMainAccount(accountUi.account, it) }
+                                        )
+                                ) {
+                                    Checkbox(checked = isMain, onCheckedChange = null)
+                                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                                        Text("Main account", style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            "Shown by default on every screen",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                                 Row(modifier = Modifier.align(Alignment.End)) {
                                     // A recovery tool for an account whose transactions got
                                     // doubled (e.g. merging two accounts that both held the same
@@ -242,84 +282,42 @@ fun SettingsScreen(
                                 )
                             }
                         }
-                        grouped.forEach { (mainCategory, subcategories) ->
+                        val groups = grouped.entries.toList()
+                        groups.forEachIndexed { groupIndex, (mainCategory, subcategories) ->
                             val isExpanded = mainCategory !in collapsedMains
+                            val isLastGroup = groupIndex == groups.lastIndex
+                            val sortedSubcategories = subcategories.sortedBy { it.name.lowercase() }
                             item(key = "header_$mainCategory") {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            collapsedMains = if (isExpanded) {
-                                                collapsedMains + mainCategory
-                                            } else {
-                                                collapsedMains - mainCategory
-                                            }
+                                CategoryGroupHeader(
+                                    title = mainCategory,
+                                    count = subcategories.size,
+                                    expanded = isExpanded,
+                                    shape = accordionShape(top = groupIndex == 0, bottom = isLastGroup && !isExpanded),
+                                    onToggle = {
+                                        collapsedMains = if (isExpanded) {
+                                            collapsedMains + mainCategory
+                                        } else {
+                                            collapsedMains - mainCategory
                                         }
-                                        .padding(top = 12.dp, bottom = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = "$mainCategory (${subcategories.size})",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.padding(start = 4.dp)
-                                    )
-                                }
+                                    },
+                                    modifier = Modifier.padding(top = if (groupIndex == 0) 0.dp else 2.dp)
+                                )
                             }
                             if (isExpanded) {
-                                items(subcategories, key = { it.id }) { category ->
-                                Card(modifier = Modifier.padding(vertical = 4.dp)) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .padding(end = 8.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
-                                                Text(
-                                                    category.name,
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.padding(start = 12.dp)
-                                                )
-                                            }
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = if (category.type == TransactionType.INCOME) "Income" else "Expense",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                                IconButton(onClick = { deleteCategoryTarget = category }) {
-                                                    Icon(Icons.Filled.Delete, contentDescription = "Delete category")
-                                                }
-                                            }
-                                        }
-                                        if (category.type == TransactionType.EXPENSE) {
-                                            val isFixed = category.id in fixedExpenseCategoryIds
-                                            FilterChip(
-                                                selected = isFixed,
-                                                onClick = { FixedExpenseCategories.setFixed(category.id, !isFixed) },
-                                                label = { Text("Fixe") },
-                                                modifier = Modifier.padding(top = 4.dp)
-                                            )
-                                        }
-                                    }
+                                itemsIndexed(sortedSubcategories, key = { _, category -> category.id }) { index, category ->
+                                    val isLastRow = index == sortedSubcategories.lastIndex
+                                    CategoryAccordionRow(
+                                        category = category,
+                                        isFixed = category.id in fixedExpenseCategoryIds,
+                                        onToggleFixed = { FixedExpenseCategories.setFixed(category.id, it) },
+                                        onDelete = { deleteCategoryTarget = category },
+                                        showDivider = !isLastRow,
+                                        shape = accordionShape(top = false, bottom = isLastGroup && isLastRow)
+                                    )
                                 }
                             }
                         }
                     }
-                }
                 }
 
                 2 -> BudgetsTab(
@@ -337,7 +335,28 @@ fun SettingsScreen(
                         .padding(16.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    Text("Display currency", style = MaterialTheme.typography.titleMedium)
+                    Text("Theme", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Choose Light or Dark, or follow your device's system setting.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ThemeMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = themeMode == mode,
+                                onClick = { ThemeSettings.setThemeMode(mode) },
+                                label = { Text(mode.label) }
+                            )
+                        }
+                    }
+
+                    Text(
+                        "Display currency",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
                     Text(
                         "Amounts are shown in this currency. This doesn't convert existing values.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -375,16 +394,18 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        "Exclude transfers from spending",
+                        "Exclude transfers from totals",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = 24.dp)
                     )
                     Text(
-                        "Expenses categorized as Other • \"Other (Transfer)\" (moving money to " +
-                            "another of your own accounts, e.g. savings) are left out of income/" +
-                            "expense totals, budgets, and the spending breakdown, since they " +
-                            "aren't real spending. The account register still shows every " +
-                            "transaction as normal.",
+                        "Transactions categorized as Other • \"Other (Transfer)\" (moving money " +
+                            "between your own accounts, e.g. to or from savings) are left out of " +
+                            "income and expense totals, budgets, and the spending breakdown, " +
+                            "since they're neither real income nor real spending. When viewing a " +
+                            "single account other than your main account, money transferred in " +
+                            "from your other accounts counts as that account's income. Net " +
+                            "balance and the account register still include every transaction.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
@@ -406,16 +427,15 @@ fun SettingsScreen(
                         modifier = Modifier.padding(top = 24.dp)
                     )
                     Text(
-                        "Bills that show up most months (phone, utilities, a monthly transfer " +
-                            "to another account, etc.) but haven't posted yet are added to the " +
-                            "Dashboard's Expenses tile at their last known amount, so Remaining " +
-                            "reflects what's left once they go out — not just what you've spent " +
-                            "so far. Any category marked \"Fixe\" below (Categories tab) is " +
-                            "trusted the moment it's seen, even without repeating first, using " +
-                            "its detected billing cadence (monthly, quarterly, or yearly) so " +
-                            "it's only anticipated in the month it's actually due. Works for " +
-                            "This month and Next month alike. Only affects that one tile; " +
-                            "budgets, the spending breakdown, and every other screen are unaffected.",
+                        "Bills in categories marked \"Fixe\" (Categories tab) that haven't " +
+                            "posted yet are added to the Dashboard's Expenses tile at their last " +
+                            "known amount, so Remaining reflects what's left once they go out — " +
+                            "not just what you've spent so far. Only Fixe categories are " +
+                            "anticipated; each merchant's billing cadence (monthly, quarterly, or " +
+                            "yearly) is detected so it's only anticipated in the month it's " +
+                            "actually due. Works for This month and Next month alike. Only " +
+                            "affects that one tile; budgets, the spending breakdown, and every " +
+                            "other screen are unaffected.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
@@ -431,6 +451,8 @@ fun SettingsScreen(
                         )
                     }
 
+                    AiAssistantSettings(modifier = Modifier.padding(top = 24.dp))
+
                     Text(
                         "AI categorization",
                         style = MaterialTheme.typography.titleMedium,
@@ -439,7 +461,7 @@ fun SettingsScreen(
                     Text(
                         "One-time cleanup for transactions with no real category (mainly bank " +
                             "sync history, since it carries no category data at all). Uses your " +
-                            "Anthropic API key and can take a while for a large history.",
+                            "chosen AI above and can take a while for a large history.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp, top = 4.dp)
@@ -726,7 +748,7 @@ private fun BudgetsTab(categories: List<Category>, accounts: List<Account>, curr
         if (activeCategories.isEmpty()) {
             item {
                 Text(
-                    "No category budgets set yet. Search above to add one.",
+                    "No category budgets set yet. Tap the button above to add one.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp)
@@ -749,64 +771,34 @@ private fun BudgetsTab(categories: List<Category>, accounts: List<Account>, curr
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddCategoryBudgetSelector(
     availableCategories: List<Category>,
     onCategorySelected: (Category) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    val filtered = remember(query, availableCategories) {
-        if (query.isBlank()) {
-            availableCategories
-        } else {
-            availableCategories.filter {
-                it.name.contains(query, ignoreCase = true) || it.mainCategory.contains(query, ignoreCase = true)
-            }
-        }
-    }
-
-    ExposedDropdownMenuBox(
-        expanded = expanded && filtered.isNotEmpty(),
-        onExpandedChange = { expanded = it },
-        modifier = Modifier.padding(top = 8.dp)
+    var open by remember { mutableStateOf(false) }
+    OutlinedButton(
+        onClick = { open = true },
+        enabled = availableCategories.isNotEmpty(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
     ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = {
-                query = it
-                expanded = true
+        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+        Text("Add a category budget", modifier = Modifier.padding(start = 8.dp))
+    }
+    if (open) {
+        CategoryPickerDialog(
+            title = "Add a category budget",
+            categories = availableCategories,
+            selected = null,
+            onDismiss = { open = false },
+            onSelect = { filter ->
+                val id = (filter as? CategoryFilter.Single)?.categoryId
+                availableCategories.firstOrNull { it.id == id }?.let(onCategorySelected)
             },
-            label = { Text("Add a category budget") },
-            placeholder = { Text("Search categories…") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor(MenuAnchorType.PrimaryEditable)
+            allowUncategorized = false
         )
-        ExposedDropdownMenu(expanded = expanded && filtered.isNotEmpty(), onDismissRequest = { expanded = false }) {
-            filtered.forEach { category ->
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CategoryColorDot(category.colorHex, modifier = Modifier.size(12.dp))
-                            Text(
-                                text = "${category.mainCategory} • ${category.name}",
-                                modifier = Modifier.padding(start = 12.dp)
-                            )
-                        }
-                    },
-                    onClick = {
-                        onCategorySelected(category)
-                        query = ""
-                        expanded = false
-                    }
-                )
-            }
-        }
     }
 }
 
@@ -1052,15 +1044,12 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             modifier = Modifier.padding(bottom = 16.dp, top = 4.dp)
         )
 
-        if (!state.isConfigured) {
-            Text(
-                "Not configured. Add ENABLE_BANKING_APPLICATION_ID and " +
-                    "ENABLE_BANKING_PRIVATE_KEY_B64 to local.properties and rebuild.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error
-            )
-            return@Column
-        }
+        EnableBankingAppRow(
+            ownApplicationId = state.ownApplicationId,
+            isConfigured = state.isConfigured,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+        if (!state.isConfigured) return@Column
 
         state.statusMessage?.let { message ->
             Card(modifier = Modifier.padding(bottom = 12.dp)) {
@@ -1098,12 +1087,52 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             return@Column
         }
 
+        val scheduledPayments by BankScheduledPayments.payments.collectAsState()
         Text(
             state.lastSyncedAt?.let { "Last synced ${formatBankDate(it)}" } ?: "Never synced",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp, top = 2.dp)
+            modifier = Modifier.padding(top = 2.dp)
         )
+        if (state.lastSyncedAt != null) {
+            // Collapsed by default and capped: this sits above the connections list and the Sync
+            // button in a non-scrolling column, so a long list would push them off screen.
+            var showScheduled by remember { mutableStateOf(false) }
+            TextButton(
+                onClick = { showScheduled = !showScheduled },
+                enabled = scheduledPayments.isNotEmpty(),
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Text(
+                    "Upcoming payments received from bank: ${scheduledPayments.size}" +
+                        if (scheduledPayments.isEmpty()) "" else if (showScheduled) " · Hide" else " · Show",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (showScheduled) {
+                val sorted = scheduledPayments.sortedBy { it.date }
+                sorted.take(MAX_SCHEDULED_SHOWN).forEach { payment ->
+                    Text(
+                        "${Formatters.date(payment.date)} · ${payment.note.ifBlank { "(no text)" }} · " +
+                            "-${Formatters.amount(payment.amount)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                if (sorted.size > MAX_SCHEDULED_SHOWN) {
+                    Text(
+                        "+ ${sorted.size - MAX_SCHEDULED_SHOWN} more",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
 
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(state.connections, key = { it.bankId }) { connection ->
@@ -1303,3 +1332,60 @@ private fun BankAccountRow(account: LinkedBankAccount, selected: Boolean, onTogg
 
 private fun formatBankDate(epochMillis: Long): String =
     SimpleDateFormat("MMM d, yyyy", Locale.US).format(Date(epochMillis))
+
+@Composable
+private fun CategoryAccordionRow(
+    category: Category,
+    isFixed: Boolean,
+    onToggleFixed: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+    showDivider: Boolean,
+    shape: Shape
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(CardDefaults.cardColors().containerColor)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 20.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CategoryColorDot(category.colorHex, modifier = Modifier.size(10.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp, end = 8.dp)
+            ) {
+                Text(
+                    category.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (category.type == TransactionType.INCOME) "Income" else "Expense",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (category.type == TransactionType.EXPENSE) {
+                FilterChip(
+                    selected = isFixed,
+                    onClick = { onToggleFixed(!isFixed) },
+                    label = { Text("Fixe") }
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Filled.Delete, contentDescription = "Delete category")
+            }
+        }
+        if (showDivider) {
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 42.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+        }
+    }
+}

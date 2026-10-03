@@ -1,7 +1,8 @@
 package com.financetracker.app.data.enablebanking
 
 import com.financetracker.app.data.ai.CategorySuggester
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
+import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.ai.LocalCategoryMatcher
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.entity.Account
@@ -12,8 +13,10 @@ import com.financetracker.app.data.importexport.BalanceReconciler
 import com.financetracker.app.data.importexport.DuplicateTransactionFilter
 import com.financetracker.app.data.importexport.ParsedTransactionRow
 import com.financetracker.app.data.importexport.describeError
+import com.financetracker.app.data.prefs.BankScheduledPayments
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.LinkedBankAccount
+import com.financetracker.app.data.prefs.ScheduledPayment
 import com.financetracker.app.data.repository.FinanceRepository
 
 data class SyncProgress(val done: Int, val total: Int)
@@ -101,8 +104,10 @@ object EnableBankingSyncCoordinator {
                 failure = "Couldn't sync \"${bankAccount.name}\": ${describeError(rowsResult.exceptionOrNull()!!)}"
                 continue
             }
-            val rows = rowsResult.getOrThrow()
+            val fetched = rowsResult.getOrThrow()
+            val rows = fetched.booked
             fetchedSoFar += rows.size
+            storeScheduledPayments(repository, accountId, fetched.scheduled)
 
             val existing = repository.getTransactionsForAccount(accountId)
             val filterResult = DuplicateTransactionFilter.filter(existing, rows)
@@ -141,15 +146,16 @@ object EnableBankingSyncCoordinator {
             val key = w.group.first().note.trim().lowercase()
             noteByKey.putIfAbsent(key, w.group.first().note)
         }
-        // Resolve whatever LocalCategoryMatcher can for free first (no network call); only the
-        // leftover unmatched notes go into the batched AI call below.
+        // Resolve whatever the user's own learned rules (a past manual choice for this exact
+        // note) or LocalCategoryMatcher can for free first (no network call); only the leftover
+        // unmatched notes go into the batched AI call below.
         val suggestionByKey = mutableMapOf<String, Category?>()
         val unresolvedKeys = mutableListOf<String>()
         for ((key, note) in noteByKey) {
-            val local = LocalCategoryMatcher.suggest(note, categories)
-            if (local != null) suggestionByKey[key] = local else unresolvedKeys += key
+            val match = LearnedCategoryRules.suggest(note, categories) ?: LocalCategoryMatcher.suggest(note, categories)
+            if (match != null) suggestionByKey[key] = match else unresolvedKeys += key
         }
-        if (ClaudeService.isConfigured) {
+        if (AiService.isConfigured) {
             for (chunk in unresolvedKeys.chunked(CategorySuggester.BATCH_SIZE)) {
                 val notes = chunk.map { noteByKey.getValue(it) }
                 val matches = CategorySuggester.suggestBatch(notes, categories).getOrNull()
@@ -200,6 +206,28 @@ object EnableBankingSyncCoordinator {
             EnableBankingPrefs.setLastSyncedAt(System.currentTimeMillis())
         }
         return SyncOutcome(totalImported, totalSkipped, failure, total, remaining)
+    }
+
+    /** Replaces [accountId]'s scheduled payments with this sync's — categorized only by the
+     * user's learned rules and [LocalCategoryMatcher] (no AI call for something that hasn't
+     * happened yet; the upcoming-bill logic also borrows the category of a matching bill
+     * already in the account's history). */
+    private suspend fun storeScheduledPayments(
+        repository: FinanceRepository,
+        accountId: Long,
+        rows: List<ParsedTransactionRow>
+    ) {
+        val categories = if (rows.isEmpty()) emptyList() else repository.getCategories()
+        BankScheduledPayments.replaceForAccount(accountId, rows.map { row ->
+            ScheduledPayment(
+                accountId = accountId,
+                date = row.date,
+                amount = row.amount,
+                note = row.note,
+                categoryId = (LearnedCategoryRules.suggest(row.note, categories)
+                    ?: LocalCategoryMatcher.suggest(row.note, categories))?.id
+            )
+        })
     }
 
     /** Sydbank reuses the same product label (e.g. "Privatkonto") across more than one real

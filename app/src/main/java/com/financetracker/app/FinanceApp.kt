@@ -7,14 +7,21 @@ import com.financetracker.app.data.bank.BankCategories
 import com.financetracker.app.data.bank.CategoryCleanup
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.AppDatabase
+import com.financetracker.app.data.ai.AiSettings
+import com.financetracker.app.data.ai.LearnedCategoryRules
+import com.financetracker.app.data.backup.AutoBackupSettings
+import com.financetracker.app.data.enablebanking.EnableBankingCredentials
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
 import com.financetracker.app.data.prefs.AiInsightsCache
+import com.financetracker.app.data.prefs.BankScheduledPayments
 import com.financetracker.app.data.prefs.BudgetLimits
 import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.EnableBankingPrefs
 import com.financetracker.app.data.prefs.FixedExpenseCategories
+import com.financetracker.app.data.prefs.MainAccountSettings
+import com.financetracker.app.data.prefs.ThemeSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,12 +36,19 @@ class FinanceApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CurrencySettings.init(this)
+        LearnedCategoryRules.init(this)
+        AiSettings.init(this)
+        ThemeSettings.init(this)
+        MainAccountSettings.init(this)
+        BankScheduledPayments.init(this)
         BudgetSettings.init(this)
         BudgetLimits.init(this)
         AiInsightsCache.init(this)
         DismissedRecurringExpenses.init(this)
         FixedExpenseCategories.init(this)
         EnableBankingPrefs.init(this)
+        EnableBankingCredentials.init(this)
+        AutoBackupSettings.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
 
         // Retroactively adds any starter category the currently selected/connected bank has

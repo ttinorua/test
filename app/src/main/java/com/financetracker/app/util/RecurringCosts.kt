@@ -4,30 +4,25 @@ import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import java.util.Calendar
 import java.util.TimeZone
-import kotlin.math.roundToInt
-
-private const val LOOKBACK_MONTHS = 3
-private const val MIN_OCCURRENCES = 2
-
-/** How many days apart a recurring bill's historical posting days can be and still count as a
- * known, consistent day of month (e.g. always the 27th-29th) rather than a rough estimate. */
-private const val DAY_OF_MONTH_CONSISTENCY_THRESHOLD = 4
+import kotlin.math.abs
 
 /** Categories that recur by habit, not by contract, and so are never anticipated no matter how
- * regularly they repeat — parking at the same garage every workday, or buying groceries at the
- * same supermarket, isn't a scheduled bill, even though the note+category can look identical for
- * months in a row the same way a real bill does. Applies even if the user marks one of these
- * "Fixe" by mistake — a deliberate hard override, not just the default. */
-private val EXCLUDED_CATEGORIES = setOf("parking", "groceries")
+ * regularly they repeat — parking at the same garage every workday, buying groceries at the same
+ * supermarket, or fuelling up / charging an EV at the same station, isn't a scheduled bill, even
+ * though the note+category can look identical for months in a row the same way a real bill does.
+ * Applies even if the user marks one of these "Fixe" by mistake — a deliberate hard override, not
+ * just the default. */
+private val EXCLUDED_CATEGORIES = setOf("parking", "groceries", "fuel")
 
 private enum class Cadence { MONTHLY, QUARTERLY, YEARLY, UNKNOWN }
 
 /** One recurring expense that hasn't posted yet in the month being projected for, projected at
  * its most recent occurrence's amount. [estimatedDate] is that month's predicted posting date —
- * a real prediction (a consistent historical day of month, or a detected monthly/quarterly/
- * yearly cadence) when [dateIsEstimated] is false, otherwise a rough guess when there's too
- * little history to be confident. [dismissKey] identifies this specific bill for this specific
- * projected month — pass it to
+ * a real prediction (a detected monthly/quarterly/yearly cadence) when [dateIsEstimated] is
+ * false, otherwise a rough guess when there's too little history to be confident.
+ * [scheduledByBank] means the bank itself has this payment scheduled — exact amount and date, not
+ * a guess. [dismissKey] identifies this specific bill for this specific projected month — pass it
+ * to
  * [com.financetracker.app.data.prefs.DismissedRecurringExpenses.dismiss] to remove it from
  * "Upcoming expenses" (and the Dashboard Expenses tile total) until it actually posts or that
  * month rolls over. */
@@ -39,7 +34,8 @@ data class AnticipatedExpense(
     val amount: Double,
     val estimatedDate: Long,
     val dateIsEstimated: Boolean,
-    val dismissKey: String
+    val dismissKey: String,
+    val scheduledByBank: Boolean = false
 )
 
 private data class MonthBucket(val year: Int, val month: Int)
@@ -55,34 +51,7 @@ private fun monthBucketOf(date: Long, monthsOffset: Int = 0): MonthBucket {
     return MonthBucket(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH))
 }
 
-private fun dayOfMonthOf(date: Long): Int {
-    val cal = utcCalendar().apply { timeInMillis = date }
-    return cal.get(Calendar.DAY_OF_MONTH)
-}
-
 private fun daysBetween(a: Long, b: Long): Long = (b - a) / (24L * 60 * 60 * 1000)
-
-/** [bucket]'s own month, with the day of month set to [day] (clamped to that month's real
- * length, e.g. day 31 in a 30-day month lands on the 30th). */
-private fun dateForDayInBucket(bucket: MonthBucket, day: Int): Long {
-    val cal = utcCalendar().apply {
-        clear()
-        set(bucket.year, bucket.month, 1, 0, 0, 0)
-    }
-    val lastDayOfMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-    cal.set(Calendar.DAY_OF_MONTH, day.coerceIn(1, lastDayOfMonth))
-    return cal.timeInMillis
-}
-
-/** The [count] calendar months strictly before [now]'s month — never includes the current month
- * itself, since that's what we're deciding whether a bill is still "recent" relative to. */
-private fun priorMonthBuckets(now: Long, count: Int): Set<MonthBucket> {
-    val cal = utcCalendar().apply { timeInMillis = now }
-    return (1..count).map {
-        cal.add(Calendar.MONTH, -1)
-        MonthBucket(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH))
-    }.toSet()
-}
 
 /** The typical gap between [sortedDates]' consecutive entries, classified into a cadence a
  * bill/premium commonly follows. Needs at least 2 dates to say anything at all. */
@@ -113,69 +82,121 @@ private fun predictNextByCadence(lastDate: Long, cadence: Cadence): Long {
     return cal.timeInMillis
 }
 
-/** Same identity a recurring bill/transfer keeps month to month: the account it's paid from,
- * its category, and its (normalized) note — e.g. "Checking / Media / phone, internet, streaming
- * and tv / telia" every month. Deliberately not amount-based, since a bill can legitimately vary
- * (electricity by season) while still being the same recurring commitment. */
-private data class RecurringKey(val accountId: Long, val mainCategory: String, val category: String, val note: String)
+/** A bank reference code rather than part of the merchant's name: pure digits ("01978") or a
+ * letters+digits code ("P45451234"). Digits-with-punctuation tokens like an account number
+ * "1234-5678901" are kept, since those tell different transfer destinations apart. */
+private fun isReferenceToken(token: String): Boolean =
+    token.any(Char::isDigit) && (token.all(Char::isDigit) || token.any(Char::isLetter))
 
-private fun recurringKeyOf(tx: TransactionWithDetails) = RecurringKey(
-    accountId = tx.accountId,
-    mainCategory = (tx.mainCategoryName ?: "Uncategorized").trim().lowercase(),
-    category = (tx.categoryName ?: "Uncategorized").trim().lowercase(),
-    note = tx.note.trim().lowercase()
+/** The merchant-identifying words of [note], lowercased — Sydbank threads a running reference
+ * (and sometimes a payment code) into every note, e.g. "MCD 01943 Spotify P4545..." vs
+ * "MCD 01990 SpotifySE" for the same subscription. Falls back to the whole note if nothing is
+ * left. */
+private fun identityTokensOf(note: String): List<String> {
+    val tokens = note.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    return tokens.filterNot(::isReferenceToken).ifEmpty { tokens }
+}
+
+private const val MIN_PREFIX_MATCH_LENGTH = 4
+
+/** Same merchant if every word lines up, allowing one to be a prefix of the other ("spotify" vs
+ * "spotifyse") so a bank's regional-suffix variants still count as the same bill. */
+private fun sameMerchant(a: List<String>, b: List<String>): Boolean =
+    a.size == b.size && a.zip(b).all { (x, y) ->
+        x == y || (minOf(x.length, y.length) >= MIN_PREFIX_MATCH_LENGTH && (x.startsWith(y) || y.startsWith(x)))
+    }
+
+/** Payment-channel words that say how a payment was made, not who it went to — e.g. Sydbank's
+ * "MCD" card prefix on a booked card payment, which the same bill's scheduled entry lacks. */
+private val CHANNEL_TOKENS = setOf(
+    "mcd", "bs", "pbs", "betalingsservice", "mobilepay", "dankort", "visa", "mastercard",
+    "overførsel", "overforsel", "fra", "til", "to", "from"
 )
 
-private fun dismissKeyFor(bucket: MonthBucket, key: RecurringKey): String =
-    "${bucket.year}-${bucket.month}|${key.accountId}|${key.mainCategory}|${key.category}|${key.note}"
+private fun merchantWords(tokens: List<String>) = tokens.filter { it !in CHANNEL_TOKENS }
+
+private fun wordsMatch(x: String, y: String) =
+    x == y || (minOf(x.length, y.length) >= MIN_PREFIX_MATCH_LENGTH && (x.startsWith(y) || y.startsWith(x)))
+
+/** Looser than [sameMerchant], for deciding whether a bank-scheduled payment is a bill already
+ * known some other way — its note is often worded differently from the booked postings ("TELENOR
+ * A/S" scheduled vs "MCD 02027 TELENOR" booked). Once payment-channel words are dropped, every
+ * word of the shorter name must appear in the longer one ("netflix" matches "netflix.com") —
+ * sharing just one word isn't enough, or "To Dansk Bolig" would match "Danske Bank". */
+private fun looselySameMerchant(a: List<String>, b: List<String>): Boolean {
+    if (sameMerchant(a, b)) return true
+    val wordsA = merchantWords(a)
+    val wordsB = merchantWords(b)
+    if (wordsA.isEmpty() || wordsB.isEmpty()) return false
+    val (shorter, longer) = if (wordsA.size <= wordsB.size) wordsA to wordsB else wordsB to wordsA
+    return shorter.all { x -> longer.any { y -> wordsMatch(x, y) } }
+}
+
+/** One recurring series: same account and same merchant, regardless of category — re-categorizing
+ * one month's posting (e.g. Prime Video moved to a different category) must not split the series,
+ * or the recategorized posting would never count as the bill having already posted. */
+private class RecurringGroup(val accountId: Long, val identity: List<String>) {
+    val variants = mutableListOf(identity)
+    val txs = mutableListOf<TransactionWithDetails>()
+
+    fun matches(other: List<String>) = variants.any { sameMerchant(it, other) }
+
+    fun looselyMatches(other: List<String>) = variants.any { looselySameMerchant(it, other) }
+}
+
+/** Groups oldest-first, so a group's [RecurringGroup.identity] (and therefore its dismiss key)
+ * stays stable as new postings with slightly different notes arrive. */
+private fun groupRecurring(expenses: List<TransactionWithDetails>): List<RecurringGroup> {
+    val groups = mutableListOf<RecurringGroup>()
+    for (tx in expenses.sortedBy { it.date }) {
+        val identity = identityTokensOf(tx.note)
+        val group = groups.firstOrNull { g ->
+            g.accountId == tx.accountId && g.matches(identity)
+        } ?: RecurringGroup(tx.accountId, identity).also { groups += it }
+        if (identity !in group.variants) group.variants += identity
+        group.txs += tx
+    }
+    return groups
+}
+
+private fun dismissKeyFor(bucket: MonthBucket, group: RecurringGroup): String =
+    "${bucket.year}-${bucket.month}|${group.accountId}|${group.identity.joinToString(" ")}"
 
 private data class Qualification(val qualifies: Boolean, val predictedDate: Long, val dateIsEstimated: Boolean)
 
-/** A category the user has marked "Fixe" in Settings (see
- * [com.financetracker.app.data.prefs.FixedExpenseCategories]) is trusted as a scheduled cost
- * without needing to actually repeat first — its real billing cadence (monthly, quarterly, or
- * yearly) is detected from every occurrence on record, and it's only anticipated in the one
- * month that cadence predicts next, never every month by default the way a flat "always assume
- * monthly" rule would. A single occurrence (no cadence to detect yet) falls back to assuming
- * monthly, the same conservative default an irregular history gets. */
-private fun qualifyFixedExpense(sortedTxs: List<TransactionWithDetails>, targetBucket: MonthBucket): Qualification {
-    val cadence = detectCadence(sortedTxs.map { it.date })
-    val last = sortedTxs.last()
-    val predicted = predictNextByCadence(last.date, cadence)
-    return Qualification(monthBucketOf(predicted) == targetBucket, predicted, cadence == Cadence.UNKNOWN)
-}
+private fun MonthBucket.index() = year * 12 + month
 
-/** Everything not marked "Fixe": needs to have actually repeated — present in at least
- * [MIN_OCCURRENCES] of the last [LOOKBACK_MONTHS] real months — before it's trusted as recurring
- * at all. */
-private fun qualifyByFrequency(
+/** A series under a category the user has marked "Fixe" in Settings (see
+ * [com.financetracker.app.data.prefs.FixedExpenseCategories]): its billing cadence (monthly,
+ * quarterly, or yearly) is detected from every occurrence on record, and it's anticipated only
+ * in a month that cadence lands on. A single occurrence (or an irregular history) assumes
+ * monthly. A series whose next due date already passed before [nowBucket] without posting is
+ * treated as stopped. Projecting further ahead than the next due date steps forward by cadence,
+ * so "Next month" still shows a monthly bill that hasn't posted this month yet either. */
+private fun qualifyFixedExpense(
     sortedTxs: List<TransactionWithDetails>,
-    byMonth: Map<MonthBucket, List<TransactionWithDetails>>,
-    now: Long,
+    nowBucket: MonthBucket,
     targetBucket: MonthBucket
 ): Qualification {
-    val lookbackMonths = byMonth.filterKeys { it in priorMonthBuckets(now, LOOKBACK_MONTHS) }
-    if (lookbackMonths.size < MIN_OCCURRENCES) return Qualification(false, 0L, true)
-
-    val last = sortedTxs.last()
-    val historicalDays = lookbackMonths.values.map { monthTxs -> dayOfMonthOf(monthTxs.maxBy { it.date }.date) }
-    val isConsistentDay = (historicalDays.max() - historicalDays.min()) <= DAY_OF_MONTH_CONSISTENCY_THRESHOLD
-    val predictedDay = if (isConsistentDay) historicalDays.average().roundToInt() else dayOfMonthOf(last.date)
-    return Qualification(true, dateForDayInBucket(targetBucket, predictedDay), !isConsistentDay)
+    val cadence = detectCadence(sortedTxs.map { it.date })
+    var predicted = predictNextByCadence(sortedTxs.last().date, cadence)
+    if (monthBucketOf(predicted).index() < nowBucket.index()) return Qualification(false, 0L, true)
+    while (monthBucketOf(predicted).index() < targetBucket.index()) {
+        predicted = predictNextByCadence(predicted, cadence)
+    }
+    return Qualification(monthBucketOf(predicted) == targetBucket, predicted, cadence == Cadence.UNKNOWN)
 }
 
 /**
  * Every recurring expense not yet posted in the month being projected for — [monthsAhead] months
- * after [now]'s own month (0 = this month, 1 = next month, and so on) — either:
- * - under a category the user has marked "Fixe" ([fixedCategoryIds], set in Settings > Categories
- *   — see [com.financetracker.app.data.prefs.FixedExpenseCategories]), whose actual billing
- *   cadence (monthly, quarterly, or yearly) is detected from its full history and only
- *   anticipated in the one month that predicts next; or
- * - the same account+category+note appearing in at least [MIN_OCCURRENCES] of the last
- *   [LOOKBACK_MONTHS] real calendar months (e.g. a phone bill, a monthly transfer to savings),
- *   for anything not marked Fixe.
+ * after [now]'s own month (0 = this month, 1 = next month, and so on) — whose series (same account
+ * and merchant) is currently under a category the user has marked "Fixe" ([fixedCategoryIds], set
+ * in Settings > Categories). Nothing outside a Fixe category is ever anticipated: guessing from
+ * how often a merchant repeats flagged too many ordinary purchases (restaurants, furniture
+ * stores) as bills.
  *
- * [EXCLUDED_CATEGORIES] (Parking, Groceries) are never anticipated regardless of how often they
+ * Fixe/excluded status and the displayed category come from each series' most recent posting.
+ * [EXCLUDED_CATEGORIES] (Parking, Groceries, Fuel) are never anticipated regardless of how often they
  * repeat, or even if marked Fixe — they recur by habit, not by contract, so the same
  * note+category showing up in back-to-back months doesn't mean a bill is coming due.
  *
@@ -192,52 +213,130 @@ private fun qualifyByFrequency(
  * [com.financetracker.app.data.prefs.DismissedRecurringExpenses]) excludes anything the user has
  * explicitly removed from that month's list.
  *
- * [transactions] should already be scoped to whichever account (or all accounts) the caller
- * cares about — this only groups and projects, it doesn't filter by account itself.
+ * [scheduled] are the bank's own scheduled-but-not-booked payments (see
+ * [com.financetracker.app.data.prefs.BankScheduledPayments]). Every one dated in the projected
+ * month is listed at its exact amount and date, whatever its category — the bank knows it's
+ * coming, no guessing needed — and takes the place of any Fixe prediction for the same account
+ * and merchant, since the bank's date beats an estimate. One that already matches a posted
+ * transaction (same account, merchant and amount, within a few days) is skipped.
+ *
+ * With [excludeTransfers] on, anything whose category is "Other (Transfer)" is left out, the same
+ * way the Expenses total leaves posted transfers out.
+ *
+ * [transactions] and [scheduled] should already be scoped to whichever account (or all accounts)
+ * the caller cares about — this only groups and projects, it doesn't filter by account itself.
  */
 fun anticipatedRecurringExpenses(
     transactions: List<TransactionWithDetails>,
     now: Long = System.currentTimeMillis(),
     monthsAhead: Int = 0,
     dismissedKeys: Set<String> = emptySet(),
-    fixedCategoryIds: Set<Long> = emptySet()
+    fixedCategoryIds: Set<Long> = emptySet(),
+    scheduled: List<TransactionWithDetails> = emptyList(),
+    excludeTransfers: Boolean = false
 ): List<AnticipatedExpense> {
     val expenses = transactions.filter { it.type == TransactionType.EXPENSE }
-    if (expenses.isEmpty()) return emptyList()
-
+    val nowBucket = monthBucketOf(now)
     val targetBucket = monthBucketOf(now, monthsAhead)
+    val groups = groupRecurring(expenses)
 
-    return expenses.groupBy { recurringKeyOf(it) }.mapNotNull { (key, txs) ->
-        if (key.category in EXCLUDED_CATEGORIES) return@mapNotNull null
+    fun isExcludedTransfer(tx: TransactionWithDetails) =
+        excludeTransfers && isTransferCategory(tx.mainCategoryName, tx.categoryName)
 
-        val sortedTxs = txs.sortedBy { it.date }
-        val byMonth = sortedTxs.groupBy { monthBucketOf(it.date) }
-        if (byMonth.containsKey(targetBucket)) return@mapNotNull null
+    // Identical entries (same account, date, amount and note) are the bank listing one payment
+    // twice, not two payments.
+    val upcomingScheduled = scheduled.distinctBy { listOf(it.accountId, it.date, it.amount, it.note.trim()) }.filter { payment ->
+        payment.type == TransactionType.EXPENSE &&
+            monthBucketOf(payment.date).index() >= targetBucket.index() &&
+            !isAlreadyPosted(payment, expenses)
+    }
+    val scheduledThisMonth = upcomingScheduled.filter { monthBucketOf(it.date) == targetBucket }
+    val keyCounts = mutableMapOf<String, Int>()
+    val bankItems = scheduledThisMonth.sortedBy { it.date }.mapNotNull { payment ->
+        val identity = identityTokensOf(payment.note)
+        val series = groups.firstOrNull { it.accountId == payment.accountId && it.matches(identity) }
+            ?: groups.firstOrNull { it.accountId == payment.accountId && it.looselyMatches(identity) }
+        val source = series?.txs?.last() ?: payment
+        if (isExcludedTransfer(source)) return@mapNotNull null
 
-        val lastCategoryId = sortedTxs.last().categoryId
-        val isFixed = lastCategoryId != null && lastCategoryId in fixedCategoryIds
-        val qualification = if (isFixed) {
-            qualifyFixedExpense(sortedTxs, targetBucket)
-        } else {
-            qualifyByFrequency(sortedTxs, byMonth, now, targetBucket)
-        }
-        if (!qualification.qualifies) return@mapNotNull null
-
-        val dismissKey = dismissKeyFor(targetBucket, key)
+        val baseKey = "${targetBucket.year}-${targetBucket.month}|bank|${payment.accountId}|" +
+            "${identity.joinToString(" ")}|${payment.date}|${payment.amount}"
+        val occurrence = (keyCounts[baseKey] ?: 0) + 1
+        keyCounts[baseKey] = occurrence
+        val dismissKey = if (occurrence == 1) baseKey else "$baseKey#$occurrence"
         if (dismissKey in dismissedKeys) return@mapNotNull null
 
-        val mostRecent = sortedTxs.last()
         AnticipatedExpense(
-            label = mostRecent.note.ifBlank { mostRecent.categoryName ?: "Recurring expense" },
-            mainCategory = mostRecent.mainCategoryName ?: "Uncategorized",
-            category = mostRecent.categoryName ?: "Uncategorized",
-            colorHex = mostRecent.categoryColorHex ?: "#9E9E9E",
-            amount = mostRecent.amount,
+            label = payment.note.ifBlank { source.categoryName ?: "Scheduled payment" },
+            mainCategory = source.mainCategoryName ?: "Uncategorized",
+            category = source.categoryName ?: "Uncategorized",
+            colorHex = source.categoryColorHex ?: "#9E9E9E",
+            amount = payment.amount,
+            estimatedDate = payment.date,
+            dateIsEstimated = false,
+            dismissKey = dismissKey,
+            scheduledByBank = true
+        )
+    }
+
+    val predictedItems = groups.mapNotNull { group ->
+        val sortedTxs = group.txs
+        val last = sortedTxs.last()
+        val lastCategory = (last.categoryName ?: "Uncategorized").trim().lowercase()
+        if (lastCategory in EXCLUDED_CATEGORIES || isExcludedTransfer(last)) return@mapNotNull null
+
+        val lastCategoryId = last.categoryId
+        if (lastCategoryId == null || lastCategoryId !in fixedCategoryIds) return@mapNotNull null
+        if (sortedTxs.any { monthBucketOf(it.date) == targetBucket }) return@mapNotNull null
+
+        val qualification = qualifyFixedExpense(sortedTxs, nowBucket, targetBucket)
+        if (!qualification.qualifies) return@mapNotNull null
+
+        // The bank already has this bill scheduled — its date and amount win over a guess. Matched
+        // by merchant (loosely, since the scheduled note is often worded differently), or failing
+        // that by a near-identical amount close to the predicted date.
+        val bankHasIt = upcomingScheduled.any { payment ->
+            payment.accountId == group.accountId && (
+                group.looselyMatches(identityTokensOf(payment.note)) ||
+                    (isNearlySameAmount(payment.amount, last.amount) &&
+                        abs(daysBetween(qualification.predictedDate, payment.date)) <= SCHEDULED_MATCH_WINDOW_DAYS)
+                )
+        }
+        if (bankHasIt) return@mapNotNull null
+
+        val dismissKey = dismissKeyFor(targetBucket, group)
+        if (dismissKey in dismissedKeys) return@mapNotNull null
+
+        AnticipatedExpense(
+            label = last.note.ifBlank { last.categoryName ?: "Recurring expense" },
+            mainCategory = last.mainCategoryName ?: "Uncategorized",
+            category = last.categoryName ?: "Uncategorized",
+            colorHex = last.categoryColorHex ?: "#9E9E9E",
+            amount = last.amount,
             estimatedDate = qualification.predictedDate,
             dateIsEstimated = qualification.dateIsEstimated,
             dismissKey = dismissKey
         )
-    }.sortedBy { it.estimatedDate }
+    }
+
+    return (bankItems + predictedItems).sortedBy { it.estimatedDate }
+}
+
+private const val POSTED_MATCH_WINDOW_DAYS = 3
+private const val SCHEDULED_MATCH_WINDOW_DAYS = 5
+
+private fun isNearlySameAmount(a: Double, b: Double): Boolean = abs(a - b) <= maxOf(0.01, 0.01 * maxOf(a, b))
+
+/** A scheduled payment the bank has since booked, if the sync that removed it from the
+ * scheduled list hasn't run yet: same account, merchant and amount, within a few days. */
+private fun isAlreadyPosted(payment: TransactionWithDetails, expenses: List<TransactionWithDetails>): Boolean {
+    val identity = identityTokensOf(payment.note)
+    return expenses.any {
+        it.accountId == payment.accountId &&
+            abs(it.amount - payment.amount) < 0.005 &&
+            abs(daysBetween(it.date, payment.date)) <= POSTED_MATCH_WINDOW_DAYS &&
+            looselySameMerchant(identityTokensOf(it.note), identity)
+    }
 }
 
 /** Sum of [anticipatedRecurringExpenses] — what the Dashboard Expenses tile adds on top of what's
@@ -247,5 +346,9 @@ fun anticipatedRecurringExpenseTotal(
     now: Long = System.currentTimeMillis(),
     monthsAhead: Int = 0,
     dismissedKeys: Set<String> = emptySet(),
-    fixedCategoryIds: Set<Long> = emptySet()
-): Double = anticipatedRecurringExpenses(transactions, now, monthsAhead, dismissedKeys, fixedCategoryIds).sumOf { it.amount }
+    fixedCategoryIds: Set<Long> = emptySet(),
+    scheduled: List<TransactionWithDetails> = emptyList(),
+    excludeTransfers: Boolean = false
+): Double = anticipatedRecurringExpenses(
+    transactions, now, monthsAhead, dismissedKeys, fixedCategoryIds, scheduled, excludeTransfers
+).sumOf { it.amount }

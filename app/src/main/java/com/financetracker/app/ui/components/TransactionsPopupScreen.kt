@@ -249,7 +249,8 @@ private fun SectionHeader(label: String, count: Int) {
 
 /** A row for a not-yet-posted recurring expense — same visual shape as [TransactionRow]
  * (category dot, label, category, amount) but never tap-to-edit, since there's no real
- * transaction behind it yet: nothing has come from Sydbank for this one, it's only a projection.
+ * transaction behind it yet — either a projection, or a payment the bank has scheduled but not
+ * booked (labelled "Scheduled by bank", see [AnticipatedExpense.scheduledByBank]).
  * Long-press still works, to remove it from this month's "Upcoming expenses" (see
  * [onLongClick]/[com.financetracker.app.data.prefs.DismissedRecurringExpenses]) — unlike a real,
  * posted transaction, this is the only kind of row a user can ever remove this way. The date is
@@ -281,7 +282,7 @@ private fun AnticipatedExpenseRow(item: AnticipatedExpense, onLongClick: () -> U
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = item.category,
+                    text = if (item.scheduledByBank) "Scheduled by bank · ${item.category}" else item.category,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

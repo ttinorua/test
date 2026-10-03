@@ -5,7 +5,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class EnableBankingNotConfiguredException :
-    Exception("Add ENABLE_BANKING_APPLICATION_ID and ENABLE_BANKING_PRIVATE_KEY_B64 to local.properties and rebuild.")
+    Exception("Add ENABLE_BANKING_APPLICATION_ID and ENABLE_BANKING_PRIVATE_KEY (the .pem text) to the build environment and rebuild.")
 
 class EnableBankingApiException(message: String) : Exception(message)
 

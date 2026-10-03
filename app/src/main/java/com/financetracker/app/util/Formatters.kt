@@ -43,6 +43,18 @@ object Formatters {
         return "${numberFormat.format(value)} ${currencySymbol(currencyCode)}"
     }
 
+    /** A short label for a chart bar: 950, 2.4k, 26.5k, 1.2M. */
+    fun compact(value: Double): String {
+        val abs = kotlin.math.abs(value)
+        val sign = if (value < 0) "-" else ""
+        fun oneDecimal(v: Double) = String.format(Locale.US, "%.1f", v).removeSuffix(".0")
+        return when {
+            abs < 1_000 -> sign + String.format(Locale.US, "%.0f", abs)
+            abs < 1_000_000 -> sign + oneDecimal(abs / 1_000) + "k"
+            else -> sign + oneDecimal(abs / 1_000_000) + "M"
+        }
+    }
+
     fun currencySymbol(currencyCode: String): String = CURRENCY_SYMBOLS[currencyCode] ?: currencyCode
 
     fun date(epochMillis: Long): String = dateFormat.format(epochMillis)

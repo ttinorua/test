@@ -26,6 +26,7 @@ data class CategorizationOutcome(val categorizedCount: Int, val totalConsidered:
  * excluded, and [knownTotal] (pass back whatever a previous call returned as
  * [CategorizationOutcome.totalConsidered]) keeps the reported progress counting up across the
  * whole run instead of resetting each batch. Each merchant is first tried against
+ * [LearnedCategoryRules] (a past manual choice for this exact note, if there is one) then
  * [LocalCategoryMatcher] (free, instant, no network call) before ever asking Claude — real
  * histories are usually dominated by a handful of recurring merchants (groceries, fuel,
  * subscriptions, salary), so this alone resolves a meaningful share of a large backfill for
@@ -50,7 +51,7 @@ object AiCategorizationCoordinator {
         knownTotal: Int? = null,
         onProgress: suspend (CategorizationProgress) -> Unit
     ): CategorizationOutcome {
-        if (!ClaudeService.isConfigured) return CategorizationOutcome(0, knownTotal ?: 0, 0)
+        if (!AiService.isConfigured) return CategorizationOutcome(0, knownTotal ?: 0, 0)
 
         val categories = repository.getCategories()
         val excludedIds = categories
@@ -72,9 +73,13 @@ object AiCategorizationCoordinator {
         var doneThisRun = 0
         onProgress(CategorizationProgress(alreadyDone, total))
 
-        // Resolve whatever LocalCategoryMatcher can for free first; only the leftover unmatched
-        // groups go into the batched AI call below.
-        val localMatches = groupsToProcess.map { group -> LocalCategoryMatcher.suggest(group.first().note, categories) }
+        // Resolve whatever the user's own learned rules (a past manual choice for this exact
+        // note) or LocalCategoryMatcher can for free first; only the leftover unmatched groups
+        // go into the batched AI call below.
+        val localMatches = groupsToProcess.map { group ->
+            val note = group.first().note
+            LearnedCategoryRules.suggest(note, categories) ?: LocalCategoryMatcher.suggest(note, categories)
+        }
         val unresolvedIndices = localMatches.withIndex().filter { it.value == null }.map { it.index }
 
         val aiMatches = mutableMapOf<Int, Category?>()

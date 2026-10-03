@@ -1,6 +1,10 @@
 package com.financetracker.app.ui.screens.importexport
 
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,10 +51,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.financetracker.app.data.backup.AutoBackupSettings
+import com.financetracker.app.data.backup.BackupDestination
+import com.financetracker.app.data.backup.cloud.GoogleDriveBackup
+import com.financetracker.app.data.backup.cloud.OneDriveBackup
+import com.google.android.gms.auth.api.identity.AuthorizationResult
+import com.google.android.gms.auth.api.identity.Identity
 import com.financetracker.app.ui.theme.ExpenseRed
 import com.financetracker.app.ui.theme.IncomeGreen
 import com.financetracker.app.util.Formatters
+import com.financetracker.app.util.ViewModelFactory
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val SPREADSHEET_MIME_TYPES = arrayOf("*/*")
 
@@ -58,6 +74,15 @@ private val SPREADSHEET_MIME_TYPES = arrayOf("*/*")
 @Composable
 fun ImportExportScreen(viewModel: ImportExportViewModel) {
     val state by viewModel.uiState.collectAsState()
+    val appContext = LocalContext.current.applicationContext
+    val backupViewModel: BackupViewModel = viewModel(factory = ViewModelFactory { BackupViewModel(appContext) })
+    val backupState by backupViewModel.uiState.collectAsState()
+    var showCreateBackupDialog by remember { mutableStateOf(false) }
+    val autoBackupState by AutoBackupSettings.state.collectAsState()
+    var showAutoBackupSetup by remember { mutableStateOf(false) }
+    var autoBackupDestination by remember { mutableStateOf<BackupDestination?>(null) }
+    var autoBackupPassword by remember { mutableStateOf<CharArray?>(null) }
+    val activity = LocalContext.current as? Activity
     val snackbarHostState = remember { SnackbarHostState() }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -77,6 +102,86 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     ) { uri -> if (uri != null) viewModel.exportTransactions(uri, ExportFormat.XLSX) }
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) viewModel.restoreCategories(uri) }
+
+    val createBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri -> if (uri != null) backupViewModel.writeBackup(uri) }
+
+    val autoBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        val password = autoBackupPassword ?: CharArray(0)
+        autoBackupPassword = null
+        if (uri != null) backupViewModel.enableAutoBackupOnPhone(uri, password) else password.fill('\u0000')
+    }
+
+    fun finishGoogleDrive(result: AuthorizationResult) {
+        val password = autoBackupPassword ?: CharArray(0)
+        autoBackupPassword = null
+        backupViewModel.enableAutoBackupToGoogleDrive(GoogleDriveBackup.accountOf(result), password)
+    }
+
+    val googleAuthLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val authorization = activity?.let {
+            runCatching { Identity.getAuthorizationClient(it).getAuthorizationResultFromIntent(result.data) }.getOrNull()
+        }
+        if (result.resultCode == Activity.RESULT_OK && authorization != null) {
+            finishGoogleDrive(authorization)
+        } else {
+            autoBackupPassword?.fill('\u0000')
+            autoBackupPassword = null
+            backupViewModel.showMessage("Google Drive wasn't connected.")
+        }
+    }
+
+    fun startAutoBackup(destination: BackupDestination, password: CharArray) {
+        when (destination) {
+            BackupDestination.PHONE -> {
+                autoBackupPassword = password
+                autoBackupLauncher.launch(AutoBackupSettings.FILE_NAME)
+            }
+            BackupDestination.ONEDRIVE -> {
+                val url = backupViewModel.beginOneDriveSignIn(password)
+                runCatching { activity?.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    .onFailure { backupViewModel.showMessage("Couldn't open the browser to sign in.") }
+            }
+            BackupDestination.GOOGLE_DRIVE -> {
+                val host = activity ?: return
+                autoBackupPassword = password
+                Identity.getAuthorizationClient(host).authorize(GoogleDriveBackup.request)
+                    .addOnSuccessListener { result ->
+                        val pending = result.pendingIntent
+                        if (result.hasResolution() && pending != null) {
+                            googleAuthLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+                        } else {
+                            finishGoogleDrive(result)
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        autoBackupPassword?.fill('\u0000')
+                        autoBackupPassword = null
+                        backupViewModel.showMessage("Google Drive isn't available: ${e.message}")
+                    }
+            }
+        }
+    }
+
+    val openBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) backupViewModel.openBackup(uri) }
+
+    LaunchedEffect(backupState.message) {
+        backupState.message?.let {
+            snackbarHostState.showSnackbar(it)
+            backupViewModel.dismissMessage()
+        }
+    }
 
     LaunchedEffect(state.exportMessage) {
         state.exportMessage?.let {
@@ -98,6 +203,24 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            item {
+                Text("Full backup", style = MaterialTheme.typography.titleMedium)
+            }
+            item {
+                FullBackupCard(
+                    isWorking = backupState.isWorking,
+                    onCreate = { showCreateBackupDialog = true },
+                    onRestore = { openBackupLauncher.launch(arrayOf("*/*")) }
+                )
+            }
+            item {
+                AutoBackupCard(
+                    state = autoBackupState,
+                    onToggle = { on -> if (on) showAutoBackupSetup = true else backupViewModel.disableAutoBackup() },
+                    onBackUpNow = backupViewModel::autoBackupNow,
+                    onChangeLocation = { showAutoBackupSetup = true }
+                )
+            }
             item {
                 Text("Import from spreadsheet", style = MaterialTheme.typography.titleMedium)
             }
@@ -231,6 +354,90 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
                     }
                 }
             }
+
+            item {
+                Text("Restore categories from a spreadsheet", style = MaterialTheme.typography.titleMedium)
+            }
+            item {
+                Card {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            "Pick a spreadsheet you exported from this app. Transactions already here " +
+                                "that match one in the backup (same date, amount and text) get the " +
+                                "backup's category back. Nothing is added or deleted.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Button(
+                            onClick = { restoreLauncher.launch(SPREADSHEET_MIME_TYPES) },
+                            enabled = !state.isRestoring,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (state.isRestoring) {
+                                CircularProgressIndicator(modifier = Modifier.padding(2.dp))
+                            } else {
+                                Icon(Icons.Filled.FileUpload, contentDescription = null)
+                                Text(" Choose backup file", modifier = Modifier.padding(start = 4.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        state.restoreMessage?.let { message ->
+            AlertDialog(
+                onDismissRequest = viewModel::dismissRestoreMessage,
+                title = { Text("Restore categories") },
+                text = { Text(message) },
+                confirmButton = { TextButton(onClick = viewModel::dismissRestoreMessage) { Text("OK") } }
+            )
+        }
+        if (showCreateBackupDialog) {
+            CreateBackupDialog(
+                onDismiss = { showCreateBackupDialog = false },
+                onConfirm = { password ->
+                    showCreateBackupDialog = false
+                    backupViewModel.prepareBackup(password)
+                    val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                    createBackupLauncher.launch("FinanceTracker-backup-$date.ftbackup")
+                }
+            )
+        }
+        if (showAutoBackupSetup) {
+            ChooseBackupDestinationDialog(
+                oneDriveAvailable = OneDriveBackup.isConfigured,
+                onDismiss = { showAutoBackupSetup = false },
+                onChoose = { destination ->
+                    showAutoBackupSetup = false
+                    autoBackupDestination = destination
+                }
+            )
+        }
+        autoBackupDestination?.let { destination ->
+            CreateBackupDialog(
+                title = "Weekly backup to ${destination.label}",
+                onDismiss = { autoBackupDestination = null },
+                onConfirm = { password ->
+                    autoBackupDestination = null
+                    startAutoBackup(destination, password)
+                }
+            )
+        }
+        if (backupState.needsPassword) {
+            UnlockBackupDialog(
+                wrongPassword = backupState.wrongPassword,
+                onDismiss = backupViewModel::cancelRestore,
+                onConfirm = backupViewModel::unlockBackup
+            )
+        }
+        backupState.pendingRestore?.let { pending ->
+            ConfirmRestoreDialog(
+                pending = pending,
+                onDismiss = backupViewModel::cancelRestore,
+                onConfirm = backupViewModel::confirmRestore
+            )
+        }
+        if (backupState.restored) {
+            RestoreCompleteDialog(onRestart = backupViewModel::restartApp)
         }
         SnackbarHost(
             hostState = snackbarHostState,

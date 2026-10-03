@@ -38,7 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.financetracker.app.data.ai.ClaudeService
+import com.financetracker.app.data.ai.AiService
 import com.financetracker.app.data.ai.InsightCard
 import com.financetracker.app.data.ai.InsightTone
 import com.financetracker.app.data.db.entity.TransactionType
@@ -68,7 +68,8 @@ fun DashboardScreen(
         periodOption: PeriodOption,
         customRange: Pair<Long, Long>?,
         includeAnticipated: Boolean,
-        accountId: Long?
+        accountId: Long?,
+        uncategorizedOnly: Boolean
     ) -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -105,7 +106,7 @@ fun DashboardScreen(
                     IconButton(onClick = onOpenTrends) {
                         Icon(Icons.Filled.ShowChart, contentDescription = "Trends")
                     }
-                    if (ClaudeService.isConfigured) {
+                    if (AiService.isConfigured) {
                         IconButton(onClick = onOpenAskAi) {
                             Icon(Icons.Filled.Chat, contentDescription = "Ask your finances")
                         }
@@ -147,7 +148,7 @@ fun DashboardScreen(
                     amount = Formatters.currency(state.netBalance, currencyCode),
                     onClick = {
                         onOpenTransactions(
-                            null, null, "All Transactions", state.periodOption, state.customRange, false, state.selectedAccountId
+                            null, null, "All Transactions", state.periodOption, state.customRange, false, state.selectedAccountId, false
                         )
                     }
                 )
@@ -171,7 +172,8 @@ fun DashboardScreen(
                                 state.periodOption,
                                 state.customRange,
                                 false,
-                                state.selectedAccountId
+                                state.selectedAccountId,
+                                false
                             )
                         },
                         amountStyle = MaterialTheme.typography.titleSmall,
@@ -190,7 +192,8 @@ fun DashboardScreen(
                                 state.periodOption,
                                 state.customRange,
                                 true,
-                                state.selectedAccountId
+                                state.selectedAccountId,
+                                false
                             )
                         },
                         amountStyle = MaterialTheme.typography.titleSmall,
@@ -228,7 +231,8 @@ fun DashboardScreen(
                                             PeriodOption.THIS_MONTH,
                                             null,
                                             false,
-                                            state.selectedAccountId
+                                            state.selectedAccountId,
+                                            false
                                         )
                                     }
                                 )
@@ -248,7 +252,8 @@ fun DashboardScreen(
                                             PeriodOption.THIS_MONTH,
                                             null,
                                             false,
-                                            state.selectedAccountId
+                                            state.selectedAccountId,
+                                            false
                                         )
                                     }
                                 )
@@ -257,7 +262,30 @@ fun DashboardScreen(
                     }
                 }
             }
-            if (ClaudeService.isConfigured) {
+            if (state.uncategorizedCount > 0) {
+                item {
+                    SummaryCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        title = "Uncategorized",
+                        amount = "${state.uncategorizedCount} transaction${if (state.uncategorizedCount == 1) "" else "s"}",
+                        valueColor = ExpenseRed,
+                        amountStyle = MaterialTheme.typography.titleMedium,
+                        onClick = {
+                            onOpenTransactions(
+                                null,
+                                null,
+                                "Uncategorized",
+                                state.periodOption,
+                                state.customRange,
+                                false,
+                                state.selectedAccountId,
+                                true
+                            )
+                        }
+                    )
+                }
+            }
+            if (AiService.isConfigured) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -319,7 +347,8 @@ fun DashboardScreen(
                                     state.periodOption,
                                     state.customRange,
                                     false,
-                                    state.selectedAccountId
+                                    state.selectedAccountId,
+                                    false
                                 )
                             },
                             modifier = Modifier.padding(16.dp)

@@ -25,6 +25,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.financetracker.app.data.backup.AutoBackupSettings
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.enablebanking.EnableBankingService
@@ -40,6 +41,7 @@ import com.financetracker.app.ui.screens.overview.CategoryOverviewScreen
 import com.financetracker.app.ui.screens.overview.CategoryOverviewViewModel
 import com.financetracker.app.ui.screens.overview.GroupTransactionsScreen
 import com.financetracker.app.ui.screens.overview.GroupTransactionsViewModel
+import com.financetracker.app.ui.screens.overview.TransactionsDrillDown
 import com.financetracker.app.ui.screens.settings.EnableBankingViewModel
 import com.financetracker.app.ui.screens.settings.SettingsScreen
 import com.financetracker.app.ui.screens.settings.SettingsViewModel
@@ -48,10 +50,11 @@ import com.financetracker.app.ui.screens.transactions.TransactionsViewModel
 import com.financetracker.app.ui.screens.trends.TrendsScreen
 import com.financetracker.app.ui.screens.trends.TrendsViewModel
 import com.financetracker.app.ui.theme.PersonalFinanceTheme
-import com.financetracker.app.util.GroupByOption
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.ViewModelFactory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,7 +107,7 @@ class MainActivity : ComponentActivity() {
                                 vm,
                                 onOpenAskAi = { navController.navigate("ask_ai") },
                                 onOpenTrends = { navController.navigate("trends") },
-                                onOpenTransactions = { type, categoryId, label, periodOption, customRange, includeAnticipated, accountId ->
+                                onOpenTransactions = { type, categoryId, label, periodOption, customRange, includeAnticipated, accountId, uncategorizedOnly ->
                                     val typeName = type?.name ?: "NONE"
                                     val catId = categoryId ?: -1L
                                     val from = customRange?.first ?: -1L
@@ -112,13 +115,13 @@ class MainActivity : ComponentActivity() {
                                     val acctId = accountId ?: -1L
                                     navController.navigate(
                                         "dashboard_transactions/$typeName/$catId/${Uri.encode(label)}/" +
-                                            "${periodOption.name}/$from/$to/$includeAnticipated/$acctId"
+                                            "${periodOption.name}/$from/$to/$includeAnticipated/$acctId/$uncategorizedOnly"
                                     )
                                 }
                             )
                         }
                         composable(
-                            route = "dashboard_transactions/{type}/{categoryId}/{label}/{periodOption}/{from}/{to}/{includeAnticipated}/{accountId}",
+                            route = "dashboard_transactions/{type}/{categoryId}/{label}/{periodOption}/{from}/{to}/{includeAnticipated}/{accountId}/{uncategorizedOnly}",
                             arguments = listOf(
                                 navArgument("type") { type = NavType.StringType },
                                 navArgument("categoryId") { type = NavType.LongType },
@@ -127,7 +130,8 @@ class MainActivity : ComponentActivity() {
                                 navArgument("from") { type = NavType.LongType },
                                 navArgument("to") { type = NavType.LongType },
                                 navArgument("includeAnticipated") { type = NavType.BoolType },
-                                navArgument("accountId") { type = NavType.LongType }
+                                navArgument("accountId") { type = NavType.LongType },
+                                navArgument("uncategorizedOnly") { type = NavType.BoolType }
                             )
                         ) { backStackEntry ->
                             val args = backStackEntry.arguments!!
@@ -139,6 +143,7 @@ class MainActivity : ComponentActivity() {
                             val to = args.getLong("to")
                             val includeAnticipated = args.getBoolean("includeAnticipated")
                             val accountId = args.getLong("accountId").takeIf { it >= 0 }
+                            val uncategorizedOnly = args.getBoolean("uncategorizedOnly")
                             val customRange = if (periodOption == PeriodOption.CUSTOM && from >= 0 && to >= 0) {
                                 from to to
                             } else {
@@ -154,7 +159,8 @@ class MainActivity : ComponentActivity() {
                                         periodOption,
                                         customRange,
                                         includeAnticipated,
-                                        accountId
+                                        accountId,
+                                        uncategorizedOnly
                                     )
                                 }
                             )
@@ -164,7 +170,11 @@ class MainActivity : ComponentActivity() {
                             val vm: TrendsViewModel = viewModel(
                                 factory = ViewModelFactory { TrendsViewModel(repository) }
                             )
-                            TrendsScreen(vm, onBack = { navController.popBackStack() })
+                            TrendsScreen(
+                                vm,
+                                onBack = { navController.popBackStack() },
+                                onOpenTransactions = { drillDown -> navController.navigate(drillDown.route()) }
+                            )
                         }
                         composable("ask_ai") {
                             val vm: AskAiViewModel = viewModel(
@@ -184,43 +194,27 @@ class MainActivity : ComponentActivity() {
                             )
                             CategoryOverviewScreen(
                                 vm,
-                                onEntryClick = { groupBy, key, periodOption, customRange, accountId ->
-                                    val from = customRange?.first ?: -1L
-                                    val to = customRange?.second ?: -1L
-                                    val acctId = accountId ?: -1L
-                                    navController.navigate(
-                                        "group_transactions/${groupBy.name}/${Uri.encode(key)}/" +
-                                            "${periodOption.name}/$from/$to/$acctId"
-                                    )
-                                }
+                                onOpenTransactions = { drillDown -> navController.navigate(drillDown.route()) }
                             )
                         }
                         composable(
-                            route = "group_transactions/{groupBy}/{key}/{periodOption}/{from}/{to}/{accountId}",
-                            arguments = listOf(
-                                navArgument("groupBy") { type = NavType.StringType },
-                                navArgument("key") { type = NavType.StringType },
-                                navArgument("periodOption") { type = NavType.StringType },
-                                navArgument("from") { type = NavType.LongType },
-                                navArgument("to") { type = NavType.LongType },
-                                navArgument("accountId") { type = NavType.LongType }
-                            )
+                            route = TransactionsDrillDown.ROUTE,
+                            arguments = TransactionsDrillDown.arguments
                         ) { backStackEntry ->
-                            val args = backStackEntry.arguments!!
-                            val groupBy = GroupByOption.valueOf(args.getString("groupBy")!!)
-                            val key = Uri.decode(args.getString("key")!!)
-                            val periodOption = PeriodOption.valueOf(args.getString("periodOption")!!)
-                            val from = args.getLong("from")
-                            val to = args.getLong("to")
-                            val accountId = args.getLong("accountId").takeIf { it >= 0 }
-                            val customRange = if (periodOption == PeriodOption.CUSTOM && from >= 0 && to >= 0) {
-                                from to to
-                            } else {
-                                null
-                            }
+                            val drillDown = TransactionsDrillDown.from(backStackEntry.arguments!!)
                             val vm: GroupTransactionsViewModel = viewModel(
                                 factory = ViewModelFactory {
-                                    GroupTransactionsViewModel(repository, groupBy, key, periodOption, customRange, accountId)
+                                    GroupTransactionsViewModel(
+                                        repository,
+                                        drillDown.groupBy,
+                                        drillDown.key,
+                                        drillDown.periodOption,
+                                        drillDown.customRange,
+                                        drillDown.accountId,
+                                        drillDown.type,
+                                        drillDown.categoryFilter,
+                                        drillDown.title
+                                    )
                                 }
                             )
                             GroupTransactionsScreen(vm, onClose = { navController.popBackStack() })
@@ -254,6 +248,10 @@ class MainActivity : ComponentActivity() {
      * page. Any other intent (e.g. the normal launcher intent) is ignored. */
     private fun handleIncomingIntent(intent: Intent) {
         val data = intent.data ?: return
+        if (data.scheme == "financetracker" && data.host == "onedrive-auth") {
+            handleOneDriveSignIn(data)
+            return
+        }
         if (data.scheme != "financetracker" || data.host != "enablebanking-callback") return
 
         val error = data.getQueryParameter("error")
@@ -278,6 +276,28 @@ class MainActivity : ComponentActivity() {
                 .onFailure { e ->
                     Toast.makeText(this@MainActivity, "Bank connection failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
+        }
+    }
+
+    /** Finishes turning on the automatic backup to OneDrive once Microsoft's sign-in page sends
+     * the browser back here (financetracker://onedrive-auth?code=...&state=...). */
+    private fun handleOneDriveSignIn(data: Uri) {
+        val code = data.getQueryParameter("code")
+        if (code == null) {
+            val reason = data.getQueryParameter("error_description") ?: data.getQueryParameter("error") ?: "cancelled"
+            Toast.makeText(this, "OneDrive sign-in failed: $reason", Toast.LENGTH_LONG).show()
+            return
+        }
+        val state = data.getQueryParameter("state")
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { AutoBackupSettings.completeOneDrive(applicationContext, code, state) }
+            }
+            val message = result.fold(
+                onSuccess = { account -> "Weekly backup to OneDrive is on" + (account?.let { " ($it)" } ?: "") + "." },
+                onFailure = { it.message ?: "OneDrive sign-in failed." }
+            )
+            Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
         }
     }
 }

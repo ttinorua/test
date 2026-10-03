@@ -2,11 +2,13 @@ package com.financetracker.app.ui.screens.transactions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.data.prefs.MainAccountSettings
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.Formatters
 import com.financetracker.app.util.PeriodOption
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -48,7 +51,14 @@ data class TransactionsUiState(
 
 class TransactionsViewModel(private val repository: FinanceRepository) : ViewModel() {
 
-    private val _filter = MutableStateFlow(TransactionFilterState())
+    private val _filter = MutableStateFlow(TransactionFilterState(selectedAccountId = MainAccountSettings.mainAccountId.value))
+
+    init {
+        viewModelScope.launch {
+            MainAccountSettings.mainAccountId.drop(1).collect { selectAccount(it) }
+        }
+    }
+
     val filter: StateFlow<TransactionFilterState> = _filter.asStateFlow()
 
     private val _similarPrompt = MutableStateFlow<SimilarTransactionsPrompt?>(null)
@@ -174,6 +184,7 @@ class TransactionsViewModel(private val repository: FinanceRepository) : ViewMod
                     note = note
                 )
             )
+            if (categoryId != null) LearnedCategoryRules.learn(note, categoryId)
         }
     }
 
@@ -200,6 +211,7 @@ class TransactionsViewModel(private val repository: FinanceRepository) : ViewMod
                     note = note
                 )
             )
+            if (categoryId != null) LearnedCategoryRules.learn(note, categoryId)
             if (original != null && categoryId != original.categoryId) {
                 val similar = findSimilarTransactions(allBefore, original, categoryId)
                 if (similar.isNotEmpty()) {

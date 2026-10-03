@@ -135,6 +135,19 @@ class AttentionChecksTest {
     }
 
     @Test
+    fun `normal payments at regular places are not unusual`() {
+        val now = utc(2026, 10, 3)
+        val txs = listOf(
+            tx(utc(2026, 7, 2), 640.0, "BS UNO-X MOBILITY DANMARK A/S"), tx(utc(2026, 8, 3), 700.0, "BS UNO-X MOBILITY DANMARK A/S"),
+            tx(utc(2026, 9, 1), 655.0, "BS UNO-X MOBILITY DANMARK A/S"), tx(utc(2026, 10, 1), 677.67, "BS UNO-X MOBILITY DANMARK A/S"),
+            tx(utc(2026, 7, 1), 340.0, "BS OK EL"), tx(utc(2026, 8, 1), 390.0, "BS OK EL"),
+            tx(utc(2026, 9, 1), 355.0, "BS OK EL"), tx(utc(2026, 10, 1), 361.72, "BS OK EL")
+        )
+        val items = AttentionChecks.run(input(now, transactions = txs))
+        assertTrue(items.map { it.key }.toString(), items.none { it.key.startsWith("unusual:") })
+    }
+
+    @Test
     fun `overdraft, expiring bank connection and interest-only end are flagged`() {
         val now = utc(2026, 10, 3)
         val items = AttentionChecks.run(

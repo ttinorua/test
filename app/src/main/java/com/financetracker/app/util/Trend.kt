@@ -58,8 +58,8 @@ enum class TrendGranularity(val label: String) {
 }
 
 /** One bar of a trend chart: [from, to) in epoch millis. [subLabel] is the year under a month's
- * name, shown only where the year changes (and on the first bar), so a 12-month chart stays
- * readable without repeating the year on every bar. */
+ * name (null for a year bar); a chart shows it only where the year changes, so a 12-month chart
+ * stays readable without repeating the year on every bar. */
 data class TrendPoint(
     val from: Long,
     val to: Long,
@@ -126,14 +126,13 @@ private fun monthBuckets(count: Int, now: Long): List<TrendPoint> {
     val cal = startOfMonth(now).apply { add(Calendar.MONTH, -(count - 1)) }
     val monthFormat = SimpleDateFormat("MMM", Locale.US).apply { timeZone = UTC }
     val longFormat = SimpleDateFormat("MMM yyyy", Locale.US).apply { timeZone = UTC }
-    return (0 until count).map { index ->
+    return (0 until count).map {
         val from = cal.timeInMillis
         val label = monthFormat.format(cal.time)
         val longLabel = longFormat.format(cal.time)
         val year = cal.get(Calendar.YEAR)
-        val showYear = index == 0 || cal.get(Calendar.MONTH) == Calendar.JANUARY
         cal.add(Calendar.MONTH, 1)
-        TrendPoint(from, cal.timeInMillis, label, if (showYear) "$year" else null, longLabel, 0.0, 0.0)
+        TrendPoint(from, cal.timeInMillis, label, "$year", longLabel, 0.0, 0.0)
     }
 }
 

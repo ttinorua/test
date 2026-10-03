@@ -40,10 +40,12 @@ private val MIN_GROUP_WIDTH_SINGLE = 40.dp
 private val MIN_GROUP_WIDTH_MULTI = 52.dp
 
 /**
- * Compact bars over time — one group per month or year, oldest on the left. Groups share the
- * available width when there are few of them; with many they keep a compact minimum width and
- * the chart scrolls horizontally, starting scrolled to the newest. Each bar shows a short value
- * above it, and tapping a bar reports its group and series.
+ * Compact bars over time — one group per month or year, given oldest first but drawn newest on
+ * the left, so the current period is the first thing seen. Groups share the available width when
+ * there are few of them; with many they keep a compact minimum width and the chart scrolls
+ * horizontally toward older periods. Each bar shows a short value above it, and tapping a bar
+ * reports its group (an index into the given lists) and series. A [subLabels] entry (a month's
+ * year) is only shown where it differs from the bar to its left.
  */
 @Composable
 fun TrendBarChart(
@@ -57,14 +59,17 @@ fun TrendBarChart(
     if (count == 0 || series.isEmpty()) return
     val maxValue = series.flatMap { it.values }.maxOrNull()?.takeIf { it > 0 } ?: 1.0
     val scrollState = rememberScrollState()
-    LaunchedEffect(count) { scrollState.scrollTo(scrollState.maxValue) }
+    LaunchedEffect(count) { scrollState.scrollTo(0) }
+    val newestFirst = (count - 1 downTo 0).toList()
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val minGroup = if (series.size > 1) MIN_GROUP_WIDTH_MULTI else MIN_GROUP_WIDTH_SINGLE
         val groupWidth = maxOf(minGroup, maxWidth / count)
         val barWidth = if (series.size > 1) 16.dp else minOf(24.dp, groupWidth - 12.dp)
         Row(modifier = Modifier.horizontalScroll(scrollState)) {
-            for (index in 0 until count) {
+            newestFirst.forEachIndexed { position, index ->
+                val subLabel = subLabels.getOrNull(index)
+                    ?.takeIf { position == 0 || it != subLabels.getOrNull(newestFirst[position - 1]) }
                 Column(
                     modifier = Modifier.width(groupWidth),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -97,7 +102,7 @@ fun TrendBarChart(
                             .clickable { onBarClick(index, -1) }
                     )
                     Text(
-                        text = subLabels.getOrNull(index) ?: "",
+                        text = subLabel ?: "",
                         fontSize = 9.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

@@ -47,10 +47,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.financetracker.app.ui.theme.ExpenseRed
 import com.financetracker.app.ui.theme.IncomeGreen
 import com.financetracker.app.util.Formatters
+import com.financetracker.app.util.ViewModelFactory
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val SPREADSHEET_MIME_TYPES = arrayOf("*/*")
 
@@ -58,6 +64,10 @@ private val SPREADSHEET_MIME_TYPES = arrayOf("*/*")
 @Composable
 fun ImportExportScreen(viewModel: ImportExportViewModel) {
     val state by viewModel.uiState.collectAsState()
+    val appContext = LocalContext.current.applicationContext
+    val backupViewModel: BackupViewModel = viewModel(factory = ViewModelFactory { BackupViewModel(appContext) })
+    val backupState by backupViewModel.uiState.collectAsState()
+    var showCreateBackupDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -82,6 +92,21 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
         contract = ActivityResultContracts.OpenDocument()
     ) { uri -> if (uri != null) viewModel.restoreCategories(uri) }
 
+    val createBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri -> if (uri != null) backupViewModel.writeBackup(uri) }
+
+    val openBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) backupViewModel.openBackup(uri) }
+
+    LaunchedEffect(backupState.message) {
+        backupState.message?.let {
+            snackbarHostState.showSnackbar(it)
+            backupViewModel.dismissMessage()
+        }
+    }
+
     LaunchedEffect(state.exportMessage) {
         state.exportMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -102,6 +127,16 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            item {
+                Text("Full backup", style = MaterialTheme.typography.titleMedium)
+            }
+            item {
+                FullBackupCard(
+                    isWorking = backupState.isWorking,
+                    onCreate = { showCreateBackupDialog = true },
+                    onRestore = { openBackupLauncher.launch(arrayOf("*/*")) }
+                )
+            }
             item {
                 Text("Import from spreadsheet", style = MaterialTheme.typography.titleMedium)
             }
@@ -237,7 +272,7 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
             }
 
             item {
-                Text("Restore categories from backup", style = MaterialTheme.typography.titleMedium)
+                Text("Restore categories from a spreadsheet", style = MaterialTheme.typography.titleMedium)
             }
             item {
                 Card {
@@ -271,6 +306,34 @@ fun ImportExportScreen(viewModel: ImportExportViewModel) {
                 text = { Text(message) },
                 confirmButton = { TextButton(onClick = viewModel::dismissRestoreMessage) { Text("OK") } }
             )
+        }
+        if (showCreateBackupDialog) {
+            CreateBackupDialog(
+                onDismiss = { showCreateBackupDialog = false },
+                onConfirm = { password ->
+                    showCreateBackupDialog = false
+                    backupViewModel.prepareBackup(password)
+                    val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                    createBackupLauncher.launch("FinanceTracker-backup-$date.ftbackup")
+                }
+            )
+        }
+        if (backupState.needsPassword) {
+            UnlockBackupDialog(
+                wrongPassword = backupState.wrongPassword,
+                onDismiss = backupViewModel::cancelRestore,
+                onConfirm = backupViewModel::unlockBackup
+            )
+        }
+        backupState.pendingRestore?.let { pending ->
+            ConfirmRestoreDialog(
+                pending = pending,
+                onDismiss = backupViewModel::cancelRestore,
+                onConfirm = backupViewModel::confirmRestore
+            )
+        }
+        if (backupState.restored) {
+            RestoreCompleteDialog(onRestart = backupViewModel::restartApp)
         }
         SnackbarHost(
             hostState = snackbarHostState,

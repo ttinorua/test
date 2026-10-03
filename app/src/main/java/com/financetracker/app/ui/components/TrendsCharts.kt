@@ -26,8 +26,9 @@ import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.pow
 
-/** A zero-baseline bar per month or year, colored by the sign of income − expense. Tapping a bar
- * reports its index. */
+/** A zero-baseline bar per month or year, colored by the sign of income − expense. [trends] are
+ * given oldest first but drawn newest on the left, matching [TrendBarChart]. Tapping a bar reports
+ * its index into [trends]. */
 @Composable
 fun NetTrendChart(trends: List<TrendPoint>, onBarClick: (Int) -> Unit, modifier: Modifier = Modifier) {
     if (trends.isEmpty()) return
@@ -45,8 +46,8 @@ fun NetTrendChart(trends: List<TrendPoint>, onBarClick: (Int) -> Unit, modifier:
                 detectTapGestures { offset ->
                     val padL = 38.dp.toPx()
                     val plotW = size.width - padL - 10.dp.toPx()
-                    val index = ((offset.x - padL) / (plotW / trends.size)).toInt()
-                    if (offset.x >= padL && index in trends.indices) currentOnBarClick(index)
+                    val position = ((offset.x - padL) / (plotW / trends.size)).toInt()
+                    if (offset.x >= padL && position in trends.indices) currentOnBarClick(trends.lastIndex - position)
                 }
             }
     ) {
@@ -61,7 +62,7 @@ fun NetTrendChart(trends: List<TrendPoint>, onBarClick: (Int) -> Unit, modifier:
         val axisMax = niceAxisMax(trends.maxOf { abs(it.net) }.coerceAtLeast(1.0))
         val zeroY = padT + plotH / 2f
 
-        fun xCenter(i: Int): Float = padL + plotW * (i + 0.5f) / n
+        fun xCenter(i: Int): Float = padL + plotW * ((n - 1 - i) + 0.5f) / n
         fun barHeight(v: Double): Float = (plotH / 2f * (abs(v) / axisMax)).toFloat()
 
         drawLine(gridColor, Offset(padL, zeroY), Offset(size.width - padR, zeroY), strokeWidth = 1f)

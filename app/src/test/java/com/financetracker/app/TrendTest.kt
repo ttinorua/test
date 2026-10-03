@@ -44,12 +44,11 @@ class TrendTest {
         assertEquals(listOf("Aug", "Sep", "Oct"), trend.map { it.label })
         assertEquals(listOf(0.0, 100.0, 100.0), trend.map { it.expense })
         assertEquals(listOf(0.0, 500.0, 0.0), trend.map { it.income })
-        assertEquals("2026", trend.first().subLabel)
-        assertEquals(null, trend[1].subLabel)
+        assertEquals(listOf("2026", "2026", "2026"), trend.map { it.subLabel })
     }
 
     @Test
-    fun `the year is shown under January`() {
+    fun `each month carries its own year`() {
         val trend = buildTrend(emptyList(), TrendGranularity.MONTH, CategoryFilter.All, false, false, false, monthCount = 12, now = now)
         assertEquals("Nov", trend.first().label)
         assertEquals("2025", trend.first().subLabel)

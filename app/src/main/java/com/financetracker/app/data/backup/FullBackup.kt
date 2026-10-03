@@ -1,0 +1,101 @@
+package com.financetracker.app.data.backup
+
+import android.content.Context
+import android.content.Intent
+import androidx.room.withTransaction
+import androidx.work.WorkManager
+import com.financetracker.app.data.ai.AiCategorizationWorker
+import com.financetracker.app.data.db.AppDatabase
+import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
+import kotlin.system.exitProcess
+
+/**
+ * Creates and restores a full backup of the app (see [BackupContents]). Restoring replaces
+ * everything in the app with the backup — it's meant for a fresh install, so nothing has to be
+ * re-synced or re-categorized — and then restarts the app so every screen and setting reloads
+ * from the restored data.
+ */
+object FullBackup {
+
+    private const val PREFS_NAME = "finance_prefs"
+
+    /** In-progress bookkeeping that would be wrong to carry over to another install. */
+    private val TRANSIENT_KEYS = setOf(
+        "enablebanking_pending_auth_state",
+        "enablebanking_pending_auth_bank_id",
+        "enable_banking_sync_total",
+        "enable_banking_sync_imported",
+        "ai_categorization_total",
+        "ai_categorization_categorized"
+    )
+
+    /** The live bank sessions. Together with the app itself they give read access to the bank
+     * accounts, so they're only ever written into a password-protected backup. */
+    private val BANK_CONNECTION_KEYS = setOf(
+        "enablebanking_connections",
+        "enablebanking_session_id",
+        "enablebanking_linked_accounts",
+        "enablebanking_selected_account_uids",
+        "enablebanking_consent_valid_until"
+    )
+
+    suspend fun create(context: Context, includeBankConnections: Boolean): BackupContents {
+        val db = AppDatabase.getInstance(context)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).all
+            .filterKeys { it !in TRANSIENT_KEYS && (includeBankConnections || it !in BANK_CONNECTION_KEYS) }
+            .filterValues { it != null }
+            .mapValues { it.value!! }
+        return BackupContents(
+            createdAt = System.currentTimeMillis(),
+            accounts = db.accountDao().getAll(),
+            categories = db.categoryDao().getAll(),
+            transactions = db.transactionDao().getAll(),
+            prefs = prefs,
+            includesBankConnections = includeBankConnections && prefs.keys.any { it in BANK_CONNECTION_KEYS }
+        )
+    }
+
+    /** Replaces all of the app's data with [contents]. A backup without bank connections keeps
+     * the connections this install already has, if any. Call [restartApp] afterwards. */
+    suspend fun restore(context: Context, contents: BackupContents) {
+        val workManager = WorkManager.getInstance(context)
+        workManager.cancelUniqueWork(EnableBankingSyncWorker.UNIQUE_WORK_NAME)
+        workManager.cancelUniqueWork(AiCategorizationWorker.UNIQUE_WORK_NAME)
+
+        val db = AppDatabase.getInstance(context)
+        db.withTransaction {
+            db.transactionDao().deleteAll()
+            db.categoryDao().deleteAll()
+            db.accountDao().deleteAll()
+            contents.accounts.forEach { db.accountDao().insert(it) }
+            contents.categories.forEach { db.categoryDao().insert(it) }
+            contents.transactions.chunked(500).forEach { db.transactionDao().insertAll(it) }
+        }
+
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val keptConnections = if (contents.includesBankConnections) {
+            emptyMap()
+        } else {
+            prefs.all.filterKeys { it in BANK_CONNECTION_KEYS }
+        }
+        val editor = prefs.edit().clear()
+        (contents.prefs.filterKeys { it !in TRANSIENT_KEYS } + keptConnections).forEach { (key, value) ->
+            when (value) {
+                is String -> editor.putString(key, value)
+                is Int -> editor.putInt(key, value)
+                is Long -> editor.putLong(key, value)
+                is Float -> editor.putFloat(key, value)
+                is Boolean -> editor.putBoolean(key, value)
+                is Set<*> -> editor.putStringSet(key, value.map { it.toString() }.toSet())
+            }
+        }
+        editor.commit()
+    }
+
+    /** Relaunches the app from scratch, so everything reloads from the restored data. */
+    fun restartApp(context: Context) {
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+        context.startActivity(Intent.makeRestartActivityTask(launch.component))
+        exitProcess(0)
+    }
+}

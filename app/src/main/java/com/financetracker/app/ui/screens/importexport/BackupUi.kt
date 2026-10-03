@@ -97,6 +97,12 @@ fun CreateBackupDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Text(
+                    "Next, Android asks where to save. It opens on the phone's own storage — tap ☰ " +
+                        "(top left) to choose Google Drive or OneDrive instead.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
                 PasswordField(value = password, onValueChange = { password = it }, label = "Password")
                 PasswordField(
                     value = repeat,

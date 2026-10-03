@@ -36,8 +36,10 @@ val geminiApiKey: String = buildSecret("GEMINI_API_KEY")?.trim() ?: ""
 val groqApiKey: String = buildSecret("GROQ_API_KEY")?.trim() ?: ""
 
 // OneDrive automatic backup: the "Application (client) ID" of the app's Microsoft registration
-// (not a secret — it's sent in the clear during sign-in). Without it the OneDrive option is hidden.
-val oneDriveClientId: String = buildSecret("ONEDRIVE_CLIENT_ID")?.trim() ?: ""
+// (multitenant + personal accounts, redirect financetracker://onedrive-auth). Not a secret — it's
+// sent in the clear during sign-in — so the app's own registration is the default.
+val oneDriveClientId: String =
+    buildSecret("ONEDRIVE_CLIENT_ID")?.trim() ?: "695700a7-d16d-41f5-96cd-d136232061bc"
 
 val enableBankingApplicationId: String =
     buildSecret("ENABLE_BANKING_APPLICATION_ID")?.trim() ?: "7bf8c383-b4b9-41c5-b126-11cc4f76c1c5"

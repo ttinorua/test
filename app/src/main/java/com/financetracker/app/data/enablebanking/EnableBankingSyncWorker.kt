@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.financetracker.app.FinanceApp
 import com.financetracker.app.R
+import com.financetracker.app.data.advisor.AttentionMonitor
 import java.util.concurrent.TimeUnit
 
 /**
@@ -79,6 +80,8 @@ class EnableBankingSyncWorker(context: Context, params: WorkerParameters) : Coro
         }
 
         prefs.edit().remove(KEY_PERSISTED_TOTAL).remove(KEY_PERSISTED_IMPORTED).apply()
+        // Fresh transactions: re-run the attention checks (and notify about anything new).
+        AttentionMonitor.recordSyncResult(applicationContext, outcome.failureMessage)
         val output = workDataOf(
             KEY_IMPORTED to cumulativeImported,
             KEY_SKIPPED to outcome.skippedCount,

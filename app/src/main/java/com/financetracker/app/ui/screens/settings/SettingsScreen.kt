@@ -453,7 +453,9 @@ fun SettingsScreen(
 
                     AiAssistantSettings(modifier = Modifier.padding(top = 24.dp))
 
-                    LoansAndGoalsSettings(modifier = Modifier.padding(top = 24.dp))
+                    LoansAndGoalsSettings(accounts = state.accounts, modifier = Modifier.padding(top = 24.dp))
+
+                    AttentionSettings(modifier = Modifier.padding(top = 24.dp))
 
                     Text(
                         "AI categorization",

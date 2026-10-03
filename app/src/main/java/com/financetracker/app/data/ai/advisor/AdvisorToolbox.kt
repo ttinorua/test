@@ -21,10 +21,8 @@ import com.financetracker.app.data.prefs.SavingsGoal
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.advisor.FinanceAnalysis
 import com.financetracker.app.util.advisor.FinanceCalculators
-import com.financetracker.app.util.countsTowardTotals
-import com.financetracker.app.util.effectiveReportingDate
+import com.financetracker.app.util.advisor.GoalTracking
 import com.financetracker.app.util.isTransferCategory
-import com.financetracker.app.util.transfersInCountAsIncome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -265,7 +263,8 @@ class AdvisorToolbox(private val snapshot: AdvisorSnapshot) {
                 "target_amount" to num("Target amount."),
                 "saved_amount" to num("Saved so far."),
                 "monthly_saving" to num("Planned monthly saving."),
-                "target_date" to str("Target date YYYY-MM-DD, if any.")
+                "target_date" to str("Target date YYYY-MM-DD, if any."),
+                "account" to str("Account the money is saved in, so progress follows its balance (omit to enter amounts by hand).")
             ),
             required = listOf("name")
         )
@@ -462,8 +461,40 @@ class AdvisorToolbox(private val snapshot: AdvisorSnapshot) {
             }
             appendLine("Savings goals:")
             if (goals.isEmpty()) appendLine("(none)")
-            goals.forEach { appendLine(compact(LoansAndGoals.goalToJson(it))) }
+            goals.forEach { goal ->
+                val json = LoansAndGoals.goalToJson(goal)
+                json.remove("started_at")
+                json.remove("start_amount")
+                goal.accountId?.let { id ->
+                    json.remove("account_id")
+                    json.put("linked_account", scopeName(id))
+                    snapshot.balances[id]?.let { json.put("saved_amount", it) }
+                }
+                appendLine(compact(json))
+                goalStatusLine(goal)?.let { appendLine("  status: $it") }
+            }
         }.trim()
+    }
+
+    /** Progress of a goal with a target, worked out the same way as the Dashboard's checks. */
+    private fun goalStatusLine(goal: SavingsGoal): String? {
+        val target = goal.targetAmount?.takeIf { it > 0 } ?: return null
+        val saved = goal.accountId?.let { snapshot.balances[it] } ?: goal.savedAmount ?: return null
+        val status = GoalTracking.status(
+            target, saved, GoalTracking.parseTargetDate(goal.targetDate), goal.startedAt, goal.startAmount, goal.monthlySaving, snapshot.now
+        )
+        return buildString {
+            append("${pct(saved / target * 100)} saved")
+            if (status.reached) {
+                append(", goal reached")
+                return@buildString
+            }
+            status.pacePerMonth?.let { append(", ${if (status.paceMeasured) "actually saving" else "planned"} ${money(it)}/month") }
+            status.monthsLeft?.let { append(", $it months to the target date") }
+            status.neededPerMonth?.let { append(", needs ${money(it)}/month to make it") }
+            status.projectedMonths?.let { append(", reached in $it months at this pace") }
+            if (status.behind) append(", BEHIND by ${money(status.behindBy)}") else if (status.monthsLeft != null) append(", on track")
+        }
     }
 
     private fun loanCalculator(a: JSONObject): String {
@@ -691,11 +722,12 @@ class AdvisorToolbox(private val snapshot: AdvisorSnapshot) {
             targetAmount = number(a, "target_amount") ?: base.targetAmount,
             savedAmount = number(a, "saved_amount") ?: base.savedAmount,
             monthlySaving = number(a, "monthly_saving") ?: base.monthlySaving,
-            targetDate = text(a, "target_date") ?: base.targetDate
+            targetDate = text(a, "target_date") ?: base.targetDate,
+            accountId = if (text(a, "account") != null) account(a).let { (id, error) -> error?.let { return it }; id } else base.accountId
         )
         val lines = listOfNotNull(
             goal.targetAmount?.let { "Target ${money(it)}" },
-            goal.savedAmount?.let { "Saved ${money(it)}" },
+            goal.accountId?.let { "Saved in ${scopeName(it)} (${money(snapshot.balances[it] ?: 0.0)})" } ?: goal.savedAmount?.let { "Saved ${money(it)}" },
             goal.monthlySaving?.let { "Saving ${money(it)} a month" },
             goal.targetDate.takeIf { it.isNotBlank() }?.let { "By $it" }
         )
@@ -709,17 +741,8 @@ class AdvisorToolbox(private val snapshot: AdvisorSnapshot) {
 
     /** Transactions that count toward totals for this scope (the app's transfer rules), with
      * salaries moved to the month they're for when that setting is on. */
-    private fun counted(accountId: Long?): List<TransactionWithDetails> {
-        val transfersIn = transfersInCountAsIncome(accountId, mainAccountId)
-        return snapshot.transactions.asSequence()
-            .filter { accountId == null || it.accountId == accountId }
-            .filter { countsTowardTotals(it.type, it.mainCategoryName, it.categoryName, excludeTransfers, transfersIn) }
-            .map { tx ->
-                val date = effectiveReportingDate(tx.date, tx.type, tx.mainCategoryName, tx.categoryName, shiftSalary)
-                if (date == tx.date) tx else tx.copy(date = date)
-            }
-            .toList()
-    }
+    private fun counted(accountId: Long?): List<TransactionWithDetails> =
+        FinanceAnalysis.counted(snapshot.transactions, accountId, excludeTransfers, shiftSalary, mainAccountId)
 
     private fun rulesNote(): String =
         "Totals follow the app's settings: transfers between own accounts ${if (excludeTransfers) "excluded" else "included"}" +

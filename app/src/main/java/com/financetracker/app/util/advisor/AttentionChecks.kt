@@ -195,13 +195,14 @@ object AttentionChecks {
             if (tx.categoryId in input.fixedCategoryIds) return@mapNotNull null
             val merchant = FinanceAnalysis.merchantOf(tx.note)
             val earlier = byMerchant[merchant].orEmpty().filter { it.date < tx.date }.map { it.amount }.sorted()
-            val reason = if (earlier.size >= 3) {
-                val median = earlier[earlier.size / 2]
-                if (tx.amount > median * 2 && tx.amount - median > 300) "usually about ${money(input, median)} there" else null
-            } else if (earlier.isEmpty() && avgMonthly > 0 && tx.amount >= maxOf(3000.0, avgMonthly * 0.3)) {
-                "${pct(tx.amount / avgMonthly * 100)} of a normal month's spending, at a new place"
-            } else {
-                null
+            val reason = when {
+                earlier.size >= 3 -> {
+                    val median = earlier[earlier.size / 2]
+                    if (tx.amount > median * 2 && tx.amount - median > 300) "usually about ${money(input, median)} there" else null
+                }
+                earlier.isEmpty() && avgMonthly > 0 && tx.amount >= maxOf(3000.0, avgMonthly * 0.3) ->
+                    "${pct(tx.amount / avgMonthly * 100)} of a normal month's spending, at a new place"
+                else -> null
             } ?: return@mapNotNull null
             AttentionItem(
                 "unusual:${tx.id}", AttentionLevel.WARNING,

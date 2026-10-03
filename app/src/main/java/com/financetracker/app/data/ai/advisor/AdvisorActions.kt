@@ -1,0 +1,155 @@
+package com.financetracker.app.data.ai.advisor
+
+import com.financetracker.app.data.db.entity.Category
+import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.data.prefs.BudgetLimits
+import com.financetracker.app.data.prefs.FixedExpenseCategories
+import com.financetracker.app.data.prefs.Loan
+import com.financetracker.app.data.prefs.LoansAndGoals
+import com.financetracker.app.data.prefs.SavingsGoal
+import com.financetracker.app.data.repository.FinanceRepository
+import kotlinx.coroutines.flow.first
+
+/** A change the advisor prepared. Nothing happens until the user taps Apply on its card; each
+ * plan records what it replaced so Undo can put it back. */
+sealed interface ActionPlan {
+
+    /** Moves transactions to a category. [newCategory] is created on Apply when the target
+     * doesn't exist yet (its transactions then have a null [Assignment.categoryId]). */
+    data class Recategorize(val assignments: List<Assignment>, val newCategory: Category? = null) : ActionPlan
+
+    data class Assignment(val transactionIds: List<Long>, val categoryId: Long?)
+
+    /** Budgets for one scope ([accountId] null = All accounts). [overall] and [categories] hold the
+     * new amounts, null meaning "remove"; [setOverall] says whether the overall budget changes. */
+    data class SetBudgets(
+        val accountId: Long?,
+        val setOverall: Boolean,
+        val overall: Double?,
+        val categories: Map<Long, Double?>
+    ) : ActionPlan
+
+    data class SetFixed(val changes: Map<Long, Boolean>) : ActionPlan
+
+    data class CreateCategory(val category: Category) : ActionPlan
+
+    data class SaveLoan(val loan: Loan) : ActionPlan
+
+    data class SaveGoal(val goal: SavingsGoal) : ActionPlan
+}
+
+/** What Apply replaced, to put back on Undo. */
+sealed interface UndoInfo {
+    data class Categories(val previous: Map<Long, Long?>, val createdCategoryId: Long?) : UndoInfo
+    data class Budgets(val accountId: Long?, val overall: Double?, val restoreOverall: Boolean, val categories: Map<Long, Double?>) : UndoInfo
+    data class Fixed(val previous: Map<Long, Boolean>) : UndoInfo
+    data class CreatedCategory(val id: Long) : UndoInfo
+    data class Loans(val previous: Loan?, val id: String) : UndoInfo
+    data class Goals(val previous: SavingsGoal?, val id: String) : UndoInfo
+}
+
+enum class CardStatus { PENDING, APPLIED, UNDONE, DISMISSED }
+
+/** A card under an advisor reply: either a change to review ([plan] set, with Apply/Dismiss and
+ * then Undo), or a list of transactions to look at. */
+data class AdvisorCard(
+    val id: Int,
+    val title: String,
+    val lines: List<String> = emptyList(),
+    val transactions: List<TransactionWithDetails> = emptyList(),
+    val plan: ActionPlan? = null,
+    val status: CardStatus = CardStatus.PENDING,
+    val undo: UndoInfo? = null,
+    /** The outcome of the last Apply/Undo, shown on the card. */
+    val result: String? = null
+)
+
+object AdvisorActions {
+
+    /** Applies [plan] and returns a short outcome plus what's needed to undo it. */
+    suspend fun apply(repository: FinanceRepository, plan: ActionPlan): Pair<String, UndoInfo> = when (plan) {
+        is ActionPlan.Recategorize -> {
+            var createdId: Long? = null
+            val newId = plan.newCategory?.let { new ->
+                val existing = repository.getCategories().firstOrNull {
+                    it.mainCategory.equals(new.mainCategory, true) && it.name.equals(new.name, true) && it.type == new.type
+                }
+                existing?.id ?: repository.upsertCategory(new).also { createdId = it }
+            }
+            val previous = mutableMapOf<Long, Long?>()
+            plan.assignments.forEach { assignment ->
+                val target = assignment.categoryId ?: newId ?: return@forEach
+                assignment.transactionIds.forEach { id ->
+                    val tx = repository.getTransaction(id) ?: return@forEach
+                    if (tx.categoryId == target) return@forEach
+                    previous[id] = tx.categoryId
+                    repository.updateTransaction(tx.copy(categoryId = target))
+                }
+            }
+            "Moved ${previous.size} transaction${if (previous.size == 1) "" else "s"}." to UndoInfo.Categories(previous, createdId)
+        }
+        is ActionPlan.SetBudgets -> {
+            val previousOverall = BudgetLimits.overallBudgetFor(plan.accountId)
+            val previousCategories = plan.categories.keys.associateWith { BudgetLimits.categoryBudgetFor(it, plan.accountId) }
+            if (plan.setOverall) BudgetLimits.setOverallBudget(plan.accountId, plan.overall)
+            plan.categories.forEach { (categoryId, amount) -> BudgetLimits.setCategoryBudget(categoryId, plan.accountId, amount) }
+            "Budgets updated." to UndoInfo.Budgets(plan.accountId, previousOverall, plan.setOverall, previousCategories)
+        }
+        is ActionPlan.SetFixed -> {
+            val current = FixedExpenseCategories.fixedCategoryIds.value
+            val previous = plan.changes.keys.associateWith { it in current }
+            plan.changes.forEach { (id, fixed) -> FixedExpenseCategories.setFixed(id, fixed) }
+            "Fixed costs updated." to UndoInfo.Fixed(previous)
+        }
+        is ActionPlan.CreateCategory -> {
+            val id = repository.upsertCategory(plan.category)
+            "Category created." to UndoInfo.CreatedCategory(id)
+        }
+        is ActionPlan.SaveLoan -> {
+            val previous = LoansAndGoals.loans.value.firstOrNull { it.id == plan.loan.id }
+            LoansAndGoals.saveLoan(plan.loan)
+            "Saved to My loans & goals." to UndoInfo.Loans(previous, plan.loan.id)
+        }
+        is ActionPlan.SaveGoal -> {
+            val previous = LoansAndGoals.goals.value.firstOrNull { it.id == plan.goal.id }
+            LoansAndGoals.saveGoal(plan.goal)
+            "Saved to My loans & goals." to UndoInfo.Goals(previous, plan.goal.id)
+        }
+    }
+
+    suspend fun undo(repository: FinanceRepository, undo: UndoInfo): String = when (undo) {
+        is UndoInfo.Categories -> {
+            undo.previous.forEach { (id, categoryId) ->
+                repository.getTransaction(id)?.let { repository.updateTransaction(it.copy(categoryId = categoryId)) }
+            }
+            undo.createdCategoryId?.let { deleteIfUnused(repository, it) }
+            "Undone — ${undo.previous.size} transaction${if (undo.previous.size == 1) "" else "s"} moved back."
+        }
+        is UndoInfo.Budgets -> {
+            if (undo.restoreOverall) BudgetLimits.setOverallBudget(undo.accountId, undo.overall)
+            undo.categories.forEach { (categoryId, amount) -> BudgetLimits.setCategoryBudget(categoryId, undo.accountId, amount) }
+            "Undone — budgets are back to how they were."
+        }
+        is UndoInfo.Fixed -> {
+            undo.previous.forEach { (id, fixed) -> FixedExpenseCategories.setFixed(id, fixed) }
+            "Undone."
+        }
+        is UndoInfo.CreatedCategory ->
+            if (deleteIfUnused(repository, undo.id)) "Undone — category removed." else "That category is in use now, so it was kept."
+        is UndoInfo.Loans -> {
+            if (undo.previous != null) LoansAndGoals.saveLoan(undo.previous) else LoansAndGoals.deleteLoan(undo.id)
+            "Undone."
+        }
+        is UndoInfo.Goals -> {
+            if (undo.previous != null) LoansAndGoals.saveGoal(undo.previous) else LoansAndGoals.deleteGoal(undo.id)
+            "Undone."
+        }
+    }
+
+    private suspend fun deleteIfUnused(repository: FinanceRepository, categoryId: Long): Boolean {
+        val inUse = repository.observeTransactions().first().any { it.categoryId == categoryId }
+        if (inUse) return false
+        repository.getCategories().firstOrNull { it.id == categoryId }?.let { repository.deleteCategory(it) }
+        return true
+    }
+}

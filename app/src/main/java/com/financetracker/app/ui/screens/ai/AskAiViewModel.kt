@@ -2,21 +2,21 @@ package com.financetracker.app.ui.screens.ai
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.financetracker.app.data.ai.BudgetProposal
-import com.financetracker.app.data.ai.ChatTurn
 import com.financetracker.app.data.ai.AiService
-import com.financetracker.app.data.db.entity.Account
-import com.financetracker.app.data.db.entity.Category
-import com.financetracker.app.data.db.entity.TransactionWithDetails
-import com.financetracker.app.data.prefs.BudgetLimits
+import com.financetracker.app.data.ai.ChatTurn
+import com.financetracker.app.data.ai.advisor.AdvisorActions
+import com.financetracker.app.data.ai.advisor.AdvisorCard
+import com.financetracker.app.data.ai.advisor.AdvisorSnapshot
+import com.financetracker.app.data.ai.advisor.AdvisorToolbox
+import com.financetracker.app.data.ai.advisor.CardStatus
+import com.financetracker.app.data.ai.agent.AiAgent
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.data.prefs.LoansAndGoals
 import com.financetracker.app.data.repository.FinanceRepository
-import com.financetracker.app.util.Formatters
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -25,10 +25,11 @@ import java.util.Locale
 import java.util.TimeZone
 
 data class AiChatMessage(
+    val id: Long,
     val isUser: Boolean,
     val text: String,
     val isError: Boolean = false,
-    val proposal: BudgetProposal? = null
+    val cards: List<AdvisorCard> = emptyList()
 )
 
 data class AskAiUiState(
@@ -37,12 +38,15 @@ data class AskAiUiState(
     val isConfigured: Boolean = AiService.isConfigured
 )
 
-private const val MAX_TRANSACTIONS_IN_CONTEXT = 3000
+/** How many earlier messages go along with each question (the advisor looks figures up again
+ * with its functions, so older turns add little). */
+private const val HISTORY_MESSAGES = 16
 
 class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
 
     private val _messages = MutableStateFlow<List<AiChatMessage>>(emptyList())
     private val _isSending = MutableStateFlow(false)
+    private var nextId = 1L
 
     val uiState: StateFlow<AskAiUiState> = combine(_messages, _isSending) { messages, sending ->
         AskAiUiState(messages = messages, isSending = sending)
@@ -52,138 +56,114 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
         val trimmed = text.trim()
         if (trimmed.isBlank() || _isSending.value) return
 
-        _messages.update { it + AiChatMessage(isUser = true, text = trimmed) }
+        val history = historyTurns()
+        _messages.update { it + AiChatMessage(nextId++, isUser = true, text = trimmed) }
         _isSending.value = true
 
         viewModelScope.launch {
-            val history = _messages.value.dropLast(1).map { ChatTurn(it.isUser, it.text) }
-            val transactions = repository.observeTransactions().first()
-            val accounts = repository.observeAccounts().first()
-            val categories = repository.observeCategories().first()
-            val balances = accounts.associate { it.id to repository.getAccountBalance(it) }
-            val context = buildContext(transactions, accounts, categories, balances)
-
-            AiService.chatWithBudgetTool(context, history, trimmed)
-                .onSuccess { result ->
-                    val text = when {
-                        result.text.isNotBlank() -> result.text
-                        result.proposal != null -> result.proposal.summary ?: "Here's a proposed budget:"
-                        else -> "I couldn't put together a useful answer for that — try rephrasing, " +
-                            "or ask about a specific category or time period."
-                    }
-                    _messages.update { it + AiChatMessage(isUser = false, text = text, proposal = result.proposal) }
+            val snapshot = AdvisorSnapshot.load(repository)
+            val toolbox = AdvisorToolbox(snapshot)
+            AiAgent.run(
+                systemPrompt = systemPrompt(snapshot),
+                history = history,
+                userMessage = trimmed,
+                tools = toolbox.tools,
+                onAttemptStart = toolbox::reset,
+                execute = toolbox::execute
+            ).onSuccess { run ->
+                val cards = toolbox.cards
+                val reply = run.text.ifBlank {
+                    if (cards.isNotEmpty()) "Here's what I prepared — review it below." else
+                        "I couldn't put together an answer for that. Try rephrasing it."
                 }
-                .onFailure { error ->
-                    _messages.update {
-                        it + AiChatMessage(
-                            isUser = false,
-                            text = error.message ?: "Something went wrong.",
-                            isError = true
-                        )
-                    }
+                _messages.update { it + AiChatMessage(nextId++, isUser = false, text = reply, cards = cards) }
+            }.onFailure { error ->
+                _messages.update {
+                    it + AiChatMessage(nextId++, isUser = false, text = error.message ?: "Something went wrong.", isError = true)
                 }
+            }
             _isSending.value = false
         }
     }
 
-    /** Applies a budget the user accepted from a chat proposal, matching its account/category
-     * names back to real ids (the AI only ever deals in names, never ids). */
-    fun respondToProposal(message: AiChatMessage, accept: Boolean) {
-        val proposal = message.proposal ?: return
-        _messages.update { list -> list.map { if (it === message) it.copy(proposal = null) else it } }
-        if (!accept) {
-            _messages.update { it + AiChatMessage(isUser = false, text = "Okay, I won't apply that budget.") }
-            return
-        }
+    /** Applies a prepared change (Apply on its card). */
+    fun apply(messageId: Long, cardId: Int) {
+        val card = card(messageId, cardId)?.takeIf { it.status == CardStatus.PENDING } ?: return
+        val plan = card.plan ?: return
         viewModelScope.launch {
-            val accounts = repository.observeAccounts().first()
-            val categories = repository.observeCategories().first()
-            val accountId = proposal.accountName
-                ?.takeUnless { it.equals("All accounts", ignoreCase = true) }
-                ?.let { name -> accounts.firstOrNull { it.name.equals(name, ignoreCase = true) }?.id }
-
-            var appliedCount = 0
-            proposal.overallAmount?.let {
-                BudgetLimits.setOverallBudget(accountId, it)
-                appliedCount++
-            }
-            proposal.categoryBudgets.forEach { entry ->
-                val category = categories.firstOrNull {
-                    it.mainCategory.equals(entry.mainCategory, ignoreCase = true) &&
-                        it.name.equals(entry.category, ignoreCase = true)
+            runCatching { AdvisorActions.apply(repository, plan) }
+                .onSuccess { (result, undo) ->
+                    updateCard(messageId, cardId) { it.copy(status = CardStatus.APPLIED, undo = undo, result = result) }
                 }
-                if (category != null) {
-                    BudgetLimits.setCategoryBudget(category.id, accountId, entry.amount)
-                    appliedCount++
-                }
-            }
-
-            val scopeLabel = accountId?.let { id -> accounts.firstOrNull { it.id == id }?.name } ?: "All accounts"
-            val confirmation = if (appliedCount == 0) {
-                "Couldn't match that proposal to your accounts/categories — nothing was applied."
-            } else {
-                "✓ Budget applied ($scopeLabel)."
-            }
-            _messages.update { it + AiChatMessage(isUser = false, text = confirmation) }
+                .onFailure { e -> updateCard(messageId, cardId) { it.copy(result = "Couldn't apply: ${e.message}") } }
         }
     }
 
-    private fun buildContext(
-        transactions: List<TransactionWithDetails>,
-        accounts: List<Account>,
-        categories: List<Category>,
-        balances: Map<Long, Double>
-    ): String {
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
+    fun undo(messageId: Long, cardId: Int) {
+        val card = card(messageId, cardId)?.takeIf { it.status == CardStatus.APPLIED } ?: return
+        val undo = card.undo ?: return
+        viewModelScope.launch {
+            runCatching { AdvisorActions.undo(repository, undo) }
+                .onSuccess { result -> updateCard(messageId, cardId) { it.copy(status = CardStatus.UNDONE, undo = null, result = result) } }
+                .onFailure { e -> updateCard(messageId, cardId) { it.copy(result = "Couldn't undo: ${e.message}") } }
         }
-        val todayFormat = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }
+    }
 
-        return buildString {
-            appendLine("You are a helpful personal finance assistant built into the user's own finance-tracking app.")
-            appendLine("Today's date is ${todayFormat.format(System.currentTimeMillis())}.")
-            appendLine("Display currency: ${CurrencySettings.currencyCode.value}.")
-            appendLine(
-                "Answer questions using ONLY the data below. Be concise and specific with numbers. " +
-                    "If the data doesn't support an answer, say so instead of guessing."
-            )
-            appendLine(
-                "Only call the propose_budget tool when the user explicitly asks you to set up, " +
-                    "create, or recommend a specific numeric budget (e.g. \"set a budget for me\", " +
-                    "\"recommend a monthly budget\", \"how much should I budget for groceries\"). " +
-                    "Analyze the TRANSACTIONS data below for whatever time range and categories " +
-                    "they mention (or a sensible recent window if they don't specify one — never " +
-                    "assume a fixed period like 12 months), and use exact account and category " +
-                    "names from the lists below. This only shows the user a proposal to confirm " +
-                    "— never claim you've already set a budget."
-            )
-            appendLine(
-                "For open-ended questions like \"where can I cut back\", \"where am I " +
-                    "overspending\", or \"how do I save more\", answer directly in plain text " +
-                    "instead: name specific categories and real amounts from the TRANSACTIONS " +
-                    "data below. Only use propose_budget once the user wants that turned into " +
-                    "actual numeric limits."
-            )
-            appendLine()
-            appendLine("ACCOUNTS (name, current balance as of today):")
-            accounts.forEach { appendLine("- ${it.name}: ${Formatters.amount(balances[it.id] ?: it.initialBalance)}") }
-            appendLine()
-            appendLine("CATEGORIES (MainCategory|Category|Type):")
-            categories.forEach { appendLine("- ${it.mainCategory}|${it.name}|${it.type}") }
-            appendLine()
-            appendLine("TRANSACTIONS (Date|Account|MainCategory|Category|Type|Amount|Note), newest first:")
-            transactions.take(MAX_TRANSACTIONS_IN_CONTEXT).forEach { tx ->
-                append(dateFormat.format(tx.date)).append('|')
-                    .append(tx.accountName).append('|')
-                    .append(tx.mainCategoryName ?: "Uncategorized").append('|')
-                    .append(tx.categoryName ?: "Uncategorized").append('|')
-                    .append(tx.type.name).append('|')
-                    .append(tx.amount).append('|')
-                    .append(tx.note.replace('\n', ' ').replace('|', '/'))
-                    .append('\n')
+    fun dismiss(messageId: Long, cardId: Int) {
+        updateCard(messageId, cardId) { if (it.status == CardStatus.PENDING) it.copy(status = CardStatus.DISMISSED) else it }
+    }
+
+    private fun card(messageId: Long, cardId: Int) =
+        _messages.value.firstOrNull { it.id == messageId }?.cards?.firstOrNull { it.id == cardId }
+
+    private fun updateCard(messageId: Long, cardId: Int, change: (AdvisorCard) -> AdvisorCard) {
+        _messages.update { list ->
+            list.map { message ->
+                if (message.id != messageId) message else message.copy(cards = message.cards.map { if (it.id == cardId) change(it) else it })
             }
         }
+    }
+
+    /** Earlier messages, with a note of each card and what the user did with it, so the advisor
+     * knows what's already been prepared or applied. */
+    private fun historyTurns(): List<ChatTurn> = _messages.value
+        .filter { !it.isError }
+        .takeLast(HISTORY_MESSAGES)
+        .dropWhile { !it.isUser }
+        .map { message ->
+            val notes = message.cards.joinToString("") { card ->
+                val status = when {
+                    card.plan == null -> "shown"
+                    card.status == CardStatus.PENDING -> "not applied yet"
+                    card.status == CardStatus.APPLIED -> "applied by the user"
+                    card.status == CardStatus.UNDONE -> "applied, then undone by the user"
+                    else -> "dismissed by the user"
+                }
+                "\n[Card: ${card.title} — $status]"
+            }
+            ChatTurn(message.isUser, message.text + notes)
+        }
+
+    private fun systemPrompt(snapshot: AdvisorSnapshot): String {
+        val today = SimpleDateFormat("EEEE d MMMM yyyy", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+            .format(snapshot.now)
+        val currency = CurrencySettings.currencyCode.value
+        return """
+            You are the personal finance advisor inside the user's own finance-tracking app. You know personal finance, budgeting, saving, investing basics, loans and mortgages, and the economy, and you can look at and change the user's data in the app through your functions.
+
+            Today is $today. Amounts are in $currency.
+            Accounts: ${snapshot.accounts.joinToString { it.name }.ifBlank { "none yet" }}.
+            Saved loans: ${LoansAndGoals.loans.value.size}, saved savings goals: ${LoansAndGoals.goals.value.size}.
+            The user is most likely in Denmark (Danish banks and loan documents), so use Danish context where it helps — e.g. realkredit mortgages with a contribution rate (bidragssats), fixed-rate vs. adjustable-rate (F-kort, rentetilpasning) loans, interest-only periods (afdragsfrihed), refinancing (omlægning), the interest tax deduction (rentefradrag), aktiesparekonto, pension savings. When a rule or rate matters for the answer and you aren't sure it's current, say so.
+
+            How to work:
+            - Get every figure from your functions. Never guess numbers or do loan/savings maths in your head: use loan_calculator and savings_goal_calculator.
+            - Use as many function calls as needed before answering (e.g. get_overview, then get_spending and get_recurring_payments for a savings review).
+            - To change anything (categories, budgets, fixed costs, loans, goals), call the matching function. It only prepares a card the user reviews and applies with the Apply button — so never say a change is done; say what you've prepared and that they can tap Apply.
+            - Before preparing a change, check the data first (e.g. find_transactions) so the card is right. If a request is unclear — which account, which period, which transactions — ask one short question instead.
+            - Advice should be specific: name the categories, merchants and amounts, say how much it would save per month/year, and put the biggest wins first. Point out risks (budgets on track to be exceeded, price increases, rising rates, little buffer).
+            - You're not a licensed financial adviser. For big decisions (refinancing, investing, pension) give your real analysis, then briefly suggest confirming with their bank or an independent adviser.
+            - Reply in the user's language. Keep it short and easy to read: short paragraphs or "- " bullet lists, **bold** for key figures, no tables, no headings.
+        """.trimIndent()
     }
 }

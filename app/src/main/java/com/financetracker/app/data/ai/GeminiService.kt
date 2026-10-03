@@ -18,7 +18,8 @@ private const val GEMINI_THINKING_HEADROOM = 4_000
 /**
  * Google Gemini over its REST API (platform HttpURLConnection + org.json, no SDK), offering the
  * same operations as [ClaudeService]: a plain question, the dashboard insight cards (as
- * schema-constrained JSON), and the Ask AI chat with the propose_budget function.
+ * schema-constrained JSON). The AI advisor's function calling lives in
+ * [com.financetracker.app.data.ai.agent.GeminiAgentSession].
  */
 internal object GeminiService {
 
@@ -37,34 +38,7 @@ internal object GeminiService {
             AiJson.parseInsights(textOf(send(key, body)))
         }
 
-    suspend fun chatWithBudgetTool(
-        key: String,
-        context: String,
-        history: List<ChatTurn>,
-        userMessage: String,
-        maxTokens: Int
-    ): AiChatResult = withContext(Dispatchers.IO) {
-        val body = request(context, history + ChatTurn(isUser = true, text = userMessage), maxTokens, quick = false)
-        body.put(
-            "tools",
-            JSONArray().put(
-                JSONObject().put(
-                    "functionDeclarations",
-                    JSONArray().put(
-                        JSONObject()
-                            .put("name", "propose_budget")
-                            .put("description", AiJson.PROPOSE_BUDGET_DESCRIPTION)
-                            .put("parameters", AiJson.proposeBudgetParameters())
-                    )
-                )
-            )
-        )
-        val response = send(key, body)
-        val proposal = functionCallArgs(response, "propose_budget")?.let(AiJson::parseBudgetProposal)
-        AiChatResult(textOf(response), proposal)
-    }
-
-    private fun request(system: String, turns: List<ChatTurn>, maxTokens: Int, quick: Boolean): JSONObject {
+    fun request(system: String, turns: List<ChatTurn>, maxTokens: Int, quick: Boolean): JSONObject {
         val contents = JSONArray()
         turns.forEach { turn ->
             contents.put(
@@ -86,8 +60,13 @@ internal object GeminiService {
 
     /** Sends [body]; if Gemini rejects an optional setting (400), retries once without the
      * thinking and schema settings rather than failing outright. */
-    private fun send(key: String, body: JSONObject): JSONObject {
-        val first = post(key, body)
+    fun send(key: String, body: JSONObject): JSONObject {
+        var first = post(key, body)
+        // "High demand" is usually over within seconds.
+        if (first.first == 503) {
+            Thread.sleep(2_000)
+            first = post(key, body)
+        }
         val response = if (first.first == 400) {
             val config = body.getJSONObject("generationConfig")
             config.remove("thinkingConfig")
@@ -133,7 +112,7 @@ internal object GeminiService {
         }
     }
 
-    private fun parts(response: JSONObject): List<JSONObject> {
+    fun parts(response: JSONObject): List<JSONObject> {
         val parts = response.optJSONArray("candidates")?.optJSONObject(0)
             ?.optJSONObject("content")?.optJSONArray("parts") ?: return emptyList()
         return (0 until parts.length()).mapNotNull { parts.optJSONObject(it) }
@@ -142,9 +121,4 @@ internal object GeminiService {
     /** The answer's text, leaving out the model's own thought summaries. */
     private fun textOf(response: JSONObject): String =
         parts(response).filter { !it.optBoolean("thought") }.joinToString("") { it.optString("text") }.trim()
-
-    private fun functionCallArgs(response: JSONObject, name: String): JSONObject? =
-        parts(response).firstNotNullOfOrNull { part ->
-            part.optJSONObject("functionCall")?.takeIf { it.optString("name") == name }?.optJSONObject("args")
-        }
 }

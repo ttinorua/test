@@ -1,0 +1,138 @@
+package com.financetracker.app.data.prefs
+
+import android.content.Context
+import android.content.SharedPreferences
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
+
+/** One loan or mortgage, as entered in Settings > My loans & goals (or read from a document).
+ * Text fields are in English, with the Danish term in brackets where the document used one. */
+data class Loan(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String = "",
+    val lender: String = "",
+    /** mortgage, bank_loan, car_loan, student_loan or other. */
+    val kind: String = "mortgage",
+    /** e.g. "Adjustable-rate F5 (rentetilpasningslån F5)". */
+    val loanType: String = "",
+    val originalAmount: Double? = null,
+    val remainingDebt: Double? = null,
+    val interestRatePct: Double? = null,
+    /** Danish mortgage contribution rate (bidragssats), % a year of the remaining debt. */
+    val contributionRatePct: Double? = null,
+    val monthlyPayment: Double? = null,
+    val yearsLeft: Double? = null,
+    val endDate: String = "",
+    val interestOnlyUntil: String = "",
+    /** fixed or variable. */
+    val rateType: String = "",
+    val nextRateReset: String = "",
+    val earlyRepayment: String = "",
+    val otherTerms: String = "",
+    /** A short English summary of the source document, if the loan was read from one. */
+    val summary: String = ""
+)
+
+data class SavingsGoal(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String = "",
+    val targetAmount: Double? = null,
+    val savedAmount: Double? = null,
+    val monthlySaving: Double? = null,
+    val targetDate: String = ""
+)
+
+/** The user's loans and savings goals, for the AI advisor's loan and goal advice. Stored as JSON
+ * in the app's preferences (so they're part of full backups). */
+object LoansAndGoals {
+    private const val PREFS_NAME = "finance_prefs"
+    private const val KEY_LOANS = "advisor_loans"
+    private const val KEY_GOALS = "advisor_goals"
+
+    private lateinit var prefs: SharedPreferences
+    private val _loans = MutableStateFlow<List<Loan>>(emptyList())
+    val loans: StateFlow<List<Loan>> = _loans.asStateFlow()
+    private val _goals = MutableStateFlow<List<SavingsGoal>>(emptyList())
+    val goals: StateFlow<List<SavingsGoal>> = _goals.asStateFlow()
+
+    fun init(context: Context) {
+        prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        _loans.value = runCatching { parseLoans(prefs.getString(KEY_LOANS, null)) }.getOrDefault(emptyList())
+        _goals.value = runCatching { parseGoals(prefs.getString(KEY_GOALS, null)) }.getOrDefault(emptyList())
+    }
+
+    fun saveLoan(loan: Loan) {
+        _loans.value = _loans.value.filterNot { it.id == loan.id } + loan
+        prefs.edit().putString(KEY_LOANS, JSONArray(_loans.value.map(::loanToJson)).toString()).apply()
+    }
+
+    fun deleteLoan(id: String) {
+        _loans.value = _loans.value.filterNot { it.id == id }
+        prefs.edit().putString(KEY_LOANS, JSONArray(_loans.value.map(::loanToJson)).toString()).apply()
+    }
+
+    fun saveGoal(goal: SavingsGoal) {
+        _goals.value = _goals.value.filterNot { it.id == goal.id } + goal
+        prefs.edit().putString(KEY_GOALS, JSONArray(_goals.value.map(::goalToJson)).toString()).apply()
+    }
+
+    fun deleteGoal(id: String) {
+        _goals.value = _goals.value.filterNot { it.id == id }
+        prefs.edit().putString(KEY_GOALS, JSONArray(_goals.value.map(::goalToJson)).toString()).apply()
+    }
+
+    fun loanToJson(loan: Loan): JSONObject = JSONObject()
+        .put("id", loan.id).put("name", loan.name).put("lender", loan.lender).put("kind", loan.kind)
+        .put("loan_type", loan.loanType)
+        .putOpt("original_amount", loan.originalAmount).putOpt("remaining_debt", loan.remainingDebt)
+        .putOpt("interest_rate_pct", loan.interestRatePct).putOpt("contribution_rate_pct", loan.contributionRatePct)
+        .putOpt("monthly_payment", loan.monthlyPayment).putOpt("years_left", loan.yearsLeft)
+        .put("end_date", loan.endDate).put("interest_only_until", loan.interestOnlyUntil)
+        .put("rate_type", loan.rateType).put("next_rate_reset", loan.nextRateReset)
+        .put("early_repayment", loan.earlyRepayment).put("other_terms", loan.otherTerms)
+        .put("summary", loan.summary)
+
+    /** Reads a loan from JSON — the app's own format, or what the document reader returns. */
+    fun loanFromJson(json: JSONObject, id: String = json.optString("id").ifBlank { UUID.randomUUID().toString() }): Loan {
+        fun num(key: String): Double? = if (json.isNull(key) || !json.has(key)) null else json.optDouble(key).takeIf { !it.isNaN() }
+        fun text(key: String): String = if (json.isNull(key)) "" else json.optString(key).trim()
+        return Loan(
+            id = id,
+            name = text("name"), lender = text("lender"), kind = text("kind").ifBlank { "other" },
+            loanType = text("loan_type"), originalAmount = num("original_amount"), remainingDebt = num("remaining_debt"),
+            interestRatePct = num("interest_rate_pct"), contributionRatePct = num("contribution_rate_pct"),
+            monthlyPayment = num("monthly_payment"), yearsLeft = num("years_left"), endDate = text("end_date"),
+            interestOnlyUntil = text("interest_only_until"), rateType = text("rate_type"),
+            nextRateReset = text("next_rate_reset"), earlyRepayment = text("early_repayment"),
+            otherTerms = text("other_terms"), summary = text("summary")
+        )
+    }
+
+    fun goalToJson(goal: SavingsGoal): JSONObject = JSONObject()
+        .put("id", goal.id).put("name", goal.name)
+        .putOpt("target_amount", goal.targetAmount).putOpt("saved_amount", goal.savedAmount)
+        .putOpt("monthly_saving", goal.monthlySaving).put("target_date", goal.targetDate)
+
+    private fun goalFromJson(json: JSONObject): SavingsGoal {
+        fun num(key: String): Double? = if (json.isNull(key) || !json.has(key)) null else json.optDouble(key).takeIf { !it.isNaN() }
+        return SavingsGoal(
+            id = json.optString("id").ifBlank { UUID.randomUUID().toString() },
+            name = json.optString("name"), targetAmount = num("target_amount"), savedAmount = num("saved_amount"),
+            monthlySaving = num("monthly_saving"), targetDate = json.optString("target_date")
+        )
+    }
+
+    private fun parseLoans(raw: String?): List<Loan> {
+        val array = JSONArray(raw ?: return emptyList())
+        return (0 until array.length()).map { loanFromJson(array.getJSONObject(it)) }
+    }
+
+    private fun parseGoals(raw: String?): List<SavingsGoal> {
+        val array = JSONArray(raw ?: return emptyList())
+        return (0 until array.length()).map { goalFromJson(array.getJSONObject(it)) }
+    }
+}

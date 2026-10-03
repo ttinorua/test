@@ -4,12 +4,10 @@ import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.core.JsonValue
 import com.anthropic.errors.AnthropicServiceException
-import com.anthropic.models.messages.CacheControlEphemeral
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.OutputConfig
 import com.anthropic.models.messages.StopReason
-import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.Tool
 import com.anthropic.models.messages.ToolUseBlock
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +23,6 @@ private const val THINKING_HEADROOM_TOKENS = 8_000L
  * app, but a false positive would otherwise just fail), the API retries it on the model
  * Anthropic recommends for that case, inside the same call. */
 private const val FALLBACK_BETA_HEADER = "server-side-fallback-2026-07-01"
-private const val PROPOSE_BUDGET_TOOL_NAME = "propose_budget"
 private const val PRESENT_INSIGHTS_TOOL_NAME = "present_insights"
 
 data class ChatTurn(val isUser: Boolean, val text: String)
@@ -36,19 +33,6 @@ enum class InsightTone { POSITIVE, NEUTRAL, WARNING }
  * unit or "%" as appropriate) since Claude has the real numbers and formatting conventions in
  * its context — the UI just displays it verbatim. */
 data class InsightCard(val label: String, val value: String, val detail: String, val tone: InsightTone)
-
-data class BudgetCategoryProposal(val mainCategory: String, val category: String, val amount: Double)
-
-/** [accountName] is the exact account name to scope the budget to, or null/"All accounts" for a
- * combined budget across every account — resolved back to a real accountId by the caller. */
-data class BudgetProposal(
-    val accountName: String?,
-    val overallAmount: Double?,
-    val categoryBudgets: List<BudgetCategoryProposal>,
-    val summary: String?
-)
-
-data class AiChatResult(val text: String, val proposal: BudgetProposal?)
 
 class AiNotConfiguredException :
     Exception("No AI key is set up. Add one in Settings > General > AI assistant.")
@@ -66,7 +50,7 @@ object ClaudeService {
     private var cachedClient: Pair<String, AnthropicClient>? = null
 
     /** A client for the current Claude key, rebuilt only when the key changes. */
-    private fun client(): AnthropicClient? {
+    internal fun client(): AnthropicClient? {
         val key = AiSettings.keyFor(AiProvider.CLAUDE) ?: return null
         cachedClient?.takeIf { it.first == key }?.let { return it.second }
         return AnthropicOkHttpClient.builder().apiKey(key).build().also { cachedClient = key to it }
@@ -119,80 +103,9 @@ object ClaudeService {
         }
     }
 
-    /**
-     * Multi-turn chat. [cachedContext] (a dump of the user's transactions) is sent as a
-     * cached system block so repeated turns in the same session don't re-bill its full
-     * token cost. [history] is the prior conversation, oldest first, NOT including the
-     * new [userMessage].
-     */
-    suspend fun chat(
-        cachedContext: String,
-        history: List<ChatTurn>,
-        userMessage: String,
-        maxTokens: Long = 2048L
-    ): Result<String> {
-        val anthropic = client() ?: return Result.failure(AiNotConfiguredException())
-        return withContext(Dispatchers.IO) {
-            try {
-                val builder = baseParams(maxTokens, OutputConfig.Effort.MEDIUM)
-                    .systemOfTextBlockParams(
-                        listOf(
-                            TextBlockParam.builder()
-                                .text(cachedContext)
-                                .cacheControl(CacheControlEphemeral.builder().build())
-                                .build()
-                        )
-                    )
-                history.forEach { turn ->
-                    if (turn.isUser) builder.addUserMessage(turn.text) else builder.addAssistantMessage(turn.text)
-                }
-                builder.addUserMessage(userMessage)
-                Result.success(extractText(send(anthropic, builder.build())))
-            } catch (e: Exception) {
-                Result.failure(mapError(e))
-            }
-        }
-    }
-
-    /**
-     * Same as [chat], but Claude may also call a "propose_budget" tool instead of (or alongside)
-     * replying in plain text — used for "recommend and set up a budget for me" requests. The
-     * tool call is never executed automatically: it's parsed into a [BudgetProposal] for the
-     * caller to show the user and apply only on confirmation.
-     */
-    suspend fun chatWithBudgetTool(
-        cachedContext: String,
-        history: List<ChatTurn>,
-        userMessage: String,
-        maxTokens: Long = 2048L
-    ): Result<AiChatResult> {
-        val anthropic = client() ?: return Result.failure(AiNotConfiguredException())
-        return withContext(Dispatchers.IO) {
-            try {
-                val builder = baseParams(maxTokens, OutputConfig.Effort.MEDIUM)
-                    .systemOfTextBlockParams(
-                        listOf(
-                            TextBlockParam.builder()
-                                .text(cachedContext)
-                                .cacheControl(CacheControlEphemeral.builder().build())
-                                .build()
-                        )
-                    )
-                    .addTool(proposeBudgetTool())
-                history.forEach { turn ->
-                    if (turn.isUser) builder.addUserMessage(turn.text) else builder.addAssistantMessage(turn.text)
-                }
-                builder.addUserMessage(userMessage)
-                Result.success(extractChatResult(send(anthropic, builder.build())))
-            } catch (e: Exception) {
-                Result.failure(mapError(e))
-            }
-        }
-    }
-
     /** Model, token budget (reply + thinking headroom), effort, and the refusal fallback —
      * shared by every request. */
-    private fun baseParams(replyTokens: Long, effort: OutputConfig.Effort): MessageCreateParams.Builder =
+    internal fun baseParams(replyTokens: Long, effort: OutputConfig.Effort): MessageCreateParams.Builder =
         MessageCreateParams.builder()
             .model(MODEL_ID)
             .maxTokens(replyTokens + THINKING_HEADROOM_TOKENS)
@@ -202,81 +115,12 @@ object ClaudeService {
 
     /** A safety-classifier decline still comes back as HTTP 200, so check for it before reading
      * the content — otherwise it would look like an empty answer. */
-    private fun send(anthropic: AnthropicClient, params: MessageCreateParams): Message {
+    internal fun send(anthropic: AnthropicClient, params: MessageCreateParams): Message {
         val message = anthropic.messages().create(params)
         if (message.stopReason().orElse(null) == StopReason.REFUSAL) {
             throw AiRequestException("Claude declined this request. Try rephrasing it.")
         }
         return message
-    }
-
-    private fun proposeBudgetTool(): Tool {
-        val properties = Tool.InputSchema.Properties.builder()
-            .putAdditionalProperty(
-                "account_name",
-                JsonValue.from(
-                    mapOf(
-                        "type" to "string",
-                        "description" to "Exact account name from the ACCOUNTS list this budget " +
-                            "applies to, or \"All accounts\" for a combined budget across every account."
-                    )
-                )
-            )
-            .putAdditionalProperty(
-                "overall_amount",
-                JsonValue.from(
-                    mapOf(
-                        "type" to "number",
-                        "description" to "Suggested overall monthly spending limit across all " +
-                            "expense categories combined. Omit if not proposing one."
-                    )
-                )
-            )
-            .putAdditionalProperty(
-                "category_budgets",
-                JsonValue.from(
-                    mapOf(
-                        "type" to "array",
-                        "description" to "Suggested monthly limits for specific categories.",
-                        "items" to mapOf(
-                            "type" to "object",
-                            "properties" to mapOf(
-                                "main_category" to mapOf("type" to "string"),
-                                "category" to mapOf("type" to "string"),
-                                "amount" to mapOf("type" to "number")
-                            ),
-                            "required" to listOf("main_category", "category", "amount")
-                        )
-                    )
-                )
-            )
-            .putAdditionalProperty(
-                "summary",
-                JsonValue.from(
-                    mapOf(
-                        "type" to "string",
-                        "description" to "One or two sentence explanation of the reasoning " +
-                            "behind this budget proposal, to show the user."
-                    )
-                )
-            )
-            .build()
-
-        val inputSchema = Tool.InputSchema.builder()
-            .type(JsonValue.from("object"))
-            .properties(properties)
-            .build()
-
-        return Tool.builder()
-            .name(PROPOSE_BUDGET_TOOL_NAME)
-            .description(
-                "Propose a monthly budget based on the user's transaction history, for " +
-                    "whatever time range or categories they ask about — not limited to any " +
-                    "fixed period. This only shows a proposal for the user to review; it does " +
-                    "NOT apply the budget automatically."
-            )
-            .inputSchema(inputSchema)
-            .build()
     }
 
     private fun presentInsightsTool(): Tool {
@@ -366,51 +210,6 @@ object ClaudeService {
         emptyList()
     }
 
-    private fun extractChatResult(message: Message): AiChatResult {
-        val textBuilder = StringBuilder()
-        var proposal: BudgetProposal? = null
-        for (block in message.content()) {
-            if (block.isText()) {
-                textBuilder.append(block.asText().text())
-            } else if (block.isToolUse()) {
-                val toolUse = block.asToolUse()
-                if (toolUse.name() == PROPOSE_BUDGET_TOOL_NAME) {
-                    proposal = parseBudgetProposal(toolUse) ?: proposal
-                }
-            }
-        }
-        return AiChatResult(textBuilder.toString().trim(), proposal)
-    }
-
-    private fun parseBudgetProposal(toolUse: ToolUseBlock): BudgetProposal? = try {
-        @Suppress("UNCHECKED_CAST")
-        val input = toolUse._input().convert(Map::class.java) as? Map<String, Any?>
-        if (input == null) {
-            null
-        } else {
-            val overallAmount = (input["overall_amount"] as? Number)?.toDouble()
-            val categoryBudgets = (input["category_budgets"] as? List<*>).orEmpty().mapNotNull { entry ->
-                val fields = entry as? Map<*, *> ?: return@mapNotNull null
-                val main = fields["main_category"] as? String ?: return@mapNotNull null
-                val category = fields["category"] as? String ?: return@mapNotNull null
-                val amount = (fields["amount"] as? Number)?.toDouble() ?: return@mapNotNull null
-                BudgetCategoryProposal(main, category, amount)
-            }
-            if (overallAmount == null && categoryBudgets.isEmpty()) {
-                null
-            } else {
-                BudgetProposal(
-                    accountName = input["account_name"] as? String,
-                    overallAmount = overallAmount,
-                    categoryBudgets = categoryBudgets,
-                    summary = input["summary"] as? String
-                )
-            }
-        }
-    } catch (e: Exception) {
-        null
-    }
-
     private fun extractText(message: Message): String {
         val builder = StringBuilder()
         for (block in message.content()) {
@@ -421,7 +220,7 @@ object ClaudeService {
         return builder.toString().trim()
     }
 
-    private fun mapError(t: Throwable): Throwable = when (t) {
+    internal fun mapError(t: Throwable): Throwable = when (t) {
         is AiRequestException -> t
         is AnthropicServiceException -> AiRequestException(
             "Claude request failed (${t.statusCode()}): " +

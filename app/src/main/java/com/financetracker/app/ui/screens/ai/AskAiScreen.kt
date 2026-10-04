@@ -217,7 +217,7 @@ private fun ChatBubble(message: AiChatMessage, onApply: (Int) -> Unit, onDismiss
 private fun AdvisorCardView(card: AdvisorCard, onApply: () -> Unit, onDismiss: () -> Unit, onUndo: () -> Unit) {
     var showAll by remember { mutableStateOf(false) }
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
         border = CardDefaults.outlinedCardBorder(),
         modifier = Modifier.fillMaxWidth()
     ) {

@@ -6,7 +6,12 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.runtime.LaunchedEffect
+import com.financetracker.app.ui.theme.LocalAppPalette
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.NavigationBar
@@ -67,6 +72,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             PersonalFinanceTheme {
                 val navController = rememberNavController()
+                // Status and navigation bar icons follow the theme (light icons on dark themes).
+                val darkTheme = LocalAppPalette.current.isDark
+                LaunchedEffect(darkTheme) {
+                    val style = if (darkTheme) {
+                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                    }
+                    enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                }
 
                 Scaffold(
                     bottomBar = {
@@ -97,7 +112,13 @@ class MainActivity : ComponentActivity() {
                     NavHost(
                         navController = navController,
                         startDestination = Screen.Dashboard.route,
-                        modifier = Modifier.padding(bottom = padding.calculateBottomPadding())
+                        modifier = Modifier.padding(bottom = padding.calculateBottomPadding()),
+                        // Screens are see-through (the theme's background is drawn behind them), so
+                        // switch instantly rather than cross-fading two screens on top of each other.
+                        enterTransition = { EnterTransition.None },
+                        exitTransition = { ExitTransition.None },
+                        popEnterTransition = { EnterTransition.None },
+                        popExitTransition = { ExitTransition.None }
                     ) {
                         composable(Screen.Dashboard.route) {
                             val vm: DashboardViewModel = viewModel(

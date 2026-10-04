@@ -1,5 +1,8 @@
 package com.financetracker.app.ui.components
 
+import androidx.compose.ui.graphics.Color
+import com.financetracker.app.ui.theme.appBackdrop
+import com.financetracker.app.ui.theme.LocalAppPalette
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -167,7 +170,7 @@ fun CategoryPickerDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Surface(modifier = Modifier.fillMaxSize().appBackdrop(LocalAppPalette.current), color = Color.Transparent) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()

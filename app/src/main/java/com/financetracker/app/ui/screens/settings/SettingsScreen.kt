@@ -71,6 +71,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
+import com.financetracker.app.ui.components.parseHexColour
+import com.financetracker.app.ui.components.categoryIconKey
+import com.financetracker.app.ui.components.IconTile
+import com.financetracker.app.ui.components.CategoryIcons
+import com.financetracker.app.ui.components.CategoryIconTile
+import com.financetracker.app.ui.components.CategoryIconPicker
+import com.financetracker.app.util.CategoryIconRules
+import com.financetracker.app.data.prefs.CategoryIconChoices
 import androidx.compose.material.icons.filled.Sync
 import com.financetracker.app.ui.components.GlassCard
 import androidx.compose.ui.draw.clip
@@ -133,6 +141,7 @@ fun SettingsScreen(
     var mergePending by remember { mutableStateOf<Pair<Account, Account>?>(null) }
     var dedupeTarget by remember { mutableStateOf<Account?>(null) }
     var deleteCategoryTarget by remember { mutableStateOf<Category?>(null) }
+    var iconTarget by remember { mutableStateOf<Category?>(null) }
     var collapsedMains by remember { mutableStateOf(setOf<String>()) }
 
     Scaffold(
@@ -149,10 +158,8 @@ fun SettingsScreen(
             )
         },
         floatingActionButton = {
-            if (page == SettingsPage.ACCOUNTS || page == SettingsPage.CATEGORIES) {
-                FloatingActionButton(onClick = {
-                    if (page == SettingsPage.ACCOUNTS) showAddAccount = true else showAddCategory = true
-                }) {
+            if (page == SettingsPage.ACCOUNTS) {
+                FloatingActionButton(onClick = { showAddAccount = true }) {
                     Icon(Icons.Filled.Add, contentDescription = "Add")
                 }
             }
@@ -249,21 +256,33 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp)
                     ) {
-                        item(key = "expand_all_button") {
-                            TextButton(
-                                onClick = {
-                                    collapsedMains = if (allExpanded) grouped.keys.toSet() else emptySet()
-                                },
-                                modifier = Modifier.padding(bottom = 4.dp)
+                        item(key = "category_tools") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = if (allExpanded) Icons.Filled.UnfoldLess else Icons.Filled.UnfoldMore,
-                                    contentDescription = null
-                                )
-                                Text(
-                                    text = if (allExpanded) "Collapse all" else "Expand all",
-                                    modifier = Modifier.padding(start = 4.dp)
-                                )
+                                OutlinedButton(
+                                    onClick = { collapsedMains = if (allExpanded) grouped.keys.toSet() else emptySet() },
+                                    contentPadding = PaddingValues(start = 12.dp, end = 16.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (allExpanded) Icons.Filled.UnfoldLess else Icons.Filled.UnfoldMore,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                    Text(
+                                        text = if (allExpanded) "Collapse all" else "Expand all",
+                                        modifier = Modifier.padding(start = 6.dp)
+                                    )
+                                }
+                                Button(
+                                    onClick = { showAddCategory = true },
+                                    contentPadding = PaddingValues(start = 12.dp, end = 16.dp)
+                                ) {
+                                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(19.dp))
+                                    Text("New category", modifier = Modifier.padding(start = 6.dp))
+                                }
                             }
                         }
                         val groups = grouped.entries.toList()
@@ -295,6 +314,7 @@ fun SettingsScreen(
                                         isFixed = category.id in fixedExpenseCategoryIds,
                                         onToggleFixed = { FixedExpenseCategories.setFixed(category.id, it) },
                                         onDelete = { deleteCategoryTarget = category },
+                                        onChangeIcon = { iconTarget = category },
                                         showDivider = !isLastRow,
                                         shape = accordionShape(top = false, bottom = isLastGroup && isLastRow)
                                     )
@@ -520,8 +540,8 @@ fun SettingsScreen(
     if (showAddCategory) {
         AddCategoryDialog(
             onDismiss = { showAddCategory = false },
-            onConfirm = { mainCategory, name, type ->
-                viewModel.addCategory(mainCategory, name, type)
+            onConfirm = { mainCategory, name, type, icon ->
+                viewModel.addCategory(mainCategory, name, type, icon)
                 showAddCategory = false
             }
         )
@@ -625,6 +645,10 @@ fun SettingsScreen(
         )
     }
 
+    iconTarget?.let { category ->
+        CategoryIconDialog(category, onDismiss = { iconTarget = null })
+    }
+
     deleteCategoryTarget?.let { category ->
         AlertDialog(
             onDismissRequest = { deleteCategoryTarget = null },
@@ -633,6 +657,7 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteCategory(category)
+                    CategoryIconChoices.set(category.id, null)
                     deleteCategoryTarget = null
                 }) { Text("Delete") }
             },
@@ -952,17 +977,54 @@ private fun RenameAccountDialog(currentName: String, onDismiss: () -> Unit, onCo
     )
 }
 
+/** Change an existing category's icon, or go back to the one picked from its name. */
 @Composable
-private fun AddCategoryDialog(onDismiss: () -> Unit, onConfirm: (String, String, TransactionType) -> Unit) {
+private fun CategoryIconDialog(category: Category, onDismiss: () -> Unit) {
+    val current = categoryIconKey(category.id, category.name, category.mainCategory)
+    val guessed = CategoryIconRules.guess(category.name, category.mainCategory)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(category.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                CategoryIconPicker(
+                    selected = current,
+                    colour = parseHexColour(category.colorHex),
+                    onSelect = { key ->
+                        CategoryIconChoices.set(category.id, key.takeIf { it != guessed })
+                        onDismiss()
+                    },
+                    columns = 5
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = {
+            if (current != guessed) {
+                TextButton(onClick = {
+                    CategoryIconChoices.set(category.id, null)
+                    onDismiss()
+                }) { Text("Use automatic icon") }
+            }
+        }
+    )
+}
+
+@Composable
+private fun AddCategoryDialog(onDismiss: () -> Unit, onConfirm: (String, String, TransactionType, String?) -> Unit) {
     var mainCategory by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var type by remember { mutableStateOf(TransactionType.EXPENSE) }
+    // Follows the name until the user picks one themselves.
+    var pickedIcon by remember { mutableStateOf<String?>(null) }
+    val guessedIcon = CategoryIconRules.guess(name, mainCategory)
+    val icon = pickedIcon ?: guessedIcon
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Category") },
+        title = { Text("New category") },
         text = {
-            Column {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = mainCategory,
                     onValueChange = { mainCategory = it },
@@ -982,13 +1044,34 @@ private fun AddCategoryDialog(onDismiss: () -> Unit, onConfirm: (String, String,
                         label = { Text("Income") }
                     )
                 }
+                Row(modifier = Modifier.padding(top = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconTile(CategoryIcons.icon(icon), CategoryIcons.mainColour(mainCategory.ifBlank { "Uncategorized" }), 36.dp)
+                    Text(
+                        if (pickedIcon == null) "Icon · picked from the name, tap to change" else "Icon",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 12.dp)
+                    )
+                }
+                CategoryIconPicker(
+                    selected = icon,
+                    colour = CategoryIcons.mainColour(mainCategory.ifBlank { "Uncategorized" }),
+                    onSelect = { pickedIcon = it },
+                    columns = 5
+                )
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
                     if (name.isNotBlank()) {
-                        onConfirm(mainCategory.trim().ifBlank { "Uncategorized" }, name.trim(), type)
+                        // Only a choice that differs from the name's own icon needs keeping.
+                        onConfirm(
+                            mainCategory.trim().ifBlank { "Uncategorized" },
+                            name.trim(),
+                            type,
+                            pickedIcon?.takeIf { it != CategoryIconRules.guess(name.trim(), mainCategory.trim()) }
+                        )
                     }
                 }
             ) { Text("Add") }
@@ -1334,6 +1417,7 @@ private fun CategoryAccordionRow(
     isFixed: Boolean,
     onToggleFixed: (Boolean) -> Unit,
     onDelete: () -> Unit,
+    onChangeIcon: () -> Unit,
     showDivider: Boolean,
     shape: Shape
 ) {
@@ -1347,7 +1431,7 @@ private fun CategoryAccordionRow(
             modifier = Modifier.padding(start = 20.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CategoryColorDot(category.colorHex, modifier = Modifier.size(10.dp))
+            CategoryIconTile(category.id, category.name, category.mainCategory, category.colorHex, size = 32.dp, onClick = onChangeIcon)
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -1378,7 +1462,7 @@ private fun CategoryAccordionRow(
         }
         if (showDivider) {
             HorizontalDivider(
-                modifier = Modifier.padding(start = 42.dp),
+                modifier = Modifier.padding(start = 64.dp),
                 color = MaterialTheme.colorScheme.outlineVariant
             )
         }

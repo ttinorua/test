@@ -3,6 +3,7 @@ package com.financetracker.app.ui.screens.settings
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.prefs.CategoryIconChoices
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -223,9 +224,10 @@ class SettingsViewModel(private val repository: FinanceRepository, private val a
         }
     }
 
-    fun addCategory(mainCategory: String, name: String, type: TransactionType) {
+    fun addCategory(mainCategory: String, name: String, type: TransactionType, icon: String? = null) {
         viewModelScope.launch {
-            repository.upsertCategory(Category(name = name, mainCategory = mainCategory, type = type))
+            val id = repository.upsertCategory(Category(name = name, mainCategory = mainCategory, type = type))
+            if (icon != null && id > 0) CategoryIconChoices.set(id, icon)
         }
     }
 

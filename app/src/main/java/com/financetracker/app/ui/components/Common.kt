@@ -151,8 +151,8 @@ fun CategoryBreakdownList(
                             .padding(end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CategoryColorDot(spend.colorHex)
-                        Spacer(modifier = Modifier.width(8.dp))
+                        CategoryIconTile(spend.categoryId, spend.categoryName, spend.mainCategory, spend.colorHex, size = 28.dp)
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = spend.categoryName,
                             style = MaterialTheme.typography.bodyMedium,

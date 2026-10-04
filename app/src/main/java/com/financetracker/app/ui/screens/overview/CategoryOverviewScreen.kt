@@ -1,5 +1,11 @@
 package com.financetracker.app.ui.screens.overview
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import com.financetracker.app.ui.components.IconTile
+import com.financetracker.app.ui.components.CategoryIconTile
+import com.financetracker.app.ui.components.MainCategoryIconTile
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -200,10 +206,19 @@ fun CategoryOverviewScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            when (state.groupBy) {
+                                GroupByOption.MAIN_CATEGORY -> MainCategoryIconTile(entry.key, size = 34.dp)
+                                GroupByOption.CATEGORY -> {
+                                    val category = state.categories.firstOrNull { it.name == entry.key }
+                                    CategoryIconTile(category?.id, category?.name ?: entry.key.takeIf { it != "Uncategorized" }, category?.mainCategory, category?.colorHex, size = 34.dp)
+                                }
+                                GroupByOption.ACCOUNT -> IconTile(Icons.Filled.AccountBalanceWallet, MaterialTheme.colorScheme.primary, 34.dp)
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
                             Text(
                                 text = entry.label,
                                 style = MaterialTheme.typography.bodyLarge,

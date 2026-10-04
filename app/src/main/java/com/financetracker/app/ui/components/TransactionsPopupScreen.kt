@@ -273,7 +273,7 @@ private fun AnticipatedExpenseRow(item: AnticipatedExpense, onLongClick: () -> U
                 .padding(end = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CategoryColorDot(colorHex = item.colorHex, modifier = Modifier.size(10.dp))
+            CategoryIconTile(categoryId = null, name = item.category, mainCategory = item.mainCategory, colorHex = item.colorHex, size = 36.dp)
             Column(modifier = Modifier.padding(start = 12.dp)) {
                 Text(
                     text = item.label,

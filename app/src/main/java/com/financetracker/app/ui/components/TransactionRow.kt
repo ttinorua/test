@@ -45,9 +45,12 @@ fun TransactionRow(
                 .padding(end = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CategoryColorDot(
-                colorHex = transaction.categoryColorHex ?: "#9E9E9E",
-                modifier = Modifier.size(10.dp)
+            CategoryIconTile(
+                categoryId = transaction.categoryId,
+                name = transaction.categoryName,
+                mainCategory = transaction.mainCategoryName,
+                colorHex = transaction.categoryColorHex,
+                size = 36.dp
             )
             Column(modifier = Modifier.padding(start = 12.dp)) {
                 Text(

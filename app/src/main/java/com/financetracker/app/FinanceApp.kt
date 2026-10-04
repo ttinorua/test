@@ -20,6 +20,7 @@ import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.EnableBankingPrefs
+import com.financetracker.app.data.prefs.CategoryIconChoices
 import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.prefs.LoansAndGoals
 import com.financetracker.app.data.prefs.MainAccountSettings
@@ -48,6 +49,7 @@ class FinanceApp : Application() {
         AiInsightsCache.init(this)
         DismissedRecurringExpenses.init(this)
         FixedExpenseCategories.init(this)
+        CategoryIconChoices.init(this)
         EnableBankingPrefs.init(this)
         EnableBankingCredentials.init(this)
         AutoBackupSettings.init(this)

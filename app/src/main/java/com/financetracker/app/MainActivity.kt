@@ -14,11 +14,7 @@ import androidx.compose.runtime.LaunchedEffect
 import com.financetracker.app.ui.theme.LocalAppPalette
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -34,6 +30,7 @@ import com.financetracker.app.data.backup.AutoBackupSettings
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.enablebanking.EnableBankingService
+import com.financetracker.app.ui.navigation.FloatingNavBar
 import com.financetracker.app.ui.navigation.Screen
 import com.financetracker.app.ui.screens.ai.AskAiScreen
 import com.financetracker.app.ui.screens.ai.AskAiViewModel
@@ -83,29 +80,26 @@ class MainActivity : ComponentActivity() {
                     enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 }
 
+                val backStackEntry by navController.currentBackStackEntryAsState()
+                val currentDestination = backStackEntry?.destination
                 Scaffold(
                     bottomBar = {
-                        NavigationBar {
-                            val backStackEntry by navController.currentBackStackEntryAsState()
-                            val currentDestination = backStackEntry?.destination
-
-                            Screen.bottomNavItems.forEach { screen ->
-                                val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
-                                NavigationBarItem(
-                                    selected = selected,
-                                    onClick = {
-                                        navController.navigate(screen.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = true
-                                            }
-                                            launchSingleTop = true
-                                            restoreState = true
+                        // The chat has its own input along the bottom, so the bar steps aside there.
+                        if (currentDestination?.route != "ask_ai") {
+                            FloatingNavBar(
+                                items = Screen.bottomNavItems,
+                                isSelected = { screen -> currentDestination?.hierarchy?.any { it.route == screen.route } == true },
+                                onSelect = { screen ->
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
                                         }
-                                    },
-                                    icon = { Icon(screen.icon, contentDescription = screen.label) },
-                                    label = { Text(screen.label) }
-                                )
-                            }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                onOpenAi = { navController.navigate("ask_ai") { launchSingleTop = true } }
+                            )
                         }
                     }
                 ) { padding ->

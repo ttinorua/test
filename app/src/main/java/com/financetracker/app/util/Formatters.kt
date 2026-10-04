@@ -25,6 +25,9 @@ object Formatters {
     // formats a real wall-clock instant (when a bank sync finished), so it should read in
     // whatever timezone the device itself is set to.
     private val syncTimestampFormat = SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.US)
+    private val timeOnlyFormat = SimpleDateFormat("HH:mm", Locale.US)
+    private val shortDayFormat = SimpleDateFormat("MMM d", Locale.US)
+    private val wholeFormat = DecimalFormat("#,##0", DecimalFormatSymbols(Locale.US))
 
     private val CURRENCY_SYMBOLS = mapOf(
         "DKK" to "kr.",
@@ -61,6 +64,15 @@ object Formatters {
     fun fullDate(epochMillis: Long): String = fullDateFormat.format(epochMillis)
     fun month(epochMillis: Long): String = monthOnlyFormat.format(epochMillis)
     fun syncTimestamp(epochMillis: Long): String = syncTimestampFormat.format(epochMillis)
+
+    /** A rounded figure without decimals or unit, e.g. 32,450 — for small summary tiles. */
+    fun whole(value: Double): String = wholeFormat.format(value)
+
+    /** When something happened, briefly: the time if it was today (device time zone), else the day. */
+    fun shortWhen(epochMillis: Long, now: Long = System.currentTimeMillis()): String {
+        val day = SimpleDateFormat("yyyyMMdd", Locale.US)
+        return if (day.format(epochMillis) == day.format(now)) timeOnlyFormat.format(epochMillis) else shortDayFormat.format(epochMillis)
+    }
 }
 
 fun todayUtcMidnight(): Long {

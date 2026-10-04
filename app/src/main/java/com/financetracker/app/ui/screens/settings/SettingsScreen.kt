@@ -1,5 +1,8 @@
 package com.financetracker.app.ui.screens.settings
 
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -116,7 +119,8 @@ fun SettingsScreen(
     val excludeTransfersFromSpending by BudgetSettings.excludeTransfersFromSpending.collectAsState()
     val anticipateRecurringBills by BudgetSettings.anticipateRecurringBills.collectAsState()
     val fixedExpenseCategoryIds by FixedExpenseCategories.fixedCategoryIds.collectAsState()
-    var tabIndex by remember { mutableIntStateOf(0) }
+    var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+    BackHandler(enabled = page != null) { page = null }
 
     var showAddAccount by remember { mutableStateOf(false) }
     var showAddCategory by remember { mutableStateOf(false) }
@@ -129,11 +133,22 @@ fun SettingsScreen(
     var collapsedMains by remember { mutableStateOf(setOf<String>()) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Settings") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text(page?.title ?: "Settings") },
+                navigationIcon = {
+                    if (page != null) {
+                        IconButton(onClick = { page = null }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                }
+            )
+        },
         floatingActionButton = {
-            if (tabIndex == 0 || tabIndex == 1) {
+            if (page == SettingsPage.ACCOUNTS || page == SettingsPage.CATEGORIES) {
                 FloatingActionButton(onClick = {
-                    if (tabIndex == 0) showAddAccount = true else showAddCategory = true
+                    if (page == SettingsPage.ACCOUNTS) showAddAccount = true else showAddCategory = true
                 }) {
                     Icon(Icons.Filled.Add, contentDescription = "Add")
                 }
@@ -141,41 +156,10 @@ fun SettingsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            ScrollableTabRow(selectedTabIndex = tabIndex, edgePadding = 12.dp) {
-                Tab(
-                    selected = tabIndex == 0,
-                    onClick = { tabIndex = 0 },
-                    text = { Text("Accounts", maxLines = 1) }
-                )
-                Tab(
-                    selected = tabIndex == 1,
-                    onClick = { tabIndex = 1 },
-                    text = { Text("Categories", maxLines = 1) }
-                )
-                Tab(
-                    selected = tabIndex == 2,
-                    onClick = { tabIndex = 2 },
-                    text = { Text("Budgets", maxLines = 1) }
-                )
-                Tab(
-                    selected = tabIndex == 3,
-                    onClick = { tabIndex = 3 },
-                    text = { Text("Import/Export", maxLines = 1) }
-                )
-                Tab(
-                    selected = tabIndex == 4,
-                    onClick = { tabIndex = 4 },
-                    text = { Text("General", maxLines = 1) }
-                )
-                Tab(
-                    selected = tabIndex == 5,
-                    onClick = { tabIndex = 5 },
-                    text = { Text("Bank", maxLines = 1) }
-                )
-            }
+            when (page) {
+                null -> SettingsHome(state, onOpen = { page = it })
 
-            when (tabIndex) {
-                0 -> LazyColumn(
+                SettingsPage.ACCOUNTS -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp)
                 ) {
@@ -255,7 +239,7 @@ fun SettingsScreen(
                     }
                 }
 
-                1 -> {
+                SettingsPage.CATEGORIES -> {
                     val grouped = state.categories.groupBy { it.mainCategory }.toSortedMap()
                     val allExpanded = collapsedMains.isEmpty()
                     LazyColumn(
@@ -317,22 +301,24 @@ fun SettingsScreen(
                     }
                 }
 
-                2 -> BudgetsTab(
+                SettingsPage.BUDGETS -> BudgetsTab(
                     categories = state.categories.filter { it.type == TransactionType.EXPENSE },
                     accounts = state.accounts.map { it.account },
                     currencyCode = currencyCode
                 )
 
-                3 -> ImportExportScreen(importExportViewModel)
+                SettingsPage.BACKUP -> ImportExportScreen(importExportViewModel)
 
-                5 -> BankTab(enableBankingViewModel)
+                SettingsPage.BANK -> BankTab(enableBankingViewModel)
 
                 else -> Column(
                     modifier = Modifier
                         .padding(16.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    AppearanceSettings()
+                    if (page == SettingsPage.APPEARANCE) AppearanceSettings()
+
+                    if (page == SettingsPage.GENERAL) {
 
                     Text(
                         "Display currency",
@@ -433,11 +419,16 @@ fun SettingsScreen(
                         )
                     }
 
-                    AiAssistantSettings(modifier = Modifier.padding(top = 24.dp))
+                    }
 
-                    LoansAndGoalsSettings(accounts = state.accounts, modifier = Modifier.padding(top = 24.dp))
+                    if (page == SettingsPage.AI) AiAssistantSettings()
 
-                    AttentionSettings(modifier = Modifier.padding(top = 24.dp))
+
+                    if (page == SettingsPage.LOANS_GOALS) LoansAndGoalsSettings(accounts = state.accounts)
+
+                    if (page == SettingsPage.ATTENTION) AttentionSettings()
+
+                    if (page == SettingsPage.AI) {
 
                     Text(
                         "AI categorization",
@@ -506,6 +497,7 @@ fun SettingsScreen(
                                 modifier = Modifier.padding(start = 8.dp)
                             ) { Text("Cancel") }
                         }
+                    }
                     }
                 }
             }

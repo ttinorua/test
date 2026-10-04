@@ -33,6 +33,9 @@ import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.anticipatedRecurringExpenses
 import com.financetracker.app.util.countsTowardTotals
+import com.financetracker.app.util.dailyBalances
+import com.financetracker.app.util.percentChange
+import com.financetracker.app.util.todayUtcMidnight
 import com.financetracker.app.util.transfersInCountAsIncome
 import com.financetracker.app.util.effectiveReportingDate
 import com.financetracker.app.util.periodRange
@@ -75,7 +78,11 @@ data class DashboardUiState(
     /** All-time (not scoped to [periodOption]) count of transactions with no category at all,
      * respecting [selectedAccountId] — a cleanup backlog, not a spending metric, so an old
      * uncategorized transaction is just as worth surfacing as a new one. */
-    val uncategorizedCount: Int = 0
+    val uncategorizedCount: Int = 0,
+    /** The balance at the end of each of the last 30 days, ending with [netBalance]. */
+    val balanceTrend: List<Double> = emptyList(),
+    /** How much [netBalance] changed over [balanceTrend], in percent; null when it can't be said. */
+    val balanceChange: Double? = null
 )
 
 private data class DashboardFilters(
@@ -207,6 +214,11 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             accounts.sumOf { it.initialBalance } +
                 allTransactions.sumOf { if (it.type == TransactionType.INCOME) it.amount else -it.amount }
         }
+        val balanceTrend = dailyBalances(
+            netBalance,
+            transactions.map { it.date to if (it.type == TransactionType.INCOME) it.amount else -it.amount },
+            todayUtcMidnight()
+        )
         val (from, to) = periodRange(periodOption, customRange)
         val inPeriod = transactions.filter {
             val effectiveDate =
@@ -297,7 +309,9 @@ class DashboardViewModel(private val repository: FinanceRepository, appContext: 
             ),
             accounts = accounts,
             selectedAccountId = selectedAccountId,
-            uncategorizedCount = uncategorizedCount
+            uncategorizedCount = uncategorizedCount,
+            balanceTrend = balanceTrend,
+            balanceChange = percentChange(balanceTrend)
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 

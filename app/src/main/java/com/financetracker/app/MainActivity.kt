@@ -41,6 +41,8 @@ import com.financetracker.app.ui.screens.dashboard.DashboardTransactionsScreen
 import com.financetracker.app.ui.screens.dashboard.DashboardTransactionsViewModel
 import com.financetracker.app.ui.screens.dashboard.DashboardViewModel
 import com.financetracker.app.ui.screens.importexport.ImportExportViewModel
+import com.financetracker.app.ui.screens.overview.BreakdownScreen
+import com.financetracker.app.ui.screens.overview.BreakdownViewModel
 import com.financetracker.app.ui.screens.overview.CategoryOverviewScreen
 import com.financetracker.app.ui.screens.overview.CategoryOverviewViewModel
 import com.financetracker.app.ui.screens.overview.GroupTransactionsScreen
@@ -128,15 +130,12 @@ class MainActivity : ComponentActivity() {
                                 vm,
                                 onOpenAskAi = { navController.navigate("ask_ai") },
                                 onOpenTrends = { navController.navigate("trends") },
+                                onOpenBreakdown = { drillDown, upcoming -> navController.navigate(drillDown.drillRoute(upcoming)) },
                                 onOpenTransactions = { type, categoryId, label, periodOption, customRange, includeAnticipated, accountId, uncategorizedOnly ->
-                                    val typeName = type?.name ?: "NONE"
-                                    val catId = categoryId ?: -1L
-                                    val from = customRange?.first ?: -1L
-                                    val to = customRange?.second ?: -1L
-                                    val acctId = accountId ?: -1L
                                     navController.navigate(
-                                        "dashboard_transactions/$typeName/$catId/${Uri.encode(label)}/" +
-                                            "${periodOption.name}/$from/$to/$includeAnticipated/$acctId/$uncategorizedOnly"
+                                        dashboardTransactionsRoute(
+                                            type, categoryId, label, periodOption, customRange, includeAnticipated, accountId, uncategorizedOnly
+                                        )
                                     )
                                 }
                             )
@@ -194,7 +193,7 @@ class MainActivity : ComponentActivity() {
                             TrendsScreen(
                                 vm,
                                 onBack = { navController.popBackStack() },
-                                onOpenTransactions = { drillDown -> navController.navigate(drillDown.route()) }
+                                onOpenTransactions = { drillDown -> navController.navigate(drillDown.drillRoute()) }
                             )
                         }
                         composable("ask_ai") {
@@ -215,7 +214,44 @@ class MainActivity : ComponentActivity() {
                             )
                             CategoryOverviewScreen(
                                 vm,
-                                onOpenTransactions = { drillDown -> navController.navigate(drillDown.route()) }
+                                onOpenTransactions = { drillDown -> navController.navigate(drillDown.drillRoute()) }
+                            )
+                        }
+                        composable(
+                            route = TransactionsDrillDown.BREAKDOWN_ROUTE,
+                            arguments = TransactionsDrillDown.breakdownArguments
+                        ) { backStackEntry ->
+                            val args = backStackEntry.arguments!!
+                            val base = TransactionsDrillDown.from(args)
+                            val main = TransactionsDrillDown.mainCategoryFrom(args)
+                            val upcoming = args.getBoolean("upcoming")
+                            val vm: BreakdownViewModel = viewModel(
+                                factory = ViewModelFactory { BreakdownViewModel(repository, base, main, upcoming) }
+                            )
+                            BreakdownScreen(
+                                vm,
+                                base = base,
+                                mainCategory = main,
+                                onBack = { navController.popBackStack() },
+                                onOpenMainCategories = {
+                                    // Back up one step when that's where we came from; otherwise
+                                    // (opened straight on a main category) open the main categories.
+                                    if (navController.previousBackStackEntry?.destination?.route == TransactionsDrillDown.BREAKDOWN_ROUTE) {
+                                        navController.popBackStack()
+                                    } else if (main != null) {
+                                        navController.navigate(base.acrossMainCategories(main).breakdownRoute(null, upcoming))
+                                    }
+                                },
+                                onOpenMainCategory = { navController.navigate(base.breakdownRoute(it, upcoming)) },
+                                onOpenTransactions = { navController.navigate(it.route()) },
+                                onOpenUpcoming = {
+                                    navController.navigate(
+                                        dashboardTransactionsRoute(
+                                            TransactionType.EXPENSE, null, "Upcoming and paid", base.periodOption, base.customRange,
+                                            includeAnticipated = true, accountId = base.accountId, uncategorizedOnly = false
+                                        )
+                                    )
+                                }
                             )
                         }
                         composable(
@@ -257,6 +293,19 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun dashboardTransactionsRoute(
+        type: TransactionType?,
+        categoryId: Long?,
+        label: String,
+        periodOption: PeriodOption,
+        customRange: Pair<Long, Long>?,
+        includeAnticipated: Boolean,
+        accountId: Long?,
+        uncategorizedOnly: Boolean
+    ): String = "dashboard_transactions/${type?.name ?: "NONE"}/${categoryId ?: -1L}/${Uri.encode(label)}/" +
+        "${periodOption.name}/${customRange?.first ?: -1L}/${customRange?.second ?: -1L}/$includeAnticipated/" +
+        "${accountId ?: -1L}/$uncategorizedOnly"
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)

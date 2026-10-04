@@ -87,6 +87,7 @@ import com.financetracker.app.ui.components.GlassCard
 import com.financetracker.app.ui.components.PeriodSelectorChip
 import com.financetracker.app.ui.components.figureStyle
 import com.financetracker.app.ui.screens.ai.AdvisorLaunch
+import com.financetracker.app.ui.screens.overview.TransactionsDrillDown
 import com.financetracker.app.ui.theme.LocalAppPalette
 import com.financetracker.app.ui.theme.gradientBrush
 import com.financetracker.app.util.Formatters
@@ -102,6 +103,9 @@ fun DashboardScreen(
     viewModel: DashboardViewModel,
     onOpenAskAi: () -> Unit,
     onOpenTrends: () -> Unit,
+    /** Tiles and the overall budget open the main categories behind them first; [upcoming] adds
+     * the not-yet-paid bills (the Spent tile). */
+    onOpenBreakdown: (drillDown: TransactionsDrillDown, upcoming: Boolean) -> Unit,
     onOpenTransactions: (
         type: TransactionType?,
         categoryId: Long?,
@@ -146,6 +150,7 @@ fun DashboardScreen(
         onDismissInsights = viewModel::dismissInsights,
         onOpenAskAi = onOpenAskAi,
         onOpenTrends = onOpenTrends,
+        onOpenBreakdown = onOpenBreakdown,
         onOpenTransactions = onOpenTransactions
     )
 }
@@ -169,6 +174,9 @@ fun DashboardContent(
     onDismissInsights: () -> Unit,
     onOpenAskAi: () -> Unit,
     onOpenTrends: () -> Unit,
+    /** Tiles and the overall budget open the main categories behind them first; [upcoming] adds
+     * the not-yet-paid bills (the Spent tile). */
+    onOpenBreakdown: (drillDown: TransactionsDrillDown, upcoming: Boolean) -> Unit,
     onOpenTransactions: (
         type: TransactionType?,
         categoryId: Long?,
@@ -225,8 +233,9 @@ fun DashboardContent(
                 change = state.balanceChange,
                 trend = state.balanceTrend,
                 onClick = {
-                    onOpenTransactions(
-                        null, null, "All Transactions", state.periodOption, state.customRange, false, state.selectedAccountId, false
+                    onOpenBreakdown(
+                        TransactionsDrillDown("Net balance", state.periodOption, state.customRange, state.selectedAccountId),
+                        false
                     )
                 }
             )
@@ -238,8 +247,9 @@ fun DashboardContent(
                 MiniFigure(
                     "Income", Formatters.whole(state.periodIncome), TextStyle(color = palette.positive), Modifier.weight(1f)
                 ) {
-                    onOpenTransactions(
-                        TransactionType.INCOME, null, "Income", state.periodOption, state.customRange, false, state.selectedAccountId, false
+                    onOpenBreakdown(
+                        TransactionsDrillDown("Income", state.periodOption, state.customRange, state.selectedAccountId, type = TransactionType.INCOME),
+                        false
                     )
                 }
                 MiniFigure(
@@ -248,8 +258,9 @@ fun DashboardContent(
                     TextStyle(color = palette.negative),
                     Modifier.weight(1f)
                 ) {
-                    onOpenTransactions(
-                        TransactionType.EXPENSE, null, "Expenses", state.periodOption, state.customRange, true, state.selectedAccountId, false
+                    onOpenBreakdown(
+                        TransactionsDrillDown("Spent", state.periodOption, state.customRange, state.selectedAccountId, type = TransactionType.EXPENSE),
+                        true
                     )
                 }
                 MiniFigure(
@@ -311,9 +322,9 @@ fun DashboardContent(
                                 currencyCode = currencyCode,
                                 modifier = Modifier.padding(top = 8.dp),
                                 onClick = {
-                                    onOpenTransactions(
-                                        TransactionType.EXPENSE, null, "Overall Budget", PeriodOption.THIS_MONTH, null, false,
-                                        state.selectedAccountId, false
+                                    onOpenBreakdown(
+                                        TransactionsDrillDown("Overall budget", PeriodOption.THIS_MONTH, null, state.selectedAccountId, type = TransactionType.EXPENSE),
+                                        false
                                     )
                                 }
                             )

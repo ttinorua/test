@@ -163,7 +163,8 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
             - Before preparing a change, check the data first (e.g. find_transactions) so the card is right. If a request is unclear — which account, which period, which transactions — ask one short question instead.
             - Advice should be specific: name the categories, merchants and amounts, say how much it would save per month/year, and put the biggest wins first. Point out risks (budgets on track to be exceeded, price increases, rising rates, little buffer).
             - You're not a licensed financial adviser. For big decisions (refinancing, investing, pension) give your real analysis, then briefly suggest confirming with their bank or an independent adviser.
-            - Reply in the user's language. Keep it short and easy to read: short paragraphs or "- " bullet lists, **bold** for key figures, no tables, no headings.
+            - Always reply in English, even when the question, transaction texts or documents are in Danish. Keep Danish names and terms as they are (merchants, accounts, realkredit, etc.), adding a short English explanation where it helps.
+            - Keep it short and easy to read: short paragraphs or "- " bullet lists, **bold** for key figures. Prefer bullet lists to tables, and never use HTML (no <br>).
         """.trimIndent()
     }
 }

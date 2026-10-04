@@ -13,6 +13,8 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.runtime.LaunchedEffect
 import com.financetracker.app.ui.theme.LocalAppPalette
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.getValue
@@ -106,7 +108,11 @@ class MainActivity : ComponentActivity() {
                     NavHost(
                         navController = navController,
                         startDestination = Screen.Dashboard.route,
-                        modifier = Modifier.padding(bottom = padding.calculateBottomPadding()),
+                        // The bottom space is taken here once, so screens (and the chat's keyboard
+                        // handling) don't add the system navigation bar's height again.
+                        modifier = Modifier
+                            .padding(bottom = padding.calculateBottomPadding())
+                            .consumeWindowInsets(PaddingValues(bottom = padding.calculateBottomPadding())),
                         // Screens are see-through (the theme's background is drawn behind them), so
                         // switch instantly rather than cross-fading two screens on top of each other.
                         enterTransition = { EnterTransition.None },

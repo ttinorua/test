@@ -69,7 +69,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.filled.Sync
+import com.financetracker.app.ui.components.GlassCard
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
@@ -1012,15 +1015,18 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text("Bank sync", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Link a bank account via Enable Banking (open banking / PSD2) to pull in " +
-                "transactions automatically instead of exporting and importing a spreadsheet. " +
-                "You can connect more than one bank at once.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 16.dp, top = 4.dp)
-        )
+        // The explanation is for setting up; once a bank is connected the room goes to the accounts.
+        if (state.connections.isEmpty()) {
+            Text("Bank sync", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Link a bank account via Enable Banking (open banking / PSD2) to pull in " +
+                    "transactions automatically instead of exporting and importing a spreadsheet. " +
+                    "You can connect more than one bank at once.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 16.dp, top = 4.dp)
+            )
+        }
 
         EnableBankingAppRow(
             ownApplicationId = state.ownApplicationId,
@@ -1110,31 +1116,8 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
                 }
             }
         }
-        Spacer(modifier = Modifier.height(12.dp))
-
-        LazyColumn(modifier = Modifier.weight(1f)) {
-            items(state.connections, key = { it.bankId }) { connection ->
-                BankConnectionSection(
-                    connection = connection,
-                    isStartingAuth = state.isStartingAuth,
-                    onRefresh = { viewModel.startBankAuth(connection.bankId) },
-                    onToggleAccount = { uid, checked -> viewModel.setAccountSelected(connection.bankId, uid, checked) },
-                    onDisconnect = { disconnectTarget = connection }
-                )
-            }
-            if (state.connectableBanks.isNotEmpty()) {
-                item {
-                    ConnectAnotherBankSection(
-                        banks = state.connectableBanks,
-                        selectedBankId = state.selectedBankId,
-                        isStartingAuth = state.isStartingAuth,
-                        onSelected = { id -> viewModel.selectBank(id) },
-                        onConnect = { id -> viewModel.startBankAuth(id) }
-                    )
-                }
-            }
-        }
-
+        Spacer(modifier = Modifier.height(8.dp))
+        // Sync stays in place above the accounts, which get the rest of the screen and scroll.
         if (state.isSyncing) {
             val progress = state.syncProgress
             when {
@@ -1165,12 +1148,12 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
                 else -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
         Button(onClick = { viewModel.syncNow() }, enabled = !state.isSyncing, modifier = Modifier.fillMaxWidth()) {
             if (state.isSyncing) {
                 CircularProgressIndicator(modifier = Modifier.size(18.dp))
             } else {
-                Text("Sync now")
+                Icon(Icons.Filled.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("Sync now", modifier = Modifier.padding(start = 8.dp))
             }
         }
         if (state.isSyncing) {
@@ -1178,6 +1161,31 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
                 Text("Cancel")
             }
         }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyColumn(modifier = Modifier.weight(1f)) {
+            items(state.connections, key = { it.bankId }) { connection ->
+                BankConnectionSection(
+                    connection = connection,
+                    isStartingAuth = state.isStartingAuth,
+                    onRefresh = { viewModel.startBankAuth(connection.bankId) },
+                    onToggleAccount = { uid, checked -> viewModel.setAccountSelected(connection.bankId, uid, checked) },
+                    onDisconnect = { disconnectTarget = connection }
+                )
+            }
+            if (state.connectableBanks.isNotEmpty()) {
+                item {
+                    ConnectAnotherBankSection(
+                        banks = state.connectableBanks,
+                        selectedBankId = state.selectedBankId,
+                        isStartingAuth = state.isStartingAuth,
+                        onSelected = { id -> viewModel.selectBank(id) },
+                        onConnect = { id -> viewModel.startBankAuth(id) }
+                    )
+                }
+            }
+        }
+
     }
 
     disconnectTarget?.let { connection ->
@@ -1206,14 +1214,22 @@ private fun BankConnectionSection(
     onToggleAccount: (uid: String, selected: Boolean) -> Unit,
     onDisconnect: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    GlassCard(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(connection.bankDisplayName, style = MaterialTheme.typography.titleSmall)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(connection.bankDisplayName, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "${connection.linkedAccounts.count { it.uid in connection.selectedAccountUids }} of " +
+                            "${connection.linkedAccounts.size} synced",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = onRefresh, enabled = !isStartingAuth) {
                         if (isStartingAuth) {
@@ -1276,34 +1292,35 @@ private fun ConnectAnotherBankSection(
 
 @Composable
 private fun BankAccountRow(account: LinkedBankAccount, selected: Boolean, onToggle: (Boolean) -> Unit) {
-    Card(modifier = Modifier.padding(vertical = 4.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onToggle(!selected) }
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Checkbox(checked = selected, onCheckedChange = onToggle)
-            Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
-                // Sydbank reuses the same product label (e.g. "Privatkonto") across more than
-                // one account, so a suffix is included here too, not just in the underlying
-                // local account name, or two accounts would look identical in this list.
-                val suffix = account.iban?.takeLast(4) ?: account.uid.take(6)
-                Text(
-                    "${account.product ?: account.name} ••$suffix",
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    "${account.iban ?: account.uid} • ${account.currency}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+    Row(
+        modifier = Modifier
+            .padding(vertical = 3.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = .04f))
+            .clickable { onToggle(!selected) }
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(checked = selected, onCheckedChange = onToggle)
+        Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
+            // Sydbank reuses the same product label (e.g. "Privatkonto") across more than
+            // one account, so a suffix is included here too, not just in the underlying
+            // local account name, or two accounts would look identical in this list.
+            val suffix = account.iban?.takeLast(4) ?: account.uid.take(6)
+            Text(
+                "${account.product ?: account.name} ••$suffix",
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${account.iban ?: account.uid} • ${account.currency}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

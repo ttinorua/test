@@ -1,6 +1,16 @@
 package com.financetracker.app.ui.screens.ai
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,7 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -37,16 +47,19 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.financetracker.app.ui.theme.LocalAppPalette
+import com.financetracker.app.ui.theme.gradientBrush
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.ai.advisor.AdvisorCard
 import com.financetracker.app.data.ai.advisor.CardStatus
@@ -65,11 +78,12 @@ private val SUGGESTIONS = listOf(
     "Should I pay extra on my loan or save instead?"
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AskAiScreen(viewModel: AskAiViewModel, onBack: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
-    var input by remember { mutableStateOf("") }
+    // Saveable, so a half-written message survives turning the phone.
+    var input by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
 
     // Opened from a "Needs your attention" card: ask its question straight away.
@@ -77,9 +91,14 @@ fun AskAiScreen(viewModel: AskAiViewModel, onBack: () -> Unit) {
         AdvisorLaunch.take()?.let(viewModel::sendMessage)
     }
 
+    val lastIndex = state.messages.size - 1 + if (state.isSending) 1 else 0
     LaunchedEffect(state.messages.size, state.isSending) {
-        val lastIndex = state.messages.size - 1 + if (state.isSending) 1 else 0
         if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+    }
+    // The keyboard takes the bottom of the screen: keep the latest message in view above it.
+    val imeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(imeVisible) {
+        if (imeVisible && lastIndex >= 0) listState.scrollToItem(lastIndex)
     }
 
     Scaffold(
@@ -95,29 +114,42 @@ fun AskAiScreen(viewModel: AskAiViewModel, onBack: () -> Unit) {
         },
         bottomBar = {
             if (state.isConfigured) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .imePadding()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        placeholder = { Text("Ask, or tell me what to do…") },
-                        modifier = Modifier.weight(1f),
-                        maxLines = 5,
-                        enabled = !state.isSending
-                    )
-                    IconButton(
-                        onClick = {
-                            viewModel.sendMessage(input)
-                            input = ""
-                        },
-                        enabled = !state.isSending && input.isNotBlank()
+                val palette = LocalAppPalette.current
+                val canSend = !state.isSending && input.isNotBlank()
+                Column(modifier = Modifier.background(palette.navBar.compositeOver(palette.base)).navigationBarsPadding().imePadding()) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.Bottom
                     ) {
-                        Icon(Icons.Filled.Send, contentDescription = "Send")
+                        // Grows to four lines, then scrolls inside, so the conversation stays visible.
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            placeholder = { Text("Ask, or tell me what to do…") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(22.dp),
+                            minLines = 1,
+                            maxLines = 4,
+                            enabled = !state.isSending
+                        )
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 10.dp, bottom = 4.dp)
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(palette.gradientBrush(), alpha = if (canSend) 1f else .4f)
+                                .clickable(enabled = canSend, role = Role.Button) {
+                                    viewModel.sendMessage(input)
+                                    input = ""
+                                }
+                                .semantics { contentDescription = "Send" },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Filled.ArrowUpward, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
                     }
                 }
             }
@@ -196,15 +228,17 @@ private fun ChatBubble(message: AiChatMessage, onApply: (Int) -> Unit, onDismiss
                     containerColor = when {
                         message.isError -> MaterialTheme.colorScheme.errorContainer
                         message.isUser -> MaterialTheme.colorScheme.primaryContainer
-                        else -> MaterialTheme.colorScheme.surfaceVariant
+                        else -> MaterialTheme.colorScheme.surfaceContainerHighest
                     }
-                )
+                ),
+                shape = RoundedCornerShape(18.dp),
+                border = if (message.isUser || message.isError) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
-                Text(
-                    text = if (message.isUser) AnnotatedString(message.text) else simpleMarkdown(message.text),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(12.dp)
-                )
+                if (message.isUser) {
+                    Text(message.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(12.dp))
+                } else {
+                    ChatReply(message.text, Modifier.padding(12.dp))
+                }
             }
             message.cards.forEach { card ->
                 AdvisorCardView(card, onApply = { onApply(card.id) }, onDismiss = { onDismiss(card.id) }, onUndo = { onUndo(card.id) })
@@ -280,24 +314,5 @@ private fun TransactionLine(tx: TransactionWithDetails) {
             color = if (tx.type == TransactionType.INCOME) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(start = 8.dp)
         )
-    }
-}
-
-/** The little Markdown the advisor uses: **bold**, "- " / "* " bullets and "#" headings. */
-private fun simpleMarkdown(text: String): AnnotatedString = buildAnnotatedString {
-    text.lines().forEachIndexed { index, rawLine ->
-        if (index > 0) append('\n')
-        var line = rawLine
-        val heading = line.trimStart().startsWith("#")
-        if (heading) line = line.trimStart().trimStart('#').trim()
-        val bullet = Regex("^(\\s*)[-*•]\\s+").find(line)
-        if (bullet != null) {
-            append(bullet.groupValues[1] + "•  ")
-            line = line.substring(bullet.range.last + 1)
-        }
-        val parts = line.split("**")
-        parts.forEachIndexed { i, part ->
-            if (i % 2 == 1 || heading) withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(part) } else append(part)
-        }
     }
 }

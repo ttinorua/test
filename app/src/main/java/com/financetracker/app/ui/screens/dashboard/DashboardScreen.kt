@@ -1,5 +1,9 @@
 package com.financetracker.app.ui.screens.dashboard
 
+import com.financetracker.app.ui.screens.household.attentionItems
+import com.financetracker.app.ui.screens.household.HouseholdHomeCard
+import com.financetracker.app.data.household.HouseholdSync
+import com.financetracker.app.data.household.HouseholdState
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -103,6 +107,7 @@ fun DashboardScreen(
     viewModel: DashboardViewModel,
     onOpenAskAi: () -> Unit,
     onOpenTrends: () -> Unit,
+    onOpenHousehold: () -> Unit = {},
     /** Tiles and the overall budget open the main categories behind them first; [upcoming] adds
      * the not-yet-paid bills (the Spent tile). */
     onOpenBreakdown: (drillDown: TransactionsDrillDown, upcoming: Boolean) -> Unit,
@@ -123,7 +128,13 @@ fun DashboardScreen(
     val isGeneratingInsights by viewModel.isGeneratingInsights.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val lastSyncedAt by viewModel.lastSyncedAt.collectAsState()
-    val attentionItems by viewModel.attentionItems.collectAsState()
+    val monitorItems by viewModel.attentionItems.collectAsState()
+    val household by HouseholdSync.state.collectAsState()
+    val dismissals by AttentionMonitor.dismissals.collectAsState()
+    // The household budget's over-budget lines join the app's own checks.
+    val attentionItems = remember(monitorItems, household, dismissals) {
+        monitorItems + household.attentionItems().filterNot { AttentionMonitor.isDismissed(it.key) }
+    }
     val context = LocalContext.current
     val askNotificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(attentionItems.isNotEmpty()) {
@@ -142,6 +153,8 @@ fun DashboardScreen(
         lastSyncedAt = lastSyncedAt,
         attentionItems = attentionItems,
         aiConfigured = AiService.isConfigured,
+        household = household.takeIf { it.joined },
+        onOpenHousehold = onOpenHousehold,
         onSelectPeriod = viewModel::selectPeriod,
         onSelectCustomRange = viewModel::selectCustomRange,
         onSelectAccount = viewModel::selectAccount,
@@ -166,6 +179,8 @@ fun DashboardContent(
     lastSyncedAt: Long?,
     attentionItems: List<AttentionItem>,
     aiConfigured: Boolean,
+    household: HouseholdState? = null,
+    onOpenHousehold: () -> Unit = {},
     onSelectPeriod: (PeriodOption) -> Unit,
     onSelectCustomRange: (Long, Long) -> Unit,
     onSelectAccount: (Long?) -> Unit,
@@ -271,6 +286,9 @@ fun DashboardContent(
                     onClick = null
                 )
             }
+        }
+        if (household != null) {
+            item { HouseholdHomeCard(household, onClick = onOpenHousehold) }
         }
         if (attentionItems.isNotEmpty()) {
             item {

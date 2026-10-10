@@ -1,5 +1,6 @@
 package com.financetracker.app.ui.screens.settings
 
+import com.financetracker.app.ui.screens.household.HouseholdSettings
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.compose.BackHandler
@@ -340,6 +341,7 @@ fun SettingsScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     if (page == SettingsPage.APPEARANCE) AppearanceSettings()
+                    if (page == SettingsPage.HOUSEHOLD) HouseholdSettings(state.accounts.map { it.account })
 
                     if (page == SettingsPage.GENERAL) {
 

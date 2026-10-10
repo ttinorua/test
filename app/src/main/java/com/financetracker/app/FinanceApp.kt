@@ -20,6 +20,7 @@ import com.financetracker.app.data.prefs.BudgetSettings
 import com.financetracker.app.data.prefs.CurrencySettings
 import com.financetracker.app.data.prefs.DismissedRecurringExpenses
 import com.financetracker.app.data.prefs.EnableBankingPrefs
+import com.financetracker.app.data.household.HouseholdSync
 import com.financetracker.app.data.prefs.CategoryIconChoices
 import com.financetracker.app.data.prefs.FixedExpenseCategories
 import com.financetracker.app.data.prefs.LoansAndGoals
@@ -56,6 +57,7 @@ class FinanceApp : Application() {
         LoansAndGoals.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
         AttentionMonitor.init(this)
+        HouseholdSync.init(this, repository)
 
         // Retroactively adds any starter category the currently selected/connected bank has
         // that an existing install is still missing (the starter set has grown since some

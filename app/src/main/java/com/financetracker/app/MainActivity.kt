@@ -1,5 +1,9 @@
 package com.financetracker.app
 
+import androidx.compose.runtime.collectAsState
+import com.financetracker.app.ui.screens.household.HouseholdSettingsScreen
+import com.financetracker.app.ui.screens.household.HouseholdTransactionsScreen
+import com.financetracker.app.ui.screens.household.HouseholdScreen
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -130,6 +134,7 @@ class MainActivity : ComponentActivity() {
                                 vm,
                                 onOpenAskAi = { navController.navigate("ask_ai") },
                                 onOpenTrends = { navController.navigate("trends") },
+                                onOpenHousehold = { navController.navigate("household") },
                                 onOpenBreakdown = { drillDown, upcoming -> navController.navigate(drillDown.drillRoute(upcoming)) },
                                 onOpenTransactions = { type, categoryId, label, periodOption, customRange, includeAnticipated, accountId, uncategorizedOnly ->
                                     navController.navigate(
@@ -195,6 +200,23 @@ class MainActivity : ComponentActivity() {
                                 onBack = { navController.popBackStack() },
                                 onOpenTransactions = { drillDown -> navController.navigate(drillDown.drillRoute()) }
                             )
+                        }
+                        composable("household") {
+                            val categories by repository.observeCategories().collectAsState(initial = emptyList())
+                            HouseholdScreen(
+                                mainCategories = categories.filter { it.type == TransactionType.EXPENSE }.map { it.mainCategory }.distinct(),
+                                onBack = { navController.popBackStack() },
+                                onOpenSettings = { navController.navigate("household_settings") },
+                                onOpenTransactions = { main -> navController.navigate("household_tx/${Uri.encode(main ?: "*")}") }
+                            )
+                        }
+                        composable("household_tx/{main}", arguments = listOf(navArgument("main") { type = NavType.StringType })) { entry ->
+                            val main = Uri.decode(entry.arguments!!.getString("main")!!).takeIf { it != "*" }
+                            HouseholdTransactionsScreen(main, onBack = { navController.popBackStack() })
+                        }
+                        composable("household_settings") {
+                            val accounts by repository.observeAccounts().collectAsState(initial = emptyList())
+                            HouseholdSettingsScreen(accounts, onBack = { navController.popBackStack() })
                         }
                         composable("ask_ai") {
                             val vm: AskAiViewModel = viewModel(

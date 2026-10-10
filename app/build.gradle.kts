@@ -41,6 +41,14 @@ val groqApiKey: String = buildSecret("GROQ_API_KEY")?.trim() ?: ""
 val oneDriveClientId: String =
     buildSecret("ONEDRIVE_CLIENT_ID")?.trim() ?: "695700a7-d16d-41f5-96cd-d136232061bc"
 
+// Household budget (shared with a partner) runs on the app's own Firebase project. These identify
+// the project and aren't secret on their own (they ship inside every Firebase app; access is guarded
+// by the Firestore security rules), but they're kept in the build environment rather than in this
+// public repository. Without them the household feature says it isn't set up.
+val firebaseApiKey: String = buildSecret("FIREBASE_API_KEY")?.trim() ?: ""
+val firebaseAppId: String = buildSecret("FIREBASE_APP_ID")?.trim() ?: ""
+val firebaseProjectId: String = buildSecret("FIREBASE_PROJECT_ID")?.trim() ?: ""
+
 val enableBankingApplicationId: String =
     buildSecret("ENABLE_BANKING_APPLICATION_ID")?.trim() ?: "7bf8c383-b4b9-41c5-b126-11cc4f76c1c5"
 val enableBankingPrivateKeyB64: String =
@@ -70,6 +78,9 @@ android {
         buildConfigField("String", "ONEDRIVE_CLIENT_ID", "\"$oneDriveClientId\"")
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
         buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
+        buildConfigField("String", "FIREBASE_API_KEY", "\"$firebaseApiKey\"")
+        buildConfigField("String", "FIREBASE_APP_ID", "\"$firebaseAppId\"")
+        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"$firebaseProjectId\"")
     }
 
     // The app's permanent signing key. Android only installs an update signed with the same key as
@@ -158,6 +169,12 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+
+    // Firebase: the household budget shared with a partner (anonymous sign-in + Firestore).
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-firestore")
 
     // WorkManager: lets the AI categorization backfill keep running (and be observed) across
     // navigation, screen-off, and app backgrounding instead of dying with the ViewModel.

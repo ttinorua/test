@@ -1,5 +1,7 @@
 package com.financetracker.app.ui.screens.settings
 
+import androidx.compose.material.icons.filled.Group
+import com.financetracker.app.data.household.HouseholdSync
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -65,6 +67,7 @@ enum class SettingsPage(val title: String) {
     LOANS_GOALS("Loans & goals"),
     AI("AI advisor"),
     BANK("Bank connection"),
+    HOUSEHOLD("Household"),
     BACKUP("Backup & import"),
     ATTENTION("Needs your attention"),
     APPEARANCE("Appearance"),
@@ -88,6 +91,7 @@ fun SettingsHome(state: SettingsUiState, onOpen: (SettingsPage) -> Unit) {
     val backup by AutoBackupSettings.state.collectAsState()
     val notifications by AttentionMonitor.notificationsEnabled.collectAsState()
     val theme by ThemeSettings.selection.collectAsState()
+    val household by HouseholdSync.state.collectAsState()
 
     fun plural(n: Int, one: String, many: String = one + "s") = "$n ${if (n == 1) one else many}"
 
@@ -135,6 +139,15 @@ fun SettingsHome(state: SettingsUiState, onOpen: (SettingsPage) -> Unit) {
 
         ListGroup(
             listOf(
+                Line(
+                    Icons.Filled.Group, "Household",
+                    when {
+                        !household.joined -> "Share a budget with your partner"
+                        household.partner == null -> "Waiting for your partner to join"
+                        else -> "With ${household.partnerName} · " + if (household.lines.isEmpty()) "no budget yet" else "${household.lines.size} shared categories"
+                    },
+                    SettingsPage.HOUSEHOLD
+                ),
                 Line(
                     Icons.Filled.AccountBalance, "Bank connection",
                     connections.takeIf { it.isNotEmpty() }?.let { list ->

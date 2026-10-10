@@ -103,7 +103,14 @@ object AttentionMonitor {
     fun dismiss(key: String) {
         prefs.edit().putStringSet(KEY_DISMISSED, remember(KEY_DISMISSED, listOf(key))).apply()
         _items.value = _items.value.filterNot { it.key == key }
+        _dismissals.value++
     }
+
+    private val _dismissals = MutableStateFlow(0)
+    /** Bumps on every dismissal, for items shown alongside [items] (e.g. the household budget's). */
+    val dismissals: StateFlow<Int> = _dismissals.asStateFlow()
+
+    fun isDismissed(key: String): Boolean = prefs.getStringSet(KEY_DISMISSED, emptySet()).orEmpty().contains(key)
 
     /** Called by the bank sync: a failure shows as an item until a later sync succeeds. */
     fun recordSyncResult(context: Context, failure: String?) {

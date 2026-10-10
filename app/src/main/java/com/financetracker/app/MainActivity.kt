@@ -1,6 +1,16 @@
 package com.financetracker.app
 
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
+import androidx.core.content.IntentCompat
+import com.financetracker.app.ui.screens.receipts.ReceiptFiles
+import com.financetracker.app.ui.screens.receipts.ReceiptImportScreen
+import com.financetracker.app.ui.screens.receipts.ReceiptImportViewModel
+import com.financetracker.app.ui.screens.receipts.ReceiptNav
+import com.financetracker.app.ui.screens.receipts.ReceiptScreen
+import com.financetracker.app.ui.screens.receipts.ReceiptViewModel
+import com.financetracker.app.ui.screens.receipts.ShoppingTab
+import com.financetracker.app.ui.screens.receipts.ShoppingViewModel
 import com.financetracker.app.ui.screens.household.HouseholdSettingsScreen
 import com.financetracker.app.ui.screens.household.HouseholdTransactionsScreen
 import com.financetracker.app.ui.screens.household.HouseholdScreen
@@ -71,6 +81,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleIncomingIntent(intent)
+        // A shared receipt; not again when the screen is merely recreated (e.g. rotated).
+        if (savedInstanceState == null) handleSharedReceipt(intent)
 
         val repository = (application as FinanceApp).repository
 
@@ -86,6 +98,23 @@ class MainActivity : ComponentActivity() {
                         SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
                     }
                     enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                }
+
+                // Receipts shared from other apps, and taps on transactions that have a receipt.
+                LaunchedEffect(Unit) {
+                    launch { repository.observeTransactionIdsWithReceipt().collect { ReceiptNav.setTransactionsWithReceipt(it) } }
+                    ReceiptNav.events.collect { event ->
+                        when (event) {
+                            is ReceiptNav.Event.Import -> {
+                                ReceiptNav.pendingImport = event
+                                navController.navigate("receipt_import") {
+                                    popUpTo("receipt_import") { inclusive = true }
+                                }
+                            }
+                            is ReceiptNav.Event.OpenForTransaction ->
+                                repository.getReceiptForTransaction(event.transactionId)?.let { navController.navigate("receipt/${it.id}") }
+                        }
+                    }
                 }
 
                 val backStackEntry by navController.currentBackStackEntryAsState()
@@ -236,8 +265,32 @@ class MainActivity : ComponentActivity() {
                             )
                             CategoryOverviewScreen(
                                 vm,
-                                onOpenTransactions = { drillDown -> navController.navigate(drillDown.drillRoute()) }
+                                onOpenTransactions = { drillDown -> navController.navigate(drillDown.drillRoute()) },
+                                shopping = { modifier ->
+                                    val shoppingVm: ShoppingViewModel = viewModel(factory = ViewModelFactory { ShoppingViewModel(repository) })
+                                    ShoppingTab(shoppingVm, onOpenReceipt = { navController.navigate("receipt/$it") }, modifier = modifier)
+                                }
                             )
+                        }
+                        composable("receipt_import") {
+                            val pending = remember { ReceiptNav.pendingImport.also { ReceiptNav.pendingImport = null } }
+                            val vm: ReceiptImportViewModel = viewModel(
+                                factory = ViewModelFactory {
+                                    ReceiptImportViewModel(repository, applicationContext, pending?.files.orEmpty(), pending?.source ?: "share")
+                                }
+                            )
+                            ReceiptImportScreen(
+                                vm,
+                                onClose = { navController.popBackStack() },
+                                onSaved = { id ->
+                                    navController.navigate("receipt/$id") { popUpTo("receipt_import") { inclusive = true } }
+                                }
+                            )
+                        }
+                        composable("receipt/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+                            val id = entry.arguments!!.getLong("id")
+                            val vm: ReceiptViewModel = viewModel(factory = ViewModelFactory { ReceiptViewModel(repository, id) })
+                            ReceiptScreen(vm, onBack = { navController.popBackStack() })
                         }
                         composable(
                             route = TransactionsDrillDown.BREAKDOWN_ROUTE,
@@ -333,6 +386,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIncomingIntent(intent)
+        handleSharedReceipt(intent)
     }
 
     /** Handles the Enable Banking OAuth redirect (financetracker://enablebanking-callback?...),
@@ -368,6 +422,28 @@ class MainActivity : ComponentActivity() {
                 .onFailure { e ->
                     Toast.makeText(this@MainActivity, "Bank connection failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
+        }
+    }
+
+    /** A receipt (image or PDF) shared from a store app: copied in straight away, since the
+     * permission to read it doesn't last, then read on the import screen. */
+    private fun handleSharedReceipt(intent: Intent) {
+        val uris: List<Uri> = when (intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+            Intent.ACTION_SEND_MULTIPLE -> IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+            else -> return
+        }
+        if (uris.isEmpty()) {
+            Toast.makeText(this, "Share the receipt as an image or PDF.", Toast.LENGTH_LONG).show()
+            return
+        }
+        lifecycleScope.launch {
+            val files = ReceiptFiles.copyIn(applicationContext, uris)
+            if (files.isEmpty()) {
+                Toast.makeText(this@MainActivity, "Couldn't open the shared receipt.", Toast.LENGTH_LONG).show()
+            } else {
+                ReceiptNav.import(files, "share")
+            }
         }
     }
 

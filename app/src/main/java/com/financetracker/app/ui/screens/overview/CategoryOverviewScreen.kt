@@ -32,6 +32,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,8 +62,10 @@ import com.financetracker.app.util.TrendGranularity
 @Composable
 fun CategoryOverviewScreen(
     viewModel: CategoryOverviewViewModel,
-    onOpenTransactions: (TransactionsDrillDown) -> Unit
+    onOpenTransactions: (TransactionsDrillDown) -> Unit,
+    shopping: @Composable (Modifier) -> Unit = {}
 ) {
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     val state by viewModel.uiState.collectAsState()
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
     val unit = if (state.granularity == TrendGranularity.MONTH) "month" else "year"
@@ -94,10 +102,20 @@ fun CategoryOverviewScreen(
     Scaffold(
         topBar = { TopAppBar(title = { Text("Spending Overview") }) }
     ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+        TabRow(selectedTabIndex = tab, containerColor = Color.Transparent) {
+            listOf("Categories", "Shopping").forEachIndexed { i, label ->
+                Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
+            }
+        }
+        if (tab == 1) {
+            shopping(Modifier.weight(1f))
+            return@Column
+        }
         LazyColumn(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+                .fillMaxWidth()
+                .weight(1f),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -238,6 +256,7 @@ fun CategoryOverviewScreen(
                     }
                 }
             }
+        }
         }
     }
 }

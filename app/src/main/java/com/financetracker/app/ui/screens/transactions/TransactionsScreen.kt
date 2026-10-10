@@ -40,6 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.ui.screens.receipts.ReceiptNav
+import com.financetracker.app.util.ReceiptSplits
 import com.financetracker.app.ui.components.EmptyState
 import com.financetracker.app.ui.components.PeriodSelectorChip
 import com.financetracker.app.ui.components.SimilarTransactionsPromptDialog
@@ -159,10 +161,15 @@ fun TransactionsScreen(viewModel: TransactionsViewModel) {
                                 transaction = item.tx,
                                 runningBalance = item.runningBalance,
                                 onClick = {
-                                    editingTransaction = item.tx
-                                    showAddEditDialog = true
+                                    // A purchase with a receipt opens the receipt (a split one shows as its parts).
+                                    if (ReceiptNav.hasReceipt(item.tx.id)) {
+                                        ReceiptNav.openForTransaction(item.tx.id)
+                                    } else {
+                                        editingTransaction = item.tx
+                                        showAddEditDialog = true
+                                    }
                                 },
-                                onLongClick = { deleteTarget = item.tx },
+                                onLongClick = { if (ReceiptSplits.isPart(item.tx.id)) ReceiptNav.openForTransaction(item.tx.id) else deleteTarget = item.tx },
                                 modifier = Modifier.padding(horizontal = 12.dp)
                             )
                         }

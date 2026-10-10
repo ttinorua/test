@@ -51,7 +51,27 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="financetracker" android:host="onedrive-auth" />
             </intent-filter>
+            <!-- A receipt shared from a store app (Netto+, Coop, Lidl Plus, REMA 1000…), a
+                 screenshot or a PDF: the AI reads it and files it with its bank transaction. -->
+            <intent-filter android:label="Add receipt">
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
         </activity>
+
+        <!-- Where the camera saves a photo of a paper receipt (see ReceiptFiles). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.receipts"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/receipt_paths" />
+        </provider>
 
         <!-- WorkManager's own SystemForegroundService (used by setForeground()) needs its
              foreground service type declared here on Android 14+ whenever a worker requests

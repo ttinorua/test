@@ -39,6 +39,8 @@ import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
+import com.financetracker.app.ui.screens.receipts.ReceiptNav
+import com.financetracker.app.util.ReceiptSplits
 import com.financetracker.app.ui.screens.transactions.AddEditTransactionSheet
 import com.financetracker.app.util.AnticipatedExpense
 import com.financetracker.app.util.Formatters
@@ -159,10 +161,15 @@ fun TransactionsPopupScreen(
                         TransactionRow(
                             transaction = tx,
                             onClick = {
-                                editingTransaction = tx
-                                showAddEditDialog = true
+                                // A purchase with a receipt opens the receipt (a split one shows as its parts).
+                                if (ReceiptNav.hasReceipt(tx.id)) {
+                                    ReceiptNav.openForTransaction(tx.id)
+                                } else {
+                                    editingTransaction = tx
+                                    showAddEditDialog = true
+                                }
                             },
-                            onLongClick = { deleteTarget = tx },
+                            onLongClick = { if (ReceiptSplits.isPart(tx.id)) ReceiptNav.openForTransaction(tx.id) else deleteTarget = tx },
                             modifier = Modifier.padding(horizontal = 12.dp)
                         )
                     }

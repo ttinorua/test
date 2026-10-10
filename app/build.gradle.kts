@@ -196,6 +196,9 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // The real org.json for JVM unit tests (Android's own copy is a stub there).
     testImplementation("org.json:json:20240303")
+    // Runs database upgrade tests on the JVM against a real SQLite.
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.09.00"))

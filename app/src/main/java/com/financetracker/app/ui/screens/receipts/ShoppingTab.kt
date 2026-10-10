@@ -136,7 +136,7 @@ class ShoppingViewModel(repository: FinanceRepository) : ViewModel() {
 /** The Shopping tab of Spending: this month's shopping from receipts — by store, by category or
  * by item — what got more expensive, and the receipts themselves. + adds a receipt. */
 @Composable
-fun ShoppingTab(viewModel: ShoppingViewModel, onOpenReceipt: (Long) -> Unit, modifier: Modifier = Modifier) {
+fun ShoppingTab(viewModel: ShoppingViewModel, onOpenReceipt: (Long) -> Unit, modifier: Modifier = Modifier, onOpenStores: () -> Unit = {}) {
     val state by viewModel.state.collectAsState()
     val currency by CurrencySettings.currencyCode.collectAsState()
     val context = LocalContext.current
@@ -169,6 +169,7 @@ fun ShoppingTab(viewModel: ShoppingViewModel, onOpenReceipt: (Long) -> Unit, mod
                 IconButton(onClick = viewModel::nextMonth, enabled = !state.isCurrentMonth) {
                     Icon(Icons.Filled.ChevronRight, contentDescription = "Next month")
                 }
+                IconButton(onClick = onOpenStores) { Icon(Icons.Filled.Storefront, contentDescription = "Store connections") }
                 Box {
                     FilledIconButton(onClick = { addMenu = true }) { Icon(Icons.Filled.Add, contentDescription = "Add receipt") }
                     DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
@@ -212,7 +213,8 @@ fun ShoppingTab(viewModel: ShoppingViewModel, onOpenReceipt: (Long) -> Unit, mod
         if (!state.hasAnyReceipts) {
             item {
                 EmptyState(
-                    message = "No receipts yet. Share a receipt from a store app, or tap + to photograph a paper one. " +
+                    message = "No receipts yet. Connect a store account with the store button, share a receipt from a store app, " +
+                        "or tap + to photograph a paper one. " +
                         "The AI reads every item, sorts it into your categories and finds the bank payment it belongs to.",
                     icon = Icons.AutoMirrored.Filled.ReceiptLong
                 )

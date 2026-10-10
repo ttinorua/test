@@ -2,6 +2,7 @@ package com.financetracker.app.data.enablebanking
 
 import com.financetracker.app.data.household.HouseholdSync
 import com.financetracker.app.data.receipts.Receipts
+import com.financetracker.app.data.stores.StoreSync
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -86,6 +87,8 @@ class EnableBankingSyncWorker(context: Context, params: WorkerParameters) : Coro
         prefs.edit().remove(KEY_PERSISTED_TOTAL).remove(KEY_PERSISTED_IMPORTED).apply()
         // Receipts shared before the bank had booked the payment find their transaction now.
         runCatching { Receipts.matchPending(repository) }
+        // Then fetch new receipts from connected store accounts (Lidl Plus, Nemlig.com…).
+        runCatching { StoreSync.enqueue(applicationContext) }
         // Fresh transactions: re-run the attention checks (and notify about anything new).
         AttentionMonitor.recordSyncResult(applicationContext, outcome.failureMessage)
         // And straight away share the new spending with the household (if you're in one).

@@ -1,0 +1,127 @@
+package com.financetracker.app.data.stores
+
+import com.financetracker.app.data.ai.ParsedReceipt
+import com.financetracker.app.data.ai.ParsedReceiptItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.util.UUID
+
+/**
+ * Nemlig.com. Login is nemlig.com's own page; once signed in, the site's login cookie (valid for
+ * a year) is what the app keeps, and orders come from the order history the website shows.
+ * Unofficial: based on the open-source nemlig_cli notes, and it can stop working if Nemlig
+ * changes its website.
+ */
+class Nemlig : StoreConnector {
+    override val store = Store.NEMLIG
+
+    override fun loginUrl() = "$BASE/login?returnUrl=%2F"
+
+    override val cookieUrl: String get() = BASE
+
+    override fun captureFromCookies(cookies: String?, userAgent: String): String? {
+        val map = StoreHttp.parseCookies(cookies)
+        if (map[AUTH_COOKIE].isNullOrEmpty()) return null
+        return JSONObject().put("cookies", cookies).put("ua", userAgent).toString()
+    }
+
+    override suspend fun finishLogin(captured: String): String = captured
+
+    override suspend fun fetch(secret: String, since: Long): Pair<List<StoreReceipt>, String> = withContext(Dispatchers.IO) {
+        val saved = JSONObject(secret)
+        val http = StoreHttp(saved.optString("ua").ifBlank { StoreHttp.DEFAULT_AGENT })
+        http.cookies.putAll(StoreHttp.parseCookies(saved.optString("cookies")))
+        val base = mapOf(
+            "Accept" to "application/json, text/plain, */*",
+            "Device-Size" to "mobile",
+            "Platform" to "web",
+            "Version" to WEB_VERSION,
+            "Referer" to "$BASE/"
+        )
+        fun get(path: String, extra: Map<String, String> = emptyMap()): StoreHttp.Response {
+            val r = http.request("GET", BASE + path, base + extra + ("X-Correlation-Id" to UUID.randomUUID().toString()))
+            if (r.status == 401 || r.status == 403) throw StoreLoginExpired("Nemlig.com wants you to sign in again.")
+            if (!r.ok) throw IllegalStateException("Nemlig.com answered ${r.status}.")
+            return r
+        }
+        val xsrf = runCatching { JSONObject(get("/webapi/AntiForgery").body).optString("Value") }.getOrNull()
+            ?: http.cookies["XSRF-TOKEN"].orEmpty()
+        val bearer = JSONObject(get("/webapi/Token").body).optString("access_token")
+        val auth = mapOf("Authorization" to "Bearer $bearer", "X-XSRF-TOKEN" to xsrf)
+
+        val orders = mutableListOf<JSONObject>()
+        var skip = 0
+        while (skip < 400) {
+            val json = JSONObject(get("/webapi/order/GetBasicOrderHistory?skip=$skip&take=$PAGE", auth).body)
+            val page = json.optJSONArray("Orders") ?: break
+            var older = false
+            for (i in 0 until page.length()) {
+                val o = page.getJSONObject(i)
+                val at = orderTime(o) ?: continue
+                if (at < since) { older = true; continue }
+                // Only delivered orders: those are the ones that were charged.
+                if (o.optInt("Status") == DELIVERED) orders += o
+            }
+            if (older || page.length() < PAGE) break
+            skip += PAGE
+        }
+        if (http.cookies[AUTH_COOKIE].isNullOrEmpty()) throw StoreLoginExpired("Nemlig.com wants you to sign in again.")
+        val receipts = orders.mapNotNull { order ->
+            runCatching { parseOrder(order, JSONObject(get("/webapi/v2/order/GetOrderHistory/${order.getLong("Id")}", auth).body)) }.getOrNull()
+        }
+        // Keep the cookies as they are now (the site renews them).
+        val renewed = JSONObject()
+            .put("cookies", http.cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
+            .put("ua", saved.optString("ua"))
+            .toString()
+        receipts to renewed
+    }
+
+    companion object {
+        private const val BASE = "https://www.nemlig.com"
+        private const val AUTH_COOKIE = ".ASPXAUTH"
+        private const val WEB_VERSION = "11.201.0"
+        private const val PAGE = 10
+        private const val DELIVERED = 4
+
+        /** The delivery is when the card is charged, so it's the date that matches the bank. */
+        internal fun orderTime(order: JSONObject): Long? =
+            StoreJson.time(order.optJSONObject("DeliveryTime")?.let { StoreJson.text(it, "Start") })
+                ?: StoreJson.time(StoreJson.text(order, "OrderDate"))
+
+        /** An order and its lines. The delivery fee is the difference between the total and the
+         * lines, so it stays in the payment's own category. */
+        internal fun parseOrder(order: JSONObject, details: JSONObject): StoreReceipt {
+            val lines = details.optJSONArray("Lines")
+            val items = mutableListOf<ParsedReceiptItem>()
+            val hints = mutableListOf<String?>()
+            if (lines != null) for (i in 0 until lines.length()) {
+                val line = lines.optJSONObject(i) ?: continue
+                val name = StoreJson.text(line, "ProductName") ?: continue
+                val paid = (StoreJson.number(line, "Amount") ?: continue) - (StoreJson.number(line, "RefundedAmount") ?: 0.0)
+                if (paid <= 0) continue
+                val original = StoreJson.number(line, "OriginalAmount") ?: paid
+                items += ParsedReceiptItem(
+                    name = name.take(80),
+                    quantity = StoreJson.number(line, "Quantity")?.takeIf { it > 0 } ?: 1.0,
+                    amount = paid,
+                    discount = (original - paid).coerceAtLeast(0.0),
+                    categoryId = null
+                )
+                hints += listOfNotNull(StoreJson.text(line, "MainGroupName"), StoreJson.text(line, "GroupName")).joinToString(" / ").ifEmpty { null }
+            }
+            return StoreReceipt(
+                ParsedReceipt(
+                    storeName = "Nemlig.com",
+                    purchasedAt = orderTime(order) ?: System.currentTimeMillis(),
+                    total = StoreJson.number(order, "Total") ?: items.sumOf { it.amount },
+                    discount = items.sumOf { it.discount },
+                    receiptNumber = "nemlig:${StoreJson.text(order, "OrderNumber") ?: order.optLong("Id")}",
+                    items = items
+                ),
+                hints
+            )
+        }
+    }
+}

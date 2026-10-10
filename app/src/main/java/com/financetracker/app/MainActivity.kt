@@ -11,6 +11,10 @@ import com.financetracker.app.ui.screens.receipts.ReceiptScreen
 import com.financetracker.app.ui.screens.receipts.ReceiptViewModel
 import com.financetracker.app.ui.screens.receipts.ShoppingTab
 import com.financetracker.app.ui.screens.receipts.ShoppingViewModel
+import com.financetracker.app.ui.screens.receipts.StoreConnectScreen
+import com.financetracker.app.ui.screens.receipts.StoreConnectViewModel
+import com.financetracker.app.ui.screens.receipts.StoreConnectionsScreen
+import com.financetracker.app.data.stores.Store
 import com.financetracker.app.ui.screens.household.HouseholdSettingsScreen
 import com.financetracker.app.ui.screens.household.HouseholdTransactionsScreen
 import com.financetracker.app.ui.screens.household.HouseholdScreen
@@ -268,9 +272,29 @@ class MainActivity : ComponentActivity() {
                                 onOpenTransactions = { drillDown -> navController.navigate(drillDown.drillRoute()) },
                                 shopping = { modifier ->
                                     val shoppingVm: ShoppingViewModel = viewModel(factory = ViewModelFactory { ShoppingViewModel(repository) })
-                                    ShoppingTab(shoppingVm, onOpenReceipt = { navController.navigate("receipt/$it") }, modifier = modifier)
+                                    ShoppingTab(
+                                        shoppingVm,
+                                        onOpenReceipt = { navController.navigate("receipt/$it") },
+                                        modifier = modifier,
+                                        onOpenStores = { navController.navigate("store_connections") }
+                                    )
                                 }
                             )
+                        }
+                        composable("store_connections") {
+                            StoreConnectionsScreen(
+                                onBack = { navController.popBackStack() },
+                                onConnect = { store, another -> navController.navigate("store_connect/${store.id}/$another") }
+                            )
+                        }
+                        composable(
+                            "store_connect/{store}/{another}",
+                            arguments = listOf(navArgument("store") { type = NavType.StringType }, navArgument("another") { type = NavType.BoolType })
+                        ) { entry ->
+                            val args = entry.arguments!!
+                            val store = Store.byId(args.getString("store")!!) ?: Store.LIDL
+                            val vm: StoreConnectViewModel = viewModel(factory = ViewModelFactory { StoreConnectViewModel(repository, applicationContext, store) })
+                            StoreConnectScreen(vm, another = args.getBoolean("another"), onClose = { navController.popBackStack() })
                         }
                         composable("receipt_import") {
                             val pending = remember { ReceiptNav.pendingImport.also { ReceiptNav.pendingImport = null } }

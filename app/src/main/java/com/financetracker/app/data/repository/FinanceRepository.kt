@@ -99,4 +99,5 @@ class FinanceRepository(private val db: AppDatabase) {
     suspend fun updateReceipt(receipt: Receipt) = receiptDao.updateReceipt(receipt)
     suspend fun updateReceiptItem(item: ReceiptItem) = receiptDao.updateItem(item)
     suspend fun deleteReceipt(id: Long) = receiptDao.deleteReceipt(id)
+    suspend fun getAllReceiptItems(): List<ReceiptItem> = receiptDao.getAllItems()
 }

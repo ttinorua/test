@@ -72,6 +72,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
+import com.financetracker.app.data.enablebanking.BankAutoSync
 import com.financetracker.app.ui.components.parseHexColour
 import com.financetracker.app.ui.components.categoryIconKey
 import com.financetracker.app.ui.components.IconTile
@@ -1157,12 +1158,22 @@ private fun BankTab(viewModel: EnableBankingViewModel) {
         }
 
         val scheduledPayments by BankScheduledPayments.payments.collectAsState()
-        Text(
-            state.lastSyncedAt?.let { "Last synced ${formatBankDate(it)}" } ?: "Never synced",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp)
-        )
+        val autoSync by BankAutoSync.enabled.collectAsState()
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    state.lastSyncedAt?.let { "Last synced ${Formatters.syncTimestamp(it)}" } ?: "Never synced",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    if (autoSync) "Syncs automatically about every 6 hours" else "Syncs when you open the app",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = autoSync, onCheckedChange = { BankAutoSync.setEnabled(context, it) })
+        }
         if (state.lastSyncedAt != null) {
             // Collapsed by default and capped: this sits above the connections list and the Sync
             // button in a non-scrolling column, so a long list would push them off screen.

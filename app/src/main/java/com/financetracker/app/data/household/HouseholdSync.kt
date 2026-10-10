@@ -367,6 +367,12 @@ object HouseholdSync {
 
     /** Writes this month's and last month's spending in the household's categories, from the
      * accounts you chose. Skips the write when nothing changed. */
+    /** Shares your latest spending now (e.g. right after a background bank sync, before Android
+     * stops the app again). Does nothing outside a household. */
+    suspend fun publishNow() {
+        if (::repository.isInitialized && _state.value.joined) publish()
+    }
+
     private suspend fun publish() {
         val s = _state.value
         val id = s.householdId ?: return

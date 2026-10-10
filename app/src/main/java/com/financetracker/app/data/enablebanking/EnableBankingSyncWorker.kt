@@ -1,5 +1,6 @@
 package com.financetracker.app.data.enablebanking
 
+import com.financetracker.app.data.household.HouseholdSync
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -52,7 +53,9 @@ import java.util.concurrent.TimeUnit
 class EnableBankingSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        setForeground(buildForegroundInfo())
+        // Lets a long first sync run past Android's ~10 minute limit. Android can refuse this for
+        // a sync started in the background (the automatic one); a regular sync is quick anyway.
+        runCatching { setForeground(buildForegroundInfo()) }
         val repository = (applicationContext as FinanceApp).repository
         val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val knownTotal = prefs.getInt(KEY_PERSISTED_TOTAL, -1).takeIf { it >= 0 }
@@ -82,6 +85,8 @@ class EnableBankingSyncWorker(context: Context, params: WorkerParameters) : Coro
         prefs.edit().remove(KEY_PERSISTED_TOTAL).remove(KEY_PERSISTED_IMPORTED).apply()
         // Fresh transactions: re-run the attention checks (and notify about anything new).
         AttentionMonitor.recordSyncResult(applicationContext, outcome.failureMessage)
+        // And straight away share the new spending with the household (if you're in one).
+        runCatching { HouseholdSync.publishNow() }
         val output = workDataOf(
             KEY_IMPORTED to cumulativeImported,
             KEY_SKIPPED to outcome.skippedCount,

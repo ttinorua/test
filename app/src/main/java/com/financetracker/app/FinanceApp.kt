@@ -1,5 +1,6 @@
 package com.financetracker.app
 
+import com.financetracker.app.data.enablebanking.BankAutoSync
 import android.app.Application
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
@@ -58,6 +59,7 @@ class FinanceApp : Application() {
         repository = FinanceRepository(AppDatabase.getInstance(this))
         AttentionMonitor.init(this)
         HouseholdSync.init(this, repository)
+        BankAutoSync.init(this)
 
         // Retroactively adds any starter category the currently selected/connected bank has
         // that an existing install is still missing (the starter set has grown since some

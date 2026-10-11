@@ -70,8 +70,9 @@ class Salling private constructor(
         val http = StoreHttp(AGENT)
         val headers = backendHeaders(tokens)
         val listResp = http.request("GET", "$BACKEND/api/cp/receipt", headers)
-        if (listResp.status == 401) throw StoreLoginExpired("$brandName wants you to sign in again.")
-        if (!listResp.ok) throw IllegalStateException("$brandName answered ${listResp.status}.")
+        // Surface the server's own message (status + a snippet) so a rejected request can be
+        // diagnosed instead of showing a bare "sign in again".
+        if (!listResp.ok) throw IllegalStateException("$brandName receipts HTTP ${listResp.status}: ${snippet(listResp.body)}")
         val wanted = parseList(listResp.body).filter { it.postingAt >= since }
         val receipts = wanted.mapNotNull { summary ->
             val query = "receiptId=${enc(summary.id)}" + (summary.type?.let { "&type=${enc(it)}" } ?: "")
@@ -87,8 +88,7 @@ class Salling private constructor(
         val resp = StoreHttp(AGENT).request(
             "POST", "$TOKEN/token", mapOf("Accept" to "application/json"), body, "application/x-www-form-urlencoded"
         )
-        if (resp.status == 400 || resp.status == 401) throw StoreLoginExpired("$brandName wants you to sign in again.")
-        if (!resp.ok) throw IllegalStateException("$brandName sign-in answered ${resp.status}.")
+        if (!resp.ok) throw IllegalStateException("$brandName token HTTP ${resp.status}: ${snippet(resp.body)}")
         val json = JSONObject(resp.body)
         val access = json.firstString("access_token", "accessToken")
         val id = json.firstString("id_token", "idToken")
@@ -106,6 +106,9 @@ class Salling private constructor(
             "X-DevicePlatform" to "android",
             "X-DeviceOS" to "android",
             "X-DeviceOSVersion" to "14",
+            "X-DeviceName" to "Pixel 7",
+            "X-DeviceBrand" to "Google",
+            "X-CommitID" to "d2e5bbeda",
             "X-AppVersion" to APP_VERSION,
             "X-ClientVersion" to APP_VERSION,
             "X-ClientTraceId" to installId,
@@ -140,6 +143,9 @@ class Salling private constructor(
         fun netto() = Salling(Store.NETTO, tenantId = "4", tenantAlias = "TID-2Y7JRG", brandName = "Netto")
 
         private fun enc(v: String) = URLEncoder.encode(v, "UTF-8")
+
+        /** A short, one-line piece of a response body, for an error message. */
+        private fun snippet(body: String) = body.replace(Regex("\\s+"), " ").trim().take(300)
 
         private fun randomToken(): String {
             val bytes = ByteArray(16).also { SecureRandom().nextBytes(it) }

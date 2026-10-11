@@ -724,9 +724,8 @@ private fun CredentialsLogin(store: Store, error: String?, onSubmit: (String, St
 @Composable
 private fun StoreLoginWebView(connector: StoreConnector, emailHint: String? = null, onCaptured: (String) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    var progress by remember { mutableStateOf(0) }
-    // Always call the latest callback without rebuilding the WebView — rebuilding it is what makes
-    // the text cursor jump back to the start on every keystroke.
+    // Always call the latest callback without rebuilding the WebView — rebuilding it, or recomposing
+    // this composable while typing, is what makes the text cursor jump back to the start.
     val captured by rememberUpdatedState(onCaptured)
 
     fun checkCookies(agent: String?) {
@@ -750,11 +749,7 @@ private fun StoreLoginWebView(connector: StoreConnector, emailHint: String? = nu
             isFocusableInTouchMode = true
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-            webChromeClient = object : WebChromeClient() {
-                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                    progress = newProgress
-                }
-            }
+            webChromeClient = WebChromeClient()
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val url = request?.url?.toString() ?: return false
@@ -792,8 +787,5 @@ private fun StoreLoginWebView(connector: StoreConnector, emailHint: String? = nu
         }
     }
 
-    Box(modifier) {
-        AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
-        if (progress in 1..99) LinearProgressIndicator(Modifier.fillMaxWidth())
-    }
+    AndroidView(factory = { webView }, modifier = modifier.fillMaxSize())
 }

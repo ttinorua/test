@@ -65,6 +65,7 @@ interface StoreConnector {
             Store.LIDL -> LidlPlus()
             Store.NEMLIG -> Nemlig()
             Store.NETTO -> Salling.netto()
+            Store.BILKA -> Salling.bilka()
             Store.COOP -> null
         }
     }

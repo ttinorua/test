@@ -17,6 +17,7 @@ enum class Store(
     LIDL("lidl", "Lidl Plus", listOf("lidl"), "Lidl login", "Lidl"),
     NEMLIG("nemlig", "Nemlig.com", listOf("nemlig"), "Online orders", "Nemlig.com"),
     NETTO("netto", "Netto+", listOf("netto"), "Salling Group login", "Netto"),
+    BILKA("bilka", "Bilka+", listOf("bilka"), "Salling Group login", "Bilka"),
     COOP("coop", "Coop", listOf("coop", "kvickly", "superbrugsen", "brugsen", "dagli", "irma", "fakta"), "Coop login", "Coop", available = false);
 
     companion object {

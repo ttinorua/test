@@ -98,15 +98,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
+
+private fun receiptCountText(count: Int) = if (count == 1) "1 receipt" else "$count receipts"
 
 /** A store's colours and short mark, for its tile. */
 private fun brand(store: Store): Triple<Color, Color, String> = when (store) {
     Store.LIDL -> Triple(Color(0xFF0050AA), Color(0xFFFFF000), "L+")
     Store.NEMLIG -> Triple(Color(0xFFE8642C), Color.White, "n")
     Store.NETTO -> Triple(Color(0xFFFCD700), Color(0xFF1D1D1B), "N+")
+    Store.BILKA -> Triple(Color(0xFF0066B3), Color.White, "B+")
     Store.COOP -> Triple(Color(0xFFE2001A), Color.White, "coop")
 }
 
@@ -136,6 +140,11 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
     val accounts by StoreAccounts.accounts.collectAsState()
     val consents by StoreConsents.consents.collectAsState()
     val running by StoreSync.running.collectAsState()
+    // How many of each store's receipts are in the app. Counted from the receipts themselves, so
+    // it stays right when an account is reconnected (its receipts are already there and not
+    // fetched twice) and is shared by all accounts of a store.
+    val receiptsByStore by remember { repository.observeReceipts().map { list -> list.groupingBy { it.source }.eachCount() } }
+        .collectAsState(initial = emptyMap())
     var managing by remember { mutableStateOf<StoreAccount?>(null) }
     var disconnecting by remember { mutableStateOf<StoreAccount?>(null) }
     var clearConsents by remember { mutableStateOf(false) }
@@ -159,7 +168,14 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
                     GlassCard {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             StoreTile(store)
-                            Text(store.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
+                            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                Text(store.label, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    receiptCountText(receiptsByStore[store.id] ?: 0),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                             Text(
                                 "✓ Connected",
                                 color = IncomeGreen,
@@ -188,10 +204,6 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
                                         color = if (account.problem != null && account.id !in running) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     if (account.id in running) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
-                                }
-                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 8.dp)) {
-                                    Text("${account.receiptCount}", style = MaterialTheme.typography.titleMedium)
-                                    Text("receipts", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -233,9 +245,9 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
             item {
                 GlassCard {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        StoreLogo("Bilka", 40.dp) { StoreTile(Color(0xFF0066B3), Color.White, "B+") }
+                        StoreLogo("Føtex", 40.dp) { StoreTile(Color(0xFF0A2240), Color.White, "F+") }
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                            Text("Bilka+, Føtex+", style = MaterialTheme.typography.titleMedium)
+                            Text("Føtex+", style = MaterialTheme.typography.titleMedium)
                             Text("Coming later — share receipts from the app for now", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -292,8 +304,8 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
             title = { Text(account.name) },
             text = {
                 Text(
-                    "${account.receiptCount} receipts fetched" +
-                        (if (account.lastSyncAt > 0) ", last ${Formatters.syncTimestamp(account.lastSyncAt)}" else "") +
+                    receiptCountText(receiptsByStore[account.store.id] ?: 0) + " from ${account.store.label} in the app" +
+                        (if (account.lastSyncAt > 0) ", last fetched ${Formatters.syncTimestamp(account.lastSyncAt)}" else "") +
                         ". Receipts are fetched again after every bank sync. When you disconnect, you choose whether to keep or delete the receipts already fetched."
                 )
             },
@@ -330,7 +342,7 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
             AlertDialog(
                 onDismissRequest = close,
                 title = { Text("Disconnect ${account.store.label}?") },
-                text = { Text("Keep the ${account.receiptCount} receipts already fetched, or delete them too? Either way, no more receipts are fetched.") },
+                text = { Text("Keep the ${receiptCountText(receiptsByStore[account.store.id] ?: 0)} already fetched, or delete them too? Either way, no more receipts are fetched.") },
                 confirmButton = {
                     TextButton(onClick = { close(); disconnect() }) { Text("Keep receipts") }
                 },

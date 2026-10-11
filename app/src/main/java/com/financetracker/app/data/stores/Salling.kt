@@ -192,9 +192,10 @@ class Salling private constructor(
         private const val APP_VERSION = "2.9.5.1090"
         private const val AGENT = "okhttp/4.12.0"
 
-        /** Netto+. Bilka+ and Føtex+ use the same flow with their own tenant id/alias, added once
-         * those are confirmed the same way (they are not wired up yet). */
+        /** Netto+ and Bilka+: the same login and backend, each with its own tenant id/alias (from
+         * the stores' apps; the login page confirms 4 is Netto and 2 is Bilka). Føtex+ (3) is next. */
         fun netto() = Salling(Store.NETTO, tenantId = "4", tenantAlias = "TID-2Y7JRG", brandName = "Netto")
+        fun bilka() = Salling(Store.BILKA, tenantId = "2", tenantAlias = "TID-BZ929S", brandName = "Bilka")
 
         private fun enc(v: String) = URLEncoder.encode(v, "UTF-8")
 

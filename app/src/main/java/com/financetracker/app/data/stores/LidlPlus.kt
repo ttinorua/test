@@ -52,13 +52,20 @@ class LidlPlus : StoreConnector {
     override suspend fun fetch(secret: String, since: Long): Pair<List<StoreReceipt>, String> = withContext(Dispatchers.IO) {
         val (access, refresh) = token("grant_type" to "refresh_token", "refresh_token" to secret)
         val http = StoreHttp(AGENT)
+        // The full set of headers the Lidl Plus app sends with the tickets request; the service
+        // rejects the request (401) without them.
         val headers = mapOf(
             "Authorization" to "Bearer $access",
             "App-Version" to APP_VERSION,
             "Operating-System" to "Android",
             "App" to "com.lidl.eci.lidlplus",
             "Accept-Language" to LANGUAGE,
-            "Accept" to "application/json"
+            "Accept" to "application/json",
+            "OS-Version" to "14",
+            "Model" to "Pixel 7",
+            "Brand" to "Google",
+            "deviceid" to DEVICE_ID,
+            "country" to COUNTRY
         )
         val ids = mutableListOf<String>()
         var page = 1
@@ -111,6 +118,8 @@ class LidlPlus : StoreConnector {
         private const val LANGUAGE = "da"
         private const val APP_VERSION = "16.43.4"
         private const val AGENT = "okhttp/5.4.0"
+        // A fixed device id, as the app sends one; the tickets service expects the header present.
+        private const val DEVICE_ID = "f7a31c44276c0651"
 
         private fun enc(v: String) = URLEncoder.encode(v, "UTF-8").replace("+", "%20")
 

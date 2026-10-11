@@ -85,6 +85,12 @@ class EnableBankingSyncWorker(context: Context, params: WorkerParameters) : Coro
         }
 
         prefs.edit().remove(KEY_PERSISTED_TOTAL).remove(KEY_PERSISTED_IMPORTED).apply()
+        // No internet when the automatic sync fired: don't buzz the phone about it — just let
+        // WorkManager try again (it waits for a connection and backs off).
+        if (outcome.networkProblem && outcome.importedCount == 0) {
+            AttentionMonitor.recordSyncResult(applicationContext, null)
+            return Result.retry()
+        }
         // Receipts shared before the bank had booked the payment find their transaction now.
         runCatching { Receipts.matchPending(repository) }
         // Then fetch new receipts from connected store accounts (Lidl Plus, Nemlig.com…).

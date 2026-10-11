@@ -29,8 +29,30 @@ data class SyncOutcome(
     val skippedCount: Int,
     val failureMessage: String?,
     val totalConsidered: Int,
-    val remaining: Int
+    val remaining: Int,
+    /** True when the only thing that went wrong was no internet / a DNS blip. The background
+     * sync then stays quiet (no "Bank sync failed" notification) and just tries again later. */
+    val networkProblem: Boolean = false
 )
+
+/** A dropped connection, no network, or a DNS failure — something that fixes itself on the next
+ * try, as opposed to a real error (expired consent, a bad response) worth telling the user about. */
+internal fun isTransientNetworkError(e: Throwable): Boolean {
+    var t: Throwable? = e
+    val seen = HashSet<Throwable>()
+    while (t != null && seen.add(t)) {
+        if (t is java.net.UnknownHostException || t is java.net.SocketTimeoutException ||
+            t is java.net.ConnectException || t is javax.net.ssl.SSLException || t is java.io.InterruptedIOException
+        ) return true
+        val m = t.message?.lowercase().orEmpty()
+        if (m.contains("unable to resolve host") || m.contains("failed to connect") ||
+            m.contains("network is unreachable") || m.contains("timeout") || m.contains("timed out") ||
+            m.contains("no address associated") || m.contains("connection reset") || m.contains("connection abort")
+        ) return true
+        t = t.cause.takeIf { it !== t }
+    }
+    return false
+}
 
 /**
  * Pulls every transaction for the selected linked accounts into the local DB, skipping
@@ -87,6 +109,7 @@ object EnableBankingSyncCoordinator {
 
         var totalSkipped = 0
         var failure: String? = null
+        var networkProblem = false
         val pending = mutableListOf<PendingAccount>()
         // Enable Banking paginates an account's full history (years, for an old account) one
         // network round trip per page, all of it before there's anything to report as real
@@ -101,7 +124,18 @@ object EnableBankingSyncCoordinator {
                 onProgress(SyncProgress(done = fetchedSoFar + countSoFarForAccount, total = 0))
             }
             if (rowsResult.isFailure) {
-                failure = "Couldn't sync \"${bankAccount.name}\": ${describeError(rowsResult.exceptionOrNull()!!)}"
+                val e = rowsResult.exceptionOrNull()!!
+                // A real error (expired consent, bad response) wins over a transient network
+                // blip, so the user still hears about it; a network-only problem stays quiet.
+                if (isTransientNetworkError(e)) {
+                    if (failure == null) {
+                        failure = "No internet connection — the bank sync will try again automatically."
+                        networkProblem = true
+                    }
+                } else {
+                    failure = "Couldn't sync \"${bankAccount.name}\": ${describeError(e)}"
+                    networkProblem = false
+                }
                 continue
             }
             val fetched = rowsResult.getOrThrow()
@@ -120,7 +154,7 @@ object EnableBankingSyncCoordinator {
         val targetsCount = pending.sumOf { acct -> acct.uniqueGroups.sumOf { it.size } }
         if (targetsCount == 0) {
             if (failure == null) EnableBankingPrefs.setLastSyncedAt(System.currentTimeMillis())
-            return SyncOutcome(0, totalSkipped, failure, knownTotal ?: 0, 0)
+            return SyncOutcome(0, totalSkipped, failure, knownTotal ?: 0, 0, networkProblem)
         }
 
         val total = knownTotal ?: targetsCount
@@ -205,7 +239,7 @@ object EnableBankingSyncCoordinator {
         if (remaining == 0 && failure == null) {
             EnableBankingPrefs.setLastSyncedAt(System.currentTimeMillis())
         }
-        return SyncOutcome(totalImported, totalSkipped, failure, total, remaining)
+        return SyncOutcome(totalImported, totalSkipped, failure, total, remaining, networkProblem)
     }
 
     /** Replaces [accountId]'s scheduled payments with this sync's — categorized only by the

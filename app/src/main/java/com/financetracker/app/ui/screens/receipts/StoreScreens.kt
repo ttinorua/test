@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -49,12 +50,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -574,55 +577,77 @@ private fun Fact(title: String, detail: String) {
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun StoreLoginWebView(connector: StoreConnector, onCaptured: (String) -> Unit, modifier: Modifier = Modifier) {
-    var loading by remember { mutableStateOf(true) }
-    var webView by remember { mutableStateOf<WebView?>(null) }
+    val context = LocalContext.current
+    var progress by remember { mutableStateOf(0) }
+    // Always call the latest callback without rebuilding the WebView — rebuilding it is what makes
+    // the text cursor jump back to the start on every keystroke.
+    val captured by rememberUpdatedState(onCaptured)
 
-    fun checkCookies(view: WebView?) {
+    fun checkCookies(agent: String?) {
         val url = connector.cookieUrl ?: return
-        val agent = view?.settings?.userAgentString ?: return
-        connector.captureFromCookies(CookieManager.getInstance().getCookie(url), agent)?.let(onCaptured)
+        connector.captureFromCookies(CookieManager.getInstance().getCookie(url), agent ?: "")?.let(captured)
     }
 
-    // Some sites sign in without loading a new page; look at the cookies now and then too.
-    LaunchedEffect(webView) {
-        while (webView != null && connector.cookieUrl != null) {
-            delay(1_500)
-            checkCookies(webView)
+    // One WebView for the whole login, created once and never recreated. This keeps the login
+    // form's text input and taps working normally.
+    val webView = remember {
+        WebView(context).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.javaScriptCanOpenWindowsAutomatically = true
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            settings.setSupportZoom(true)
+            settings.builtInZoomControls = true
+            settings.displayZoomControls = false
+            isFocusableInTouchMode = true
+            CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+            webChromeClient = object : WebChromeClient() {
+                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                    progress = newProgress
+                }
+            }
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val url = request?.url?.toString() ?: return false
+                    connector.captureFromUrl(url)?.let { captured(it); return true }
+                    // Never hand the login over to another app.
+                    return !(url.startsWith("https://") || url.startsWith("http://"))
+                }
+
+                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                    url?.let { connector.captureFromUrl(it) }?.let(captured)
+                }
+
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    checkCookies(view?.settings?.userAgentString)
+                }
+            }
+            loadUrl(connector.loginUrl())
+        }
+    }
+
+    // Some sites sign in without loading a new page (Nemlig sets a cookie): check now and then.
+    LaunchedEffect(Unit) {
+        if (connector.cookieUrl != null) {
+            while (true) {
+                delay(1_500)
+                checkCookies(webView.settings.userAgentString)
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webView.stopLoading()
+            webView.destroy()
         }
     }
 
     Box(modifier) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    CookieManager.getInstance().setAcceptCookie(true)
-                    webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                            val url = request?.url?.toString() ?: return false
-                            connector.captureFromUrl(url)?.let { onCaptured(it); return true }
-                            // Never hand the login over to another app.
-                            return !(url.startsWith("https://") || url.startsWith("http://"))
-                        }
-
-                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                            loading = true
-                            url?.let { connector.captureFromUrl(it) }?.let(onCaptured)
-                        }
-
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            loading = false
-                            checkCookies(view)
-                        }
-                    }
-                    loadUrl(connector.loginUrl())
-                    webView = this
-                }
-            },
-            onRelease = { it.destroy(); webView = null }
-        )
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
+        if (progress in 1..99) LinearProgressIndicator(Modifier.fillMaxWidth())
     }
 }

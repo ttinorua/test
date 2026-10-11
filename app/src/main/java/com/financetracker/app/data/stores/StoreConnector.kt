@@ -22,8 +22,13 @@ interface StoreConnector {
     /** How this store is signed in to. */
     val loginMode: LoginMode get() = LoginMode.WEBVIEW
 
-    /** The store's login page to open ([LoginMode.WEBVIEW] only). */
-    fun loginUrl(): String = ""
+    /** True when the login page needs the e-mail/phone up front (Salling), so the app asks for it
+     * before opening the window and passes it into [loginUrl]. */
+    val needsEmailFirst: Boolean get() = false
+
+    /** The store's login page to open ([LoginMode.WEBVIEW] only). [emailHint] prefills the
+     * e-mail/phone for stores that require it in the address (see [needsEmailFirst]). */
+    fun loginUrl(emailHint: String? = null): String = ""
 
     /** Signs in with the typed e-mail and password ([LoginMode.CREDENTIALS] only), returning the
      * account's stored sign-in. The password is not kept. Throws [StoreLoginExpired] on a wrong

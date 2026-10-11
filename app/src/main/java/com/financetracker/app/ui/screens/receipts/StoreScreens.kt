@@ -383,6 +383,13 @@ class StoreConnectViewModel(
     val spent: StateFlow<Double?> = _spent
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
+    private val _emailHint = MutableStateFlow<String?>(null)
+    /** The e-mail/phone entered before a Salling login window opens. */
+    val emailHint: StateFlow<String?> = _emailHint
+
+    fun setEmailHint(email: String) {
+        if (email.isNotBlank()) _emailHint.value = email.trim()
+    }
 
     init {
         viewModelScope.launch {
@@ -395,6 +402,7 @@ class StoreConnectViewModel(
 
     fun go(step: ConnectStep) {
         _error.value = null
+        if (step != ConnectStep.LOGIN) _emailHint.value = null
         _step.value = step
     }
 
@@ -455,6 +463,7 @@ fun StoreConnectScreen(viewModel: StoreConnectViewModel, another: Boolean, onClo
     val step by viewModel.step.collectAsState()
     val spent by viewModel.spent.collectAsState()
     val error by viewModel.error.collectAsState()
+    val emailHint by viewModel.emailHint.collectAsState()
     val currency by CurrencySettings.currencyCode.collectAsState()
     val store = viewModel.store
     var agreed by remember { mutableStateOf(false) }
@@ -562,10 +571,18 @@ fun StoreConnectScreen(viewModel: StoreConnectViewModel, another: Boolean, onClo
                     onSubmit = viewModel::submitCredentials,
                     modifier = Modifier.fillMaxSize().padding(padding)
                 )
+            } else if (viewModel.connector?.needsEmailFirst == true && emailHint == null) {
+                // Salling's login page needs the e-mail/phone in the address, so ask for it first;
+                // the password is still typed on Salling's own page.
+                EmailPrompt(
+                    store = store,
+                    onSubmit = viewModel::setEmailHint,
+                    modifier = Modifier.fillMaxSize().padding(padding)
+                )
             } else Column(Modifier.fillMaxSize().padding(padding)) {
                 val connector = viewModel.connector
                 if (connector != null) {
-                    StoreLoginWebView(connector, onCaptured = viewModel::captured, modifier = Modifier.weight(1f))
+                    StoreLoginWebView(connector, emailHint = emailHint, onCaptured = viewModel::captured, modifier = Modifier.weight(1f))
                 }
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Lock, contentDescription = null, tint = IncomeGreen, modifier = Modifier.size(16.dp))
@@ -607,6 +624,40 @@ private fun Fact(title: String, detail: String) {
             Text(title, style = MaterialTheme.typography.titleSmall)
         }
         Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Just the e-mail/phone, for a store whose own login page needs it in the address before it
+ * opens (Salling). The password is then typed on the store's own page. */
+@Composable
+private fun EmailPrompt(store: Store, onSubmit: (String) -> Unit, modifier: Modifier = Modifier) {
+    var email by remember { mutableStateOf("") }
+    Column(
+        modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StoreTile(store)
+            Text("Sign in to ${store.company}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 12.dp))
+        }
+        Text(
+            "Enter the e-mail or phone number for your ${store.company} account. You'll type your password on ${store.company}'s own page next.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("E-mail or phone") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { if (email.isNotBlank()) onSubmit(email) }),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(onClick = { onSubmit(email) }, enabled = email.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+            Text("Continue to ${store.company} login")
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.padding(start = 8.dp).size(18.dp))
+        }
     }
 }
 
@@ -671,7 +722,7 @@ private fun CredentialsLogin(store: Store, error: String?, onSubmit: (String, St
  * address the store sends the browser to at the end, or at the store's login cookie. */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun StoreLoginWebView(connector: StoreConnector, onCaptured: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun StoreLoginWebView(connector: StoreConnector, emailHint: String? = null, onCaptured: (String) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var progress by remember { mutableStateOf(0) }
     // Always call the latest callback without rebuilding the WebView — rebuilding it is what makes
@@ -720,7 +771,7 @@ private fun StoreLoginWebView(connector: StoreConnector, onCaptured: (String) ->
                     checkCookies(view?.settings?.userAgentString)
                 }
             }
-            loadUrl(connector.loginUrl())
+            loadUrl(connector.loginUrl(emailHint))
         }
     }
 

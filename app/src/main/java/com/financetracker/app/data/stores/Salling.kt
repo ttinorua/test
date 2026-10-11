@@ -32,13 +32,16 @@ class Salling private constructor(
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP) }
     private val installId: String = UUID.randomUUID().toString()
 
-    override fun loginUrl(): String {
+    override val needsEmailFirst = true
+
+    override fun loginUrl(emailHint: String?): String {
         val challenge = Base64.encodeToString(
             MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)),
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
         )
         return "$LOGIN/apps?clientId=$CLIENT_ID&tenantId=$tenantId&channel=CustomerProgram" +
-            "&clientFlow=gigya&nonce=${randomToken()}&clientTraceId=${randomToken()}&emailOrPhone=" +
+            "&clientFlow=gigya&nonce=${randomToken()}&clientTraceId=${randomToken()}" +
+            "&emailOrPhone=${enc(emailHint.orEmpty().trim())}" +
             "&code_challenge_method=S256&code_challenge=$challenge"
     }
 

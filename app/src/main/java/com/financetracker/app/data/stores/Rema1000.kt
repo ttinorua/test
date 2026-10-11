@@ -32,10 +32,12 @@ class Rema1000 : StoreConnector {
             MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)),
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
         )
-        // The same address the Scan Selv app opens.
-        return "$LOGIN/?client_id=$CLIENT_ID&code_challenge=$challenge&code_challenge_method=S256" +
-            "&hide_login_terms=true&lang=en&prompt=login&redirect_uri=${enc(REDIRECT)}" +
-            "&response_type=code&scope=&screen=login&state=&theme=dark"
+        // Start at REMA's authorize address, as the Scan Selv app does: it sets up the sign-in
+        // session (a cookie) and forwards to the login page. Opening the login page directly
+        // signs in but can't send the code back ("An error occurred while redirecting").
+        return "$AUTH/api/oauth2/authorize?client_id=$CLIENT_ID&redirect_uri=${enc(REDIRECT)}&state=" +
+            "&code_challenge=$challenge&code_challenge_method=S256&scope=&response_type=code" +
+            "&theme=dark&lang=en&prompt=login&hide_login_terms=true&screen=login"
     }
 
     override fun captureFromUrl(url: String): String? {
@@ -116,7 +118,7 @@ class Rema1000 : StoreConnector {
 
     companion object {
         private const val CLIENT_ID = "scan-and-pay"
-        private const val LOGIN = "https://login.rema1000.dk"
+        private const val AUTH = "https://cphapp.rema1000.dk"
         private const val API = "https://apim-rema-scan-prod.azure-api.net/v1"
         private const val REDIRECT = "dk.rema1000.app://logincallback"
         private const val AGENT = "okhttp/4.12.0"

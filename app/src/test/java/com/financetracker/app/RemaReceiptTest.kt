@@ -63,4 +63,14 @@ class RemaReceiptTest {
             assertTrue(!e.message!!.contains("secret-123"))
         }
     }
+
+    @Test
+    fun `the receipt request forms tried carry the since date`() {
+        val since = 1760028130000L // 2025-10-09T16:42:10Z
+        val forms = Rema1000.queries(since)
+        assertEquals("", forms[0])
+        assertTrue(forms.contains("?sinceDate=2025-10-09T16%3A42%3A10Z"))
+        assertTrue(forms.contains("?sinceDate=2025-10-09"))
+        assertTrue(forms.contains("?since=1760028130000"))
+    }
 }

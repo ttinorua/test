@@ -80,14 +80,16 @@ class Rema1000 : StoreConnector {
         var tokens = if (stored.usable()) stored else renew(stored)
         try {
             val http = StoreHttp(AGENT)
-            var resp = http.request("GET", "$API/user/receipts", headers(tokens))
+            var (resp, query) = receipts(http, tokens, since, stored.query)
             if (resp.status == 401 && tokens === stored && stored.refresh.isNotEmpty()) {
                 tokens = renew(stored)
-                resp = http.request("GET", "$API/user/receipts", headers(tokens))
+                val again = receipts(http, tokens, since, stored.query)
+                resp = again.first
+                query = again.second
             }
             if (!resp.ok) throw IllegalStateException("REMA 1000 receipts HTTP ${resp.status}: ${snippet(resp.body)}")
             val receipts = parseReceipts(resp.body).filter { it.receipt.purchasedAt >= since }
-            receipts to tokens.secret()
+            receipts to tokens.withQuery(query).secret()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -118,23 +120,47 @@ class Rema1000 : StoreConnector {
             body.toString().toByteArray(), "application/json"
         )
 
+    /** The receipt list. Without parameters the backend answers 400 "Malformed request"; the app
+     * keeps the date it last fetched from (ReceiptSinceDateEntity), so the request most likely
+     * takes a "since" date. Its exact name and format aren't confirmed, so the likely forms are
+     * tried once and the one that works is remembered (returned with the response). */
+    private fun receipts(http: StoreHttp, tokens: Tokens, since: Long, known: Int): Pair<StoreHttp.Response, Int> {
+        val forms = queries(since)
+        if (known in forms.indices) return http.request("GET", "$API/user/receipts${forms[known]}", headers(tokens)) to known
+        var first: StoreHttp.Response? = null
+        for ((i, query) in forms.withIndex()) {
+            val resp = http.request("GET", "$API/user/receipts$query", headers(tokens))
+            if (resp.status != 400) return resp to i
+            if (first == null) first = resp
+        }
+        val tried = forms.joinToString(" ") { it.ifEmpty { "(none)" }.substringBefore('=') }
+        return StoreHttp.Response(400, "${first!!.body} (tried: $tried)", emptyMap()) to -1
+    }
+
     private fun headers(tokens: Tokens) = mapOf(
         "Authorization" to "Bearer ${tokens.access}",
-        "Accept" to "application/json"
+        "Accept" to "application/json",
+        // As REMA's own web login sends them, for the app.
+        "X-Device" to "android",
+        "X-Timezone" to "Copenhagen/Europe",
+        "X-Language" to "da"
     )
 
     /** The sign-in kept (encrypted) on the phone. [expires] is when the access token runs out;
      * [via] is where it came from ([OAUTH] or [SCAN]), which is where it's renewed. */
-    private class Tokens(val access: String, val refresh: String, val expires: Long, val via: String) {
+    private class Tokens(val access: String, val refresh: String, val expires: Long, val via: String, val query: Int = -1) {
         fun usable() = access.isNotEmpty() && expires > System.currentTimeMillis() + 60_000
 
+        /** [query]: which form of the receipt request works (see [receipts]), -1 while unknown. */
+        fun withQuery(query: Int) = Tokens(access, refresh, expires, via, query)
+
         fun secret(): String = JSONObject()
-            .put("access", access).put("refresh", refresh).put("expires", expires).put("via", via)
+            .put("access", access).put("refresh", refresh).put("expires", expires).put("via", via).put("query", query)
             .toString()
 
         companion object {
             fun from(secret: String): Tokens = JSONObject(secret).let {
-                Tokens(it.optString("access"), it.optString("refresh"), it.optLong("expires", 0L), it.optString("via", OAUTH))
+                Tokens(it.optString("access"), it.optString("refresh"), it.optLong("expires", 0L), it.optString("via", OAUTH), it.optInt("query", -1))
             }
         }
     }
@@ -170,6 +196,20 @@ class Rema1000 : StoreConnector {
             val payload = jwt.split('.').getOrNull(1) ?: return null
             JSONObject(String(Base64.decode(payload, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))).optLong("exp").takeIf { it > 0 }
         }.getOrNull()
+
+        /** The forms of the receipt request tried, in order (see [receipts]). */
+        internal fun queries(since: Long): List<String> {
+            val utc = java.util.TimeZone.getTimeZone("UTC")
+            fun fmt(p: String) = java.text.SimpleDateFormat(p, java.util.Locale.US).apply { timeZone = utc }.format(java.util.Date(since))
+            val iso = enc(fmt("yyyy-MM-dd'T'HH:mm:ss'Z'"))
+            val day = fmt("yyyy-MM-dd")
+            return listOf(
+                "",
+                "?sinceDate=$iso", "?sinceDate=$day", "?sinceDate=$since",
+                "?since=$iso", "?since=$day", "?since=$since",
+                "?fromDate=$iso", "?from=$iso"
+            )
+        }
 
         private val LIST_KEYS = listOf("receipts", "data", "items", "results", "content")
         private val ITEM_KEYS = listOf("items", "receiptItems", "lines", "products")

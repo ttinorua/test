@@ -4,6 +4,7 @@ import com.financetracker.app.data.stores.LidlPlus
 import com.financetracker.app.data.stores.Nemlig
 import com.financetracker.app.data.stores.StoreHttp
 import com.financetracker.app.data.stores.StoreJson
+import com.financetracker.app.ui.components.StoreLogos
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -95,6 +96,19 @@ class StoreReceiptsTest {
         assertEquals(19.9, r.items[0].discount, 0.001)
         assertEquals("Drikke / Kaffe, hele bønner", parsed.hints[0])
         assertEquals("no:nemlig:2026-12345678", r.externalId)
+    }
+
+    @Test
+    fun `store names are matched to their chain's logo`() {
+        assertEquals("netto.dk", StoreLogos.domainFor("Netto Taastrup"))
+        assertEquals("superbrugsen.dk", StoreLogos.domainFor("SuperBrugsen Hvidovre"))
+        assertEquals("brugsen.dk", StoreLogos.domainFor("Dagli'Brugsen"))
+        assertEquals("coop365.dk", StoreLogos.domainFor("Coop 365"))
+        assertEquals("coop.dk", StoreLogos.domainFor("Coop"))
+        assertEquals("foetex.dk", StoreLogos.domainFor("Føtex Food"))
+        assertEquals("rema1000.dk", StoreLogos.domainFor("REMA 1000"))
+        assertEquals("lidl.dk", StoreLogos.domainFor("Lidl Taastrup Hovedgade"))
+        assertNull(StoreLogos.domainFor("Bager Hansen"))
     }
 
     @Test

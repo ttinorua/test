@@ -76,6 +76,7 @@ import com.financetracker.app.data.stores.StoreAccounts
 import com.financetracker.app.data.stores.StoreConnector
 import com.financetracker.app.data.stores.StoreSync
 import com.financetracker.app.ui.components.GlassCard
+import com.financetracker.app.ui.components.StoreLogo
 import com.financetracker.app.ui.theme.IncomeGreen
 import com.financetracker.app.util.Formatters
 import kotlinx.coroutines.delay
@@ -104,7 +105,7 @@ private fun StoreTile(background: Color, foreground: Color, mark: String) {
 @Composable
 private fun StoreTile(store: Store) {
     val (bg, fg, mark) = brand(store)
-    StoreTile(bg, fg, mark)
+    StoreLogo(store.company, 40.dp) { StoreTile(bg, fg, mark) }
 }
 
 /** Settings for store accounts: each chain on its own row with its connected accounts. */
@@ -210,7 +211,7 @@ fun StoreConnectionsScreen(onBack: () -> Unit, onConnect: (Store, Boolean) -> Un
             item {
                 GlassCard {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        StoreTile(Color(0xFF0B3D91), Color.White, "N+")
+                        StoreLogo("Netto", 40.dp) { StoreTile(Color(0xFF0B3D91), Color.White, "N+") }
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Text("Netto+, Bilka+, Føtex+", style = MaterialTheme.typography.titleMedium)
                             Text("Coming later — share receipts from the app for now", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

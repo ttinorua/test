@@ -60,6 +60,7 @@ import com.financetracker.app.ui.components.CategoryIconTile
 import com.financetracker.app.ui.components.EmptyState
 import com.financetracker.app.ui.components.GlassCard
 import com.financetracker.app.ui.components.IconTile
+import com.financetracker.app.ui.components.StoreLogo
 import com.financetracker.app.ui.theme.ExpenseRed
 import com.financetracker.app.util.Formatters
 import com.financetracker.app.util.ShoppingStats
@@ -275,7 +276,7 @@ fun ShoppingTab(viewModel: ShoppingViewModel, onOpenReceipt: (Long) -> Unit, mod
             items(state.receipts, key = { it.id }) { receipt ->
                 GlassCard(onClick = { onOpenReceipt(receipt.id) }) {
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconTile(Icons.Filled.Storefront, MaterialTheme.colorScheme.primary, 32.dp)
+                        StoreLogo(receipt.storeName, 32.dp) { IconTile(Icons.Filled.Storefront, MaterialTheme.colorScheme.primary, 32.dp) }
                         Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                             Text(receipt.storeName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
@@ -310,7 +311,7 @@ private fun LinesCard(lines: List<ShoppingStats.Line>, view: ShoppingView, curre
             if (i > 0) HorizontalDivider()
             Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 when (view) {
-                    ShoppingView.STORE -> IconTile(Icons.Filled.Storefront, MaterialTheme.colorScheme.primary, 32.dp)
+                    ShoppingView.STORE -> StoreLogo(line.label, 32.dp) { IconTile(Icons.Filled.Storefront, MaterialTheme.colorScheme.primary, 32.dp) }
                     else -> CategoryIconTile(line.categoryId, line.label.takeIf { line.categoryId != null }, line.mainCategory, line.colorHex, size = 32.dp)
                 }
                 Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {

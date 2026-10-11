@@ -50,6 +50,7 @@ import com.financetracker.app.ui.components.CategoryIconTile
 import com.financetracker.app.ui.components.CategoryPickerDialog
 import com.financetracker.app.ui.components.GlassCard
 import com.financetracker.app.ui.components.IconTile
+import com.financetracker.app.ui.components.StoreLogo
 import com.financetracker.app.ui.theme.IncomeGreen
 import com.financetracker.app.util.CategoryFilter
 import com.financetracker.app.util.Formatters
@@ -168,7 +169,7 @@ fun ReceiptScreen(viewModel: ReceiptViewModel, onBack: () -> Unit) {
             item {
                 GlassCard {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconTile(Icons.AutoMirrored.Filled.ReceiptLong, MaterialTheme.colorScheme.primary, 40.dp)
+                        StoreLogo(receipt.storeName, 40.dp) { IconTile(Icons.AutoMirrored.Filled.ReceiptLong, MaterialTheme.colorScheme.primary, 40.dp) }
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Text(receipt.storeName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(

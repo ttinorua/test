@@ -31,7 +31,7 @@ class RemaReceiptTest {
         assertEquals(47.50, r.total, 0.001)
         assertEquals(5.00, r.discount, 0.001)
         assertEquals(2, r.items.size)
-        assertEquals("SKRABEÆG 10 STK", r.items[0].name)
+        assertEquals("SKRABEÆG", r.items[0].name) // shelfText2 left out, as on REMA's receipt
         // 30 - 5 discount + 20 + 2.50 deposit = 47.50: the reading with deposit adds up.
         assertEquals(25.00, r.items[0].amount, 0.001)
         assertEquals(22.50, r.items[1].amount, 0.001)
@@ -72,5 +72,28 @@ class RemaReceiptTest {
         assertTrue(forms.contains("?sinceDate=2025-10-09T16%3A42%3A10Z"))
         assertTrue(forms.contains("?sinceDate=2025-10-09"))
         assertTrue(forms.contains("?since=1760028130000"))
+    }
+
+    @Test
+    fun `amounts in øre, as REMA sends them, become kroner`() {
+        // The real receipt: total 181,68 kr. sent as 18168; Salty Mix 20,00 as 2000.
+        val body = """[{"id": 7, "paymentDate": "2026-09-05T16:15:24Z", "totalPrice": 18168, "totalPriceString": "181,68",
+            "totalDiscount": 0, "items": [
+              {"shelfText1": "SALTY MIX", "shelfText2": "PREMIUM NØDDER", "prices": [{"price": 2000, "quantity": 1, "discount": 0, "deposit": 0}]},
+              {"shelfText1": "ØKO. KIWI", "shelfText2": "LAND/KL.: SE VAREN", "prices": [{"price": 16168, "quantity": 1, "discount": 0, "deposit": 0}]}
+            ]}]"""
+        val r = Rema1000.parseReceipts(body).single().receipt
+        assertEquals(181.68, r.total, 0.001)
+        assertEquals(20.00, r.items[0].amount, 0.001)
+        assertEquals("SALTY MIX", r.items[0].name)
+        assertEquals("ØKO. KIWI", r.items[1].name)
+    }
+
+    @Test
+    fun `the scale follows totalPriceString, else whole numbers mean øre`() {
+        assertEquals(100.0, Rema1000.scale(18168, "181,68"), 0.0)
+        assertEquals(1.0, Rema1000.scale(181.68, "181,68"), 0.0)
+        assertEquals(100.0, Rema1000.scale(18168, null), 0.0)
+        assertEquals(1.0, Rema1000.scale(47.5, null), 0.0)
     }
 }

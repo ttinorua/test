@@ -245,9 +245,11 @@ class Rema1000 : StoreConnector {
             val id = StoreJson.text(r, "id") ?: StoreJson.text(r, "displayId") ?: StoreJson.text(r, "receiptId")
                 ?: throw IllegalStateException("No receipt id.")
             val at = time(r, "paymentDate", "purchaseDate", "date", "createdAt") ?: throw IllegalStateException("No date.")
+            val rawTotal = listOf("totalPrice", "total", "amount").firstOrNull { r.has(it) && !r.isNull(it) }?.let { r.opt(it) }
+            val scale = scale(rawTotal, StoreJson.text(r, "totalPriceString"))
             val lines = ITEM_KEYS.firstNotNullOfOrNull { r.optJSONArray(it) } ?: JSONArray()
-            val parsed = (0 until lines.length()).mapNotNull { i -> lines.optJSONObject(i)?.let(::line) }
-            val total = StoreJson.number(r, "totalPrice") ?: StoreJson.number(r, "total") ?: StoreJson.number(r, "amount")
+            val parsed = (0 until lines.length()).mapNotNull { i -> lines.optJSONObject(i)?.let { line(it, scale) } }
+            val total = (StoreJson.number(r, "totalPrice") ?: StoreJson.number(r, "total") ?: StoreJson.number(r, "amount"))?.div(scale)
             val items = amounts(parsed, total)
             val store = r.optJSONObject("store")
             val storeName = (StoreJson.text(store, "name") ?: StoreJson.text(r, "storeName"))
@@ -257,7 +259,7 @@ class Rema1000 : StoreConnector {
                     storeName = storeName,
                     purchasedAt = at,
                     total = total ?: items.sumOf { it.amount },
-                    discount = StoreJson.number(r, "totalDiscount")?.let { abs(it) } ?: items.sumOf { it.discount },
+                    discount = StoreJson.number(r, "totalDiscount")?.let { abs(it) / scale } ?: items.sumOf { it.discount },
                     receiptNumber = "rema:$id",
                     items = items
                 )
@@ -267,19 +269,34 @@ class Rema1000 : StoreConnector {
         /** One receipt line as found: its text and summed price parts (a line can have several). */
         private class Line(val name: String, val price: Double, val deposit: Double, val discount: Double, val quantity: Double)
 
-        private fun line(o: JSONObject): Line? {
-            val name = listOfNotNull(StoreJson.text(o, "shelfText1"), StoreJson.text(o, "shelfText2"))
-                .joinToString(" ").ifEmpty { null }
+        /**
+         * What the amounts are counted in. REMA sends øre as whole numbers (181,68 kr. is 18168),
+         * so a whole-number total means øre; totalPriceString ("181,68"), when present, settles it.
+         */
+        internal fun scale(rawTotal: Any?, totalString: String?): Double {
+            val shown = totalString?.trim()?.takeIf { Regex("^-?\\d+([.,]\\d{1,2})?$").matches(it) }?.replace(',', '.')?.toDoubleOrNull()
+            val total = (rawTotal as? Number)?.toDouble() ?: (rawTotal as? String)?.toDoubleOrNull()
+            if (shown != null && total != null) {
+                if (abs(total - shown) < 0.005) return 1.0
+                if (abs(total - shown * 100) < 0.5) return 100.0
+            }
+            return if (rawTotal is Int || rawTotal is Long) 100.0 else 1.0
+        }
+
+        private fun line(o: JSONObject, scale: Double): Line? {
+            // shelfText1 is the product as on the printed receipt; shelfText2 is a second shelf
+            // label line (origin, class, brand), which REMA's own receipt leaves out.
+            val name = StoreJson.text(o, "shelfText1") ?: StoreJson.text(o, "shelfText2")
                 ?: StoreJson.text(o, "name") ?: StoreJson.text(o, "description") ?: StoreJson.text(o, "text") ?: return null
             val parts = (o.optJSONArray("prices") ?: o.optJSONArray("priceItems"))
                 ?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } } ?: listOf(o)
-            val price = parts.sumOf { StoreJson.number(it, "price") ?: StoreJson.number(it, "amount") ?: 0.0 }
+            val price = parts.sumOf { StoreJson.number(it, "price") ?: StoreJson.number(it, "amount") ?: 0.0 } / scale
             if (price == 0.0) return null
             return Line(
                 name.trim().take(80),
                 price,
-                parts.sumOf { abs(StoreJson.number(it, "deposit") ?: 0.0) },
-                parts.sumOf { abs(StoreJson.number(it, "discount") ?: 0.0) },
+                parts.sumOf { abs(StoreJson.number(it, "deposit") ?: 0.0) } / scale,
+                parts.sumOf { abs(StoreJson.number(it, "discount") ?: 0.0) } / scale,
                 parts.sumOf { StoreJson.number(it, "quantity") ?: 0.0 }.takeIf { it > 0 } ?: 1.0
             )
         }

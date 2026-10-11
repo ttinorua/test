@@ -72,6 +72,7 @@ interface StoreConnector {
             Store.NETTO -> Salling.netto()
             Store.BILKA -> Salling.bilka()
             Store.FOETEX -> Salling.foetex()
+            Store.REMA -> Rema1000()
             Store.COOP -> null
         }
     }

@@ -116,6 +116,7 @@ private fun brand(store: Store): Triple<Color, Color, String> = when (store) {
     Store.NETTO -> Triple(Color(0xFFFCD700), Color(0xFF1D1D1B), "N+")
     Store.BILKA -> Triple(Color(0xFF0066B3), Color.White, "B+")
     Store.FOETEX -> Triple(Color(0xFF0A2240), Color.White, "F+")
+    Store.REMA -> Triple(Color(0xFF0A3B8C), Color.White, "R")
     Store.COOP -> Triple(Color(0xFFE2001A), Color.White, "coop")
 }
 
@@ -249,7 +250,8 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
             }
             item {
                 Text(
-                    "REMA 1000 can't be connected — share or photograph its receipts. You sign in on each store's own page; " +
+                    "REMA 1000 brings in only Scan Selv purchases (other REMA receipts aren't digital: photograph them). " +
+                        "You sign in on each store's own page; " +
                         "the app keeps the store's sign-in (encrypted on this phone), never your password. Stores can change " +
                         "their systems, so a connection may need signing in again now and then.",
                     style = MaterialTheme.typography.bodySmall,

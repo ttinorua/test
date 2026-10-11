@@ -67,6 +67,18 @@ class Salling private constructor(
         })(${JSONObject.quote(password)});
     """.trimIndent()
 
+    /** A turned-down sign-in shows as a small red line under the password box (error 403042,
+     * "Ugyldig login eller adgangskode", for a wrong e-mail or password). */
+    override fun loginErrorScript(): String = """
+        (function() {
+          var screen = document.getElementById('gigya-login-screen');
+          if (!screen || screen.offsetParent === null) return '';
+          var error = screen.querySelector('.gigya-error-msg-active, .gigya-error-display-active');
+          if (!error || !error.textContent.trim()) return '';
+          return error.className.indexOf('403042') >= 0 ? 'invalid' : error.textContent.trim();
+        })();
+    """.trimIndent()
+
     /** The login finishes at http://localhost with the one-time code in the query or the fragment. */
     override fun captureFromUrl(url: String): String? {
         if (!url.startsWith(REDIRECT)) return null

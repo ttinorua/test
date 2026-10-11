@@ -32,6 +32,11 @@ interface StoreConnector {
      * while the page isn't ready. Null when the password is typed on the page itself. */
     fun fillPasswordScript(password: String): String? = null
 
+    /** JavaScript run on the login page after [fillPasswordScript] has signed in, to notice that
+     * the store turned the sign-in down. Returns "" while there's no error, "invalid" for a wrong
+     * e-mail or password, else the page's own error text. */
+    fun loginErrorScript(): String? = null
+
     /** The store's login page to open ([LoginMode.WEBVIEW] only). [emailHint] prefills the
      * e-mail/phone for stores that require it in the address (see [needsEmailFirst]). */
     fun loginUrl(emailHint: String? = null): String = ""

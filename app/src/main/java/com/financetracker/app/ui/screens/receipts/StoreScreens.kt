@@ -105,6 +105,10 @@ import kotlin.coroutines.resume
 
 private fun receiptCountText(count: Int) = if (count == 1) "1 receipt" else "$count receipts"
 
+/** The string a page script returned, from the JSON evaluateJavascript hands back ("\"done\""). */
+private fun jsString(json: String?): String? =
+    runCatching { org.json.JSONTokener(json ?: return null).nextValue() as? String }.getOrNull()
+
 /** A store's colours and short mark, for its tile. */
 private fun brand(store: Store): Triple<Color, Color, String> = when (store) {
     Store.LIDL -> Triple(Color(0xFF0050AA), Color(0xFFFFF000), "L+")
@@ -396,10 +400,26 @@ class StoreConnectViewModel(
      * ([StoreConnector.fillPasswordScript]); handed to the login window once, never stored. */
     private var password: String? = null
 
+    /** The last e-mail entered, to fill the form in again after a turned-down sign-in. */
+    var lastEmail: String = ""
+        private set
+
     fun setEmailHint(email: String, password: String? = null) {
         if (email.isBlank()) return
+        _error.value = null
+        lastEmail = email.trim()
         this.password = password?.takeIf { it.isNotEmpty() }
         _emailHint.value = email.trim()
+    }
+
+    /** The store's page turned the sign-in down ([StoreConnector.loginErrorScript]): back to the
+     * e-mail and password form with the reason. */
+    fun loginRejected(reason: String) {
+        if (_step.value != ConnectStep.LOGIN) return
+        password = null
+        _error.value = if (reason == "invalid") "${store.company} says the e-mail or password is wrong. Check them and try again."
+            else "${store.company}'s login page says: $reason"
+        _emailHint.value = null
     }
 
     /** The typed password, once; it's forgotten here as soon as the login window has it. */
@@ -598,6 +618,8 @@ fun StoreConnectScreen(viewModel: StoreConnectViewModel, another: Boolean, onClo
                 EmailPrompt(
                     store = store,
                     askPassword = viewModel.connector?.fillPasswordScript("") != null,
+                    initialEmail = viewModel.lastEmail,
+                    error = error,
                     onSubmit = viewModel::setEmailHint,
                     modifier = Modifier.fillMaxSize().padding(padding)
                 )
@@ -610,6 +632,7 @@ fun StoreConnectScreen(viewModel: StoreConnectViewModel, another: Boolean, onClo
                         emailHint = emailHint,
                         password = password,
                         onCaptured = viewModel::captured,
+                        onRejected = viewModel::loginRejected,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -660,8 +683,15 @@ private fun Fact(title: String, detail: String) {
  * (Salling), and with [askPassword] the password too, which is filled into the store's own page
  * (its password box doesn't take typing well). Otherwise the password is typed on that page. */
 @Composable
-private fun EmailPrompt(store: Store, askPassword: Boolean, onSubmit: (String, String?) -> Unit, modifier: Modifier = Modifier) {
-    var email by remember { mutableStateOf("") }
+private fun EmailPrompt(
+    store: Store,
+    askPassword: Boolean,
+    initialEmail: String,
+    error: String?,
+    onSubmit: (String, String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var email by remember { mutableStateOf(initialEmail) }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     val canSubmit = email.isNotBlank() && (!askPassword || password.isNotEmpty())
@@ -704,6 +734,7 @@ private fun EmailPrompt(store: Store, askPassword: Boolean, onSubmit: (String, S
                 modifier = Modifier.fillMaxWidth()
             )
         }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         Button(onClick = submit, enabled = canSubmit, modifier = Modifier.fillMaxWidth()) {
             Text("Continue to ${store.company} login")
             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.padding(start = 8.dp).size(18.dp))
@@ -789,12 +820,14 @@ private fun StoreLoginWebView(
     emailHint: String? = null,
     password: String? = null,
     onCaptured: (String) -> Unit,
+    onRejected: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     // Always call the latest callback without rebuilding the WebView — rebuilding it, or recomposing
     // this composable while typing, is what makes the text cursor jump back to the start.
     val captured by rememberUpdatedState(onCaptured)
+    val rejected by rememberUpdatedState(onRejected)
 
     fun checkCookies(agent: String?) {
         val url = connector.cookieUrl ?: return
@@ -841,16 +874,25 @@ private fun StoreLoginWebView(
         }
     }
 
-    // A password typed in the app: put it into the store's page once its login form is showing.
-    // Only for about a minute; after that (or if the page shows something else) it's typed there.
+    // A password typed in the app: put it into the store's page once its login form is showing
+    // (for about a minute; after that, or if the page shows something else, it's typed there).
+    // Then watch the page: a turned-down sign-in only shows as a small line on it, so the app
+    // goes back to its own form with the reason instead of seeming stuck.
     LaunchedEffect(Unit) {
-        val script = password?.let { connector.fillPasswordScript(it) } ?: return@LaunchedEffect
-        repeat(120) {
+        suspend fun run(script: String): String? = suspendCancellableCoroutine { cont ->
+            webView.evaluateJavascript(script) { cont.resume(jsString(it)) }
+        }
+        val fill = password?.let { connector.fillPasswordScript(it) } ?: return@LaunchedEffect
+        var filled = false
+        for (i in 0 until 120) {
             delay(500)
-            val result = suspendCancellableCoroutine { cont ->
-                webView.evaluateJavascript(script) { cont.resume(it) }
-            }
-            if (result?.contains("done") == true) return@LaunchedEffect
+            if (run(fill) == "done") { filled = true; break }
+        }
+        val check = connector.loginErrorScript()
+        if (!filled || check == null) return@LaunchedEffect
+        for (i in 0 until 240) {
+            delay(500)
+            run(check)?.takeIf { it.isNotEmpty() }?.let { rejected(it); return@LaunchedEffect }
         }
     }
 

@@ -22,6 +22,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Fetches receipts from the connected store accounts: the last 12 months when an account is
  * connected, then what's new after each bank sync. */
@@ -35,13 +37,17 @@ object StoreSync {
     /** Accounts being fetched right now. */
     val running: StateFlow<Set<String>> = _running
 
+    /** One fetch at a time: two at once would both renew the same sign-in, and a store that allows
+     * each renewal only once then rejects the second and signs the account out. */
+    private val lock = Mutex()
+
     /** Fetches every connected account (or just [accountId]); returns how many receipts were new. */
-    suspend fun syncAll(context: Context, repository: FinanceRepository, accountId: String? = null): Int {
+    suspend fun syncAll(context: Context, repository: FinanceRepository, accountId: String? = null): Int = lock.withLock {
         var added = 0
         StoreAccounts.load(context).filter { accountId == null || it.id == accountId }.forEach { account ->
             added += sync(context, repository, account)
         }
-        return added
+        added
     }
 
     private suspend fun sync(context: Context, repository: FinanceRepository, account: StoreAccount): Int {
@@ -66,10 +72,11 @@ object StoreSync {
             return saved
         } catch (e: CancellationException) {
             throw e
-        } catch (e: StoreLoginExpired) {
-            StoreAccounts.update(context, account.id) { it.copy(problem = "Sign in again") }
         } catch (e: Exception) {
-            StoreAccounts.update(context, account.id) { it.copy(problem = "Couldn't fetch receipts (${e.message ?: "no connection"})") }
+            val renewed = (e as? StoreFetchFailed)?.secret
+            val failure = (e as? StoreFetchFailed)?.cause ?: e
+            val problem = if (failure is StoreLoginExpired) "Sign in again" else "Couldn't fetch receipts (${failure.message ?: "no connection"})"
+            StoreAccounts.update(context, account.id) { it.copy(secret = renewed ?: it.secret, problem = problem) }
         } finally {
             _running.value = _running.value - account.id
         }

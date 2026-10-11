@@ -58,3 +58,7 @@ data class StoreAccount(
 data class StoreReceipt(val receipt: ParsedReceipt, val hints: List<String?> = emptyList())
 
 class StoreLoginExpired(message: String) : Exception(message)
+
+/** A fetch that failed after the store had already renewed the sign-in. [secret] is the renewed
+ * sign-in and must be kept: the old one stops working once it has been renewed. */
+class StoreFetchFailed(val secret: String, cause: Exception) : Exception(cause.message, cause)

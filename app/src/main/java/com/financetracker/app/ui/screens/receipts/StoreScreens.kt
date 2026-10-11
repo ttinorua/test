@@ -3,6 +3,7 @@ package com.financetracker.app.ui.screens.receipts
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -747,6 +748,9 @@ private fun StoreLoginWebView(connector: StoreConnector, emailHint: String? = nu
             settings.builtInZoomControls = true
             settings.displayZoomControls = false
             isFocusableInTouchMode = true
+            // The phone's password manager hooks into the page's password box on every key press,
+            // which on some phones (Samsung) puts the cursor back at the start. Typing works without it.
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
             webChromeClient = WebChromeClient()

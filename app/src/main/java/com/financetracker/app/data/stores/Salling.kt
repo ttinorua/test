@@ -4,6 +4,7 @@ import android.net.Uri
 import android.util.Base64
 import com.financetracker.app.data.ai.ParsedReceipt
 import com.financetracker.app.data.ai.ParsedReceiptItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -63,24 +64,43 @@ class Salling private constructor(
     }
 
     override suspend fun fetch(secret: String, since: Long): Pair<List<StoreReceipt>, String> = withContext(Dispatchers.IO) {
-        val refreshToken = JSONObject(secret).optString("refresh").ifEmpty {
-            throw StoreLoginExpired("$brandName wants you to sign in again.")
+        val stored = Tokens.from(secret)
+        if (stored.refresh.isEmpty() && !stored.usable()) throw StoreLoginExpired("$brandName wants you to sign in again.")
+        // Like the Netto+ app: use the access token while it's valid and renew only when needed.
+        // Each renewal replaces the refresh token and the old one stops working.
+        var tokens = if (stored.usable()) stored else renew(stored)
+        try {
+            val http = StoreHttp(AGENT)
+            var listResp = http.request("GET", "$BACKEND/api/cp/receipt", backendHeaders(tokens))
+            if (tokens === stored && stored.refresh.isNotEmpty() && looksExpired(listResp)) {
+                tokens = renew(stored)
+                listResp = http.request("GET", "$BACKEND/api/cp/receipt", backendHeaders(tokens))
+            }
+            // Surface the server's own message (status + a snippet) so a rejected request can be
+            // diagnosed instead of showing a bare "sign in again".
+            if (!listResp.ok) throw IllegalStateException("$brandName receipts HTTP ${listResp.status}: ${snippet(listResp.body)}")
+            val headers = backendHeaders(tokens)
+            val wanted = parseList(listResp.body).filter { it.postingAt >= since }
+            val receipts = wanted.mapNotNull { summary ->
+                val query = "receiptId=${enc(summary.id)}" + (summary.type?.let { "&type=${enc(it)}" } ?: "")
+                val detail = http.request("GET", "$BACKEND/api/cp/receipt/details?$query", headers)
+                if (!detail.ok) null else runCatching { parseDetails(brandName, summary, detail.body) }.getOrNull()
+            }
+            receipts to tokens.secret()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // The sign-in was renewed before this failed: hand the new one back so it's kept.
+            if (tokens !== stored) throw StoreFetchFailed(tokens.secret(), e) else throw e
         }
-        val tokens = token("grant_type" to "refresh_token", "refresh_token" to refreshToken, "client_id" to CLIENT_ID)
-        val http = StoreHttp(AGENT)
-        val headers = backendHeaders(tokens)
-        val listResp = http.request("GET", "$BACKEND/api/cp/receipt", headers)
-        // Surface the server's own message (status + a snippet) so a rejected request can be
-        // diagnosed instead of showing a bare "sign in again".
-        if (!listResp.ok) throw IllegalStateException("$brandName receipts HTTP ${listResp.status}: ${snippet(listResp.body)}")
-        val wanted = parseList(listResp.body).filter { it.postingAt >= since }
-        val receipts = wanted.mapNotNull { summary ->
-            val query = "receiptId=${enc(summary.id)}" + (summary.type?.let { "&type=${enc(it)}" } ?: "")
-            val detail = http.request("GET", "$BACKEND/api/cp/receipt/details?$query", headers)
-            if (!detail.ok) null else runCatching { parseDetails(brandName, summary, detail.body) }.getOrNull()
-        }
-        receipts to tokens.secret()
     }
+
+    private fun renew(stored: Tokens): Tokens =
+        token("grant_type" to "refresh_token", "refresh_token" to stored.refresh, "client_id" to CLIENT_ID)
+
+    /** The backend says the access token has run out (the app then renews it and retries). */
+    private fun looksExpired(resp: StoreHttp.Response) =
+        resp.status == 401 || (!resp.ok && resp.body.contains("Expired", ignoreCase = true))
 
     /** Access, id and refresh tokens from Salling's token service. */
     private fun token(vararg fields: Pair<String, String>): Tokens {
@@ -88,13 +108,18 @@ class Salling private constructor(
         val resp = StoreHttp(AGENT).request(
             "POST", "$TOKEN/token", mapOf("Accept" to "application/json"), body, "application/x-www-form-urlencoded"
         )
+        // invalid_grant: the code or refresh token is used up or revoked; only a new sign-in helps.
+        if (resp.status == 400 && resp.body.contains("invalid_grant")) throw StoreLoginExpired("$brandName wants you to sign in again.")
         if (!resp.ok) throw IllegalStateException("$brandName token HTTP ${resp.status}: ${snippet(resp.body)}")
         val json = JSONObject(resp.body)
         val access = json.firstString("access_token", "accessToken")
         val id = json.firstString("id_token", "idToken")
         val refresh = json.firstString("refresh_token", "refreshToken").ifEmpty { fields.toMap()["refresh_token"].orEmpty() }
         if (access.isEmpty() && id.isEmpty()) throw StoreLoginExpired("$brandName didn't return a sign-in.")
-        return Tokens(access, id, refresh)
+        val lifetime = json.optLong("expires_in", json.optLong("expiresIn", 0L))
+        val expires = if (lifetime > 0) System.currentTimeMillis() + lifetime * 1000
+            else jwtClaim(access.ifEmpty { id }, "exp")?.toLongOrNull()?.let { it * 1000 } ?: 0L
+        return Tokens(access, id, refresh, expires)
     }
 
     /** The headers the Salling backend expects; without them it answers 401. */
@@ -117,13 +142,24 @@ class Salling private constructor(
         )
         if (tokens.id.isNotEmpty()) {
             headers["x-id_token"] = "Bearer ${tokens.id}"
-            jwtSub(tokens.id)?.let { headers["x-idpid"] = it }
+            jwtClaim(tokens.id, "sub")?.let { headers["x-idpid"] = it }
         }
         return headers
     }
 
-    private class Tokens(val access: String, val id: String, val refresh: String) {
-        fun secret(): String = JSONObject().put("refresh", refresh).toString()
+    /** The sign-in kept (encrypted) on the phone. [expires] is when the access token runs out. */
+    private class Tokens(val access: String, val id: String, val refresh: String, val expires: Long) {
+        fun usable() = (access.isNotEmpty() || id.isNotEmpty()) && expires > System.currentTimeMillis() + 60_000
+
+        fun secret(): String = JSONObject()
+            .put("refresh", refresh).put("access", access).put("id", id).put("expires", expires)
+            .toString()
+
+        companion object {
+            fun from(secret: String): Tokens = JSONObject(secret).let {
+                Tokens(it.optString("access"), it.optString("id"), it.optString("refresh"), it.optLong("expires", 0L))
+            }
+        }
     }
 
     /** One receipt from the list, enough to decide whether to fetch its details. */
@@ -157,11 +193,11 @@ class Salling private constructor(
             return ""
         }
 
-        /** The "sub" claim of a JWT (the account id the backend wants in x-idpid). */
-        private fun jwtSub(jwt: String): String? = runCatching {
+        /** One claim of a JWT, e.g. "sub" (the account id the backend wants in x-idpid) or "exp". */
+        private fun jwtClaim(jwt: String, claim: String): String? = runCatching {
             val payload = jwt.split('.').getOrNull(1) ?: return null
             val json = String(Base64.decode(payload, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))
-            JSONObject(json).optString("sub").takeIf { it.isNotEmpty() }
+            JSONObject(json).optString(claim).takeIf { it.isNotEmpty() }
         }.getOrNull()
 
         /** Epoch seconds or millis → millis; 0 or missing → null. */

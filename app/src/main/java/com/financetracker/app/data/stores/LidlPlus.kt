@@ -4,6 +4,7 @@ import android.net.Uri
 import android.util.Base64
 import com.financetracker.app.data.ai.ParsedReceipt
 import com.financetracker.app.data.ai.ParsedReceiptItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -51,6 +52,17 @@ class LidlPlus : StoreConnector {
 
     override suspend fun fetch(secret: String, since: Long): Pair<List<StoreReceipt>, String> = withContext(Dispatchers.IO) {
         val (access, refresh) = token("grant_type" to "refresh_token", "refresh_token" to secret)
+        try {
+            fetchTickets(access, since) to refresh
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // The refresh token was renewed (the old one is used up): hand it back so it's kept.
+            throw StoreFetchFailed(refresh, e)
+        }
+    }
+
+    private fun fetchTickets(access: String, since: Long): List<StoreReceipt> {
         val http = StoreHttp(AGENT)
         // The full set of headers the Lidl Plus app sends with the tickets request; the service
         // rejects the request (401) without them.
@@ -87,11 +99,10 @@ class LidlPlus : StoreConnector {
             if (older || tickets.length() == 0 || page * size >= total) break
             page++
         }
-        val receipts = ids.mapNotNull { id ->
+        return ids.mapNotNull { id ->
             val response = http.request("GET", "$TICKETS/v3/$COUNTRY/tickets/$id", headers)
             if (!response.ok) null else runCatching { parseTicket(JSONObject(response.body), id) }.getOrNull()
         }
-        receipts to refresh
     }
 
     /** Access and refresh token from Lidl's token service. */

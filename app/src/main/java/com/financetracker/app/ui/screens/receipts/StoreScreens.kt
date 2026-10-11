@@ -111,6 +111,7 @@ private fun brand(store: Store): Triple<Color, Color, String> = when (store) {
     Store.NEMLIG -> Triple(Color(0xFFE8642C), Color.White, "n")
     Store.NETTO -> Triple(Color(0xFFFCD700), Color(0xFF1D1D1B), "N+")
     Store.BILKA -> Triple(Color(0xFF0066B3), Color.White, "B+")
+    Store.FOETEX -> Triple(Color(0xFF0A2240), Color.White, "F+")
     Store.COOP -> Triple(Color(0xFFE2001A), Color.White, "coop")
 }
 
@@ -238,17 +239,6 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
                                 )
                             }
                             if (store.available) OutlinedButton(onClick = { onConnect(store, false) }) { Text("Connect") }
-                        }
-                    }
-                }
-            }
-            item {
-                GlassCard {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        StoreLogo("Føtex", 40.dp) { StoreTile(Color(0xFF0A2240), Color.White, "F+") }
-                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                            Text("Føtex+", style = MaterialTheme.typography.titleMedium)
-                            Text("Coming later — share receipts from the app for now", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

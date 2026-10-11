@@ -26,7 +26,10 @@ class Salling private constructor(
     override val store: Store,
     private val tenantId: String,
     private val tenantAlias: String,
-    private val brandName: String
+    private val brandName: String,
+    /** Where sign-in codes are swapped for tokens: the Netto+ and Bilka+ apps use idp.dsgapps.dk,
+     * the Føtex+ app p-idp.dsgapps.dk (the same sign-in service, answering the same way). */
+    private val tokenHost: String = TOKEN
 ) : StoreConnector {
 
     private val verifier: String = ByteArray(48).also { SecureRandom().nextBytes(it) }
@@ -124,7 +127,7 @@ class Salling private constructor(
     private fun token(vararg fields: Pair<String, String>): Tokens {
         val body = fields.joinToString("&") { (k, v) -> "${enc(k)}=${enc(v)}" }.toByteArray()
         val resp = StoreHttp(AGENT).request(
-            "POST", "$TOKEN/token", mapOf("Accept" to "application/json"), body, "application/x-www-form-urlencoded"
+            "POST", "$tokenHost/token", mapOf("Accept" to "application/json"), body, "application/x-www-form-urlencoded"
         )
         // invalid_grant: the code or refresh token is used up or revoked; only a new sign-in helps.
         if (resp.status == 400 && resp.body.contains("invalid_grant")) throw StoreLoginExpired("$brandName wants you to sign in again.")
@@ -192,10 +195,12 @@ class Salling private constructor(
         private const val APP_VERSION = "2.9.5.1090"
         private const val AGENT = "okhttp/4.12.0"
 
-        /** Netto+ and Bilka+: the same login and backend, each with its own tenant id/alias (from
-         * the stores' apps; the login page confirms 4 is Netto and 2 is Bilka). Føtex+ (3) is next. */
+        /** Netto+, Bilka+ and Føtex+: the same login and backend, each with its own tenant id and
+         * alias (the aliases from the stores' apps; Salling's login page names 4 Netto, 2 Bilka and
+         * 3 Føtex). */
         fun netto() = Salling(Store.NETTO, tenantId = "4", tenantAlias = "TID-2Y7JRG", brandName = "Netto")
         fun bilka() = Salling(Store.BILKA, tenantId = "2", tenantAlias = "TID-BZ929S", brandName = "Bilka")
+        fun foetex() = Salling(Store.FOETEX, tenantId = "3", tenantAlias = "TID-F86K6Y", brandName = "Føtex", tokenHost = LOGIN)
 
         private fun enc(v: String) = URLEncoder.encode(v, "UTF-8")
 

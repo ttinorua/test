@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financetracker.app.data.stores.Store
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.Receipt
@@ -301,5 +302,5 @@ fun ReceiptScreen(viewModel: ReceiptViewModel, onBack: () -> Unit) {
 internal fun sourceLabel(source: String): String = when (source) {
     "share" -> "shared"
     "photo" -> "photo"
-    else -> "from ${source.replaceFirstChar { it.uppercase() }}"
+    else -> "from ${Store.byId(source)?.company ?: source.replaceFirstChar { it.uppercase() }}"
 }

@@ -69,6 +69,10 @@ interface ReceiptDao {
     @Update
     suspend fun updateItem(item: ReceiptItem)
 
+    /** Every receipt from one source, e.g. all "lidl" receipts. For disconnecting a store. */
+    @Query("DELETE FROM receipts WHERE source = :source")
+    suspend fun deleteFromSource(source: String)
+
     @Query("DELETE FROM receipts WHERE id = :id")
     suspend fun deleteReceipt(id: Long)
 

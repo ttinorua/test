@@ -283,6 +283,7 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("store_connections") {
                             StoreConnectionsScreen(
+                                repository = repository,
                                 onBack = { navController.popBackStack() },
                                 onConnect = { store, another -> navController.navigate("store_connect/${store.id}/$another") }
                             )
@@ -293,8 +294,9 @@ class MainActivity : ComponentActivity() {
                         ) { entry ->
                             val args = entry.arguments!!
                             val store = Store.byId(args.getString("store")!!) ?: Store.LIDL
-                            val vm: StoreConnectViewModel = viewModel(factory = ViewModelFactory { StoreConnectViewModel(repository, applicationContext, store) })
-                            StoreConnectScreen(vm, another = args.getBoolean("another"), onClose = { navController.popBackStack() })
+                            val another = args.getBoolean("another")
+                            val vm: StoreConnectViewModel = viewModel(factory = ViewModelFactory { StoreConnectViewModel(repository, applicationContext, store, another) })
+                            StoreConnectScreen(vm, another = another, onClose = { navController.popBackStack() })
                         }
                         composable("receipt_import") {
                             val pending = remember { ReceiptNav.pendingImport.also { ReceiptNav.pendingImport = null } }

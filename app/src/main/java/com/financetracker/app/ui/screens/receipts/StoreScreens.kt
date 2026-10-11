@@ -54,6 +54,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +75,7 @@ import com.financetracker.app.data.stores.Store
 import com.financetracker.app.data.stores.StoreAccount
 import com.financetracker.app.data.stores.StoreAccounts
 import com.financetracker.app.data.stores.StoreConnector
+import com.financetracker.app.data.stores.StoreConsents
 import com.financetracker.app.data.stores.StoreSync
 import com.financetracker.app.ui.components.GlassCard
 import com.financetracker.app.ui.components.StoreLogo
@@ -111,12 +113,16 @@ private fun StoreTile(store: Store) {
 /** Settings for store accounts: each chain on its own row with its connected accounts. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StoreConnectionsScreen(onBack: () -> Unit, onConnect: (Store, Boolean) -> Unit) {
+fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, onConnect: (Store, Boolean) -> Unit) {
     val context = LocalContext.current
-    LaunchedEffect(Unit) { StoreAccounts.load(context) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { StoreAccounts.load(context); StoreConsents.load(context) }
     val accounts by StoreAccounts.accounts.collectAsState()
+    val consents by StoreConsents.consents.collectAsState()
     val running by StoreSync.running.collectAsState()
     var managing by remember { mutableStateOf<StoreAccount?>(null) }
+    var disconnecting by remember { mutableStateOf<StoreAccount?>(null) }
+    var clearConsents by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -228,6 +234,39 @@ fun StoreConnectionsScreen(onBack: () -> Unit, onConnect: (Store, Boolean) -> Un
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            if (consents.isNotEmpty()) {
+                item {
+                    Column(Modifier.padding(top = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "YOUR CONSENTS",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { clearConsents = true }) { Text("Clear") }
+                        }
+                        GlassCard {
+                            consents.sortedByDescending { it.grantedAt }.forEachIndexed { i, consent ->
+                                if (i > 0) HorizontalDivider()
+                                Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            consent.store.label + if (consent.forAnother) " · another account" else "",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
+                                            "Agreed ${Formatters.syncTimestamp(consent.grantedAt)} · terms v${consent.textVersion}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -239,7 +278,7 @@ fun StoreConnectionsScreen(onBack: () -> Unit, onConnect: (Store, Boolean) -> Un
                 Text(
                     "${account.receiptCount} receipts fetched" +
                         (if (account.lastSyncAt > 0) ", last ${Formatters.syncTimestamp(account.lastSyncAt)}" else "") +
-                        ". Receipts are fetched again after every bank sync. Disconnecting keeps the receipts already fetched."
+                        ". Receipts are fetched again after every bank sync. When you disconnect, you choose whether to keep or delete the receipts already fetched."
                 )
             },
             confirmButton = {
@@ -258,17 +297,70 @@ fun StoreConnectionsScreen(onBack: () -> Unit, onConnect: (Store, Boolean) -> Un
             },
             dismissButton = {
                 TextButton(onClick = {
+                    disconnecting = account
                     managing = null
-                    StoreAccounts.remove(context, account.id)
                 }) { Text("Disconnect") }
             }
+        )
+    }
+
+    disconnecting?.let { account ->
+        // Receipts are stored per chain, not per account, so they can only be told apart (and
+        // offered for deletion) when this is the last account of that store.
+        val lastOfStore = accounts.count { it.store == account.store } <= 1
+        val close = { disconnecting = null }
+        val disconnect = { StoreAccounts.remove(context, account.id) }
+        if (lastOfStore) {
+            AlertDialog(
+                onDismissRequest = close,
+                title = { Text("Disconnect ${account.store.label}?") },
+                text = { Text("Keep the ${account.receiptCount} receipts already fetched, or delete them too? Either way, no more receipts are fetched.") },
+                confirmButton = {
+                    TextButton(onClick = { close(); disconnect() }) { Text("Keep receipts") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        close()
+                        disconnect()
+                        scope.launch { repository.deleteReceiptsFromSource(account.store.id) }
+                    }) { Text("Delete receipts") }
+                }
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = close,
+                title = { Text("Disconnect this account?") },
+                text = { Text("The fetched receipts stay, because another ${account.store.label} account is still connected and shares them. No more receipts are fetched for this account.") },
+                confirmButton = { TextButton(onClick = { close(); disconnect() }) { Text("Disconnect") } },
+                dismissButton = { TextButton(onClick = close) { Text("Cancel") } }
+            )
+        }
+    }
+
+    if (clearConsents) {
+        AlertDialog(
+            onDismissRequest = { clearConsents = false },
+            title = { Text("Clear consent records?") },
+            text = { Text("This removes the record of when you agreed to each store connection. It doesn't disconnect anything.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    clearConsents = false
+                    StoreConsents.clear(context)
+                }) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { clearConsents = false }) { Text("Cancel") } }
         )
     }
 }
 
 enum class ConnectStep { INTRO, CONSENT, LOGIN, FINISHING, DONE }
 
-class StoreConnectViewModel(private val repository: FinanceRepository, private val context: Context, val store: Store) : ViewModel() {
+class StoreConnectViewModel(
+    private val repository: FinanceRepository,
+    private val context: Context,
+    val store: Store,
+    private val forAnother: Boolean
+) : ViewModel() {
     val connector: StoreConnector? = StoreConnector.forStore(store)
 
     private val _step = MutableStateFlow(ConnectStep.INTRO)
@@ -300,6 +392,9 @@ class StoreConnectViewModel(private val repository: FinanceRepository, private v
         viewModelScope.launch {
             runCatching { connector!!.finishLogin(value) }
                 .onSuccess { secret ->
+                    // Record the consent (time, store, text version, own/partner) as proof, then
+                    // save the account and start fetching.
+                    StoreConsents.record(context, store, forAnother)
                     val account = StoreAccounts.add(context, store, secret)
                     StoreSync.enqueue(context, account.id)
                     _step.value = ConnectStep.DONE

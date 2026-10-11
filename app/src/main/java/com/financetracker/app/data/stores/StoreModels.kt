@@ -20,8 +20,22 @@ enum class Store(
 
     companion object {
         fun byId(id: String): Store? = entries.firstOrNull { it.id == id }
+
+        /** The consent text shown on the "What happens" screen. Bump this whenever that text
+         * changes, so each stored consent records which wording the person agreed to. */
+        const val CONSENT_VERSION = 1
     }
 }
+
+/** A record that the person agreed to fetch a store's receipts: when, which store, which version
+ * of the consent text, and whether it was their own account or someone else's (a partner's).
+ * Kept as proof of the consent, and not removed when the account is disconnected. */
+data class StoreConsent(
+    val store: Store,
+    val grantedAt: Long,
+    val textVersion: Int,
+    val forAnother: Boolean
+)
 
 /** One connected store account (yours, or e.g. your partner's). [secret] is the store's sign-in
  * (a refresh token or the login cookies) and is only ever kept encrypted on this phone. */

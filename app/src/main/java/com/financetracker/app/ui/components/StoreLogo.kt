@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -104,18 +107,19 @@ object StoreLogos {
 fun StoreLogo(storeName: String, size: Dp, domain: String? = null, fallback: @Composable () -> Unit) {
     val context = LocalContext.current
     val site = domain ?: StoreLogos.domainFor(storeName)
-    val logo by produceState<ImageBitmap?>(null, site) {
-        value = site?.let { StoreLogos.load(context.applicationContext, it) }
+    var image by remember(site) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(site) {
+        image = if (site == null) null else StoreLogos.load(context.applicationContext, site)
     }
-    val image = logo
-    if (image == null) {
+    val logo = image
+    if (logo == null) {
         fallback()
     } else {
         Box(
             Modifier.size(size).clip(RoundedCornerShape(size * .3f)).background(Color.White),
             contentAlignment = Alignment.Center
         ) {
-            Image(image, contentDescription = storeName, contentScale = ContentScale.Fit, modifier = Modifier.size(size))
+            Image(logo, contentDescription = storeName, contentScale = ContentScale.Fit, modifier = Modifier.size(size))
         }
     }
 }

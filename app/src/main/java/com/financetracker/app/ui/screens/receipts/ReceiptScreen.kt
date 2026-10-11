@@ -32,6 +32,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -162,6 +164,8 @@ fun ReceiptScreen(viewModel: ReceiptViewModel, onBack: () -> Unit) {
         val fallback = tx?.categoryId?.let(byId::get)
         val groups = state.items.groupBy { it.categoryId?.let(byId::get) ?: fallback }
             .entries.sortedByDescending { (_, items) -> items.sumOf { it.amount } }
+        // A discount column (like the receipt itself) when any item had a discount.
+        val discounts = state.items.any { it.discount > 0.004 }
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
@@ -200,6 +204,15 @@ fun ReceiptScreen(viewModel: ReceiptViewModel, onBack: () -> Unit) {
             item {
                 SplitSwitch(parts = groups.size, checked = receipt.split, enabled = tx != null, onChange = viewModel::setSplit)
             }
+            if (discounts) {
+                item {
+                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 30.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Items", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Text("Discount", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, modifier = Modifier.width(DISCOUNT_COLUMN))
+                        Text("Total", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, modifier = Modifier.width(TOTAL_COLUMN))
+                    }
+                }
+            }
             groups.forEach { (category, items) ->
                 item(key = "c${category?.id}") {
                     GlassCard {
@@ -219,7 +232,22 @@ fun ReceiptScreen(viewModel: ReceiptViewModel, onBack: () -> Unit) {
                                 ) {
                                     val qty = if (item.quantity != 1.0) " ×${Formatters.amount(item.quantity).removeSuffix(",00").removeSuffix(".00")}" else ""
                                     Text("${item.name}$qty", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(Formatters.amount(item.amount), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (discounts) {
+                                        Text(
+                                            if (item.discount > 0.004) "-${Formatters.amount(item.discount)}" else "–",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (item.discount > 0.004) IncomeGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.End,
+                                            modifier = Modifier.width(DISCOUNT_COLUMN)
+                                        )
+                                    }
+                                    Text(
+                                        Formatters.amount(item.amount),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.End,
+                                        modifier = if (discounts) Modifier.width(TOTAL_COLUMN) else Modifier
+                                    )
                                 }
                             }
                         }
@@ -298,6 +326,10 @@ fun ReceiptScreen(viewModel: ReceiptViewModel, onBack: () -> Unit) {
         )
     }
 }
+
+/** Widths of the discount and total columns, so they line up across the category cards. */
+private val DISCOUNT_COLUMN = 72.dp
+private val TOTAL_COLUMN = 72.dp
 
 internal fun sourceLabel(source: String): String = when (source) {
     "share" -> "shared"

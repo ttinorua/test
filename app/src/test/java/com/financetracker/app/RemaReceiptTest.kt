@@ -96,4 +96,15 @@ class RemaReceiptTest {
         assertEquals(100.0, Rema1000.scale(18168, null), 0.0)
         assertEquals(1.0, Rema1000.scale(47.5, null), 0.0)
     }
+
+    @Test
+    fun `items follow their scan time, as on REMA's receipt`() {
+        val body = """[{"id": 8, "paymentDate": "2026-09-05T16:15:24Z", "totalPrice": 5000, "items": [
+            {"shelfText1": "KIWI", "sortingDate": "2026-09-05T16:10:30Z", "prices": [{"price": 2000}]},
+            {"shelfText1": "SALTY MIX", "sortingDate": "2026-09-05T16:10:05Z", "prices": [{"price": 2000}]},
+            {"shelfText1": "KAKAOKIKS", "sortingDate": "2026-09-05T16:10:12Z", "prices": [{"price": 1000}]}
+          ]}]"""
+        val names = Rema1000.parseReceipts(body).single().receipt.items.map { it.name }
+        assertEquals(listOf("SALTY MIX", "KAKAOKIKS", "KIWI"), names)
+    }
 }

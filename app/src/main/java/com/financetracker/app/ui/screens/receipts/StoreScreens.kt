@@ -105,6 +105,10 @@ import kotlin.coroutines.resume
 
 private fun receiptCountText(count: Int) = if (count == 1) "1 receipt" else "$count receipts"
 
+/** "" while the page shows something, else where it is (host and path, never the query). */
+private const val BLANK_PAGE_SCRIPT =
+    "(function(){var t=(document.body&&document.body.innerText||'').trim();return t.length?'':location.host+location.pathname;})()"
+
 /** The string a page script returned, from the JSON evaluateJavascript hands back ("\"done\""). */
 private fun jsString(json: String?): String? =
     runCatching { org.json.JSONTokener(json ?: return null).nextValue() as? String }.getOrNull()
@@ -424,6 +428,15 @@ class StoreConnectViewModel(
         _emailHint.value = null
     }
 
+    /** The login window got stuck (a blank page, or an address it can't follow): back to the
+     * start of the sign-in with what was seen, so it can be reported. */
+    fun loginStuck(message: String) {
+        if (_step.value != ConnectStep.LOGIN) return
+        password = null
+        _error.value = message
+        if (connector?.needsEmailFirst == true) _emailHint.value = null else _step.value = ConnectStep.CONSENT
+    }
+
     /** The typed password, once; it's forgotten here as soon as the login window has it. */
     fun takePassword(): String? = password.also { password = null }
 
@@ -635,6 +648,7 @@ fun StoreConnectScreen(viewModel: StoreConnectViewModel, another: Boolean, onClo
                         password = password,
                         onCaptured = viewModel::captured,
                         onRejected = viewModel::loginRejected,
+                        onStuck = viewModel::loginStuck,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -823,6 +837,7 @@ private fun StoreLoginWebView(
     password: String? = null,
     onCaptured: (String) -> Unit,
     onRejected: (String) -> Unit = {},
+    onStuck: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -830,6 +845,7 @@ private fun StoreLoginWebView(
     // this composable while typing, is what makes the text cursor jump back to the start.
     val captured by rememberUpdatedState(onCaptured)
     val rejected by rememberUpdatedState(onRejected)
+    val stuck by rememberUpdatedState(onStuck)
 
     fun checkCookies(agent: String?) {
         val url = connector.cookieUrl ?: return
@@ -860,8 +876,13 @@ private fun StoreLoginWebView(
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val url = request?.url?.toString() ?: return false
                     connector.captureFromUrl(url)?.let { captured(it); return true }
-                    // Never hand the login over to another app.
-                    return !(url.startsWith("https://") || url.startsWith("http://"))
+                    if (url.startsWith("https://") || url.startsWith("http://")) return false
+                    // Never hand the login over to another app; say where it tried to go, so a
+                    // store sending its code somewhere unexpected can be fixed.
+                    if (!url.startsWith("intent:") && !url.startsWith("about:")) {
+                        stuck("${connector.store.company}'s page tried to open ${url.substringBefore('?').take(60)}, which the app can't follow. Please report this message.")
+                    }
+                    return true
                 }
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -892,9 +913,17 @@ private fun StoreLoginWebView(
         }
         val check = connector.loginErrorScript()
         if (!filled || check == null) return@LaunchedEffect
+        var blank = 0
         for (i in 0 until 240) {
             delay(500)
             run(check)?.takeIf { it.isNotEmpty() }?.let { rejected(it); return@LaunchedEffect }
+            // A page left blank for 10 seconds after signing in: report where it stopped.
+            val at = run(BLANK_PAGE_SCRIPT).orEmpty()
+            blank = if (at.isEmpty()) 0 else blank + 1
+            if (blank >= 20) {
+                stuck("${connector.store.company}'s page went blank after signing in (at $at). Please report this message.")
+                return@LaunchedEffect
+            }
         }
     }
 

@@ -248,7 +248,10 @@ class Rema1000 : StoreConnector {
             val rawTotal = listOf("totalPrice", "total", "amount").firstOrNull { r.has(it) && !r.isNull(it) }?.let { r.opt(it) }
             val scale = scale(rawTotal, StoreJson.text(r, "totalPriceString"))
             val lines = ITEM_KEYS.firstNotNullOfOrNull { r.optJSONArray(it) } ?: JSONArray()
+            // In scan order, as on REMA's own receipt (each line has a sortingDate); the list itself
+            // comes in another order.
             val parsed = (0 until lines.length()).mapNotNull { i -> lines.optJSONObject(i)?.let { line(it, scale) } }
+                .withIndex().sortedWith(compareBy({ it.value.sortedAt ?: Long.MAX_VALUE }, { it.index })).map { it.value }
             val total = (StoreJson.number(r, "totalPrice") ?: StoreJson.number(r, "total") ?: StoreJson.number(r, "amount"))?.div(scale)
             val items = amounts(parsed, total)
             val store = r.optJSONObject("store")
@@ -267,7 +270,7 @@ class Rema1000 : StoreConnector {
         }
 
         /** One receipt line as found: its text and summed price parts (a line can have several). */
-        private class Line(val name: String, val price: Double, val deposit: Double, val discount: Double, val quantity: Double)
+        private class Line(val name: String, val price: Double, val deposit: Double, val discount: Double, val quantity: Double, val sortedAt: Long?)
 
         /**
          * What the amounts are counted in. REMA sends øre as whole numbers (181,68 kr. is 18168),
@@ -297,7 +300,8 @@ class Rema1000 : StoreConnector {
                 price,
                 parts.sumOf { abs(StoreJson.number(it, "deposit") ?: 0.0) } / scale,
                 parts.sumOf { abs(StoreJson.number(it, "discount") ?: 0.0) } / scale,
-                parts.sumOf { StoreJson.number(it, "quantity") ?: 0.0 }.takeIf { it > 0 } ?: 1.0
+                parts.sumOf { StoreJson.number(it, "quantity") ?: 0.0 }.takeIf { it > 0 } ?: 1.0,
+                time(o, "sortingDate")
             )
         }
 

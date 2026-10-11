@@ -99,6 +99,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /** A store's colours and short mark, for its tile. */
 private fun brand(store: Store): Triple<Color, Color, String> = when (store) {
@@ -388,8 +390,21 @@ class StoreConnectViewModel(
     /** The e-mail/phone entered before a Salling login window opens. */
     val emailHint: StateFlow<String?> = _emailHint
 
-    fun setEmailHint(email: String) {
-        if (email.isNotBlank()) _emailHint.value = email.trim()
+    /** The password typed in the app for a store whose page gets it filled in
+     * ([StoreConnector.fillPasswordScript]); handed to the login window once, never stored. */
+    private var password: String? = null
+
+    fun setEmailHint(email: String, password: String? = null) {
+        if (email.isBlank()) return
+        this.password = password?.takeIf { it.isNotEmpty() }
+        _emailHint.value = email.trim()
+    }
+
+    /** The typed password, once; it's forgotten here as soon as the login window has it. */
+    fun takePassword(): String? = password.also { password = null }
+
+    override fun onCleared() {
+        password = null
     }
 
     init {
@@ -403,7 +418,10 @@ class StoreConnectViewModel(
 
     fun go(step: ConnectStep) {
         _error.value = null
-        if (step != ConnectStep.LOGIN) _emailHint.value = null
+        if (step != ConnectStep.LOGIN) {
+            _emailHint.value = null
+            password = null
+        }
         _step.value = step
     }
 
@@ -573,17 +591,25 @@ fun StoreConnectScreen(viewModel: StoreConnectViewModel, another: Boolean, onClo
                     modifier = Modifier.fillMaxSize().padding(padding)
                 )
             } else if (viewModel.connector?.needsEmailFirst == true && emailHint == null) {
-                // Salling's login page needs the e-mail/phone in the address, so ask for it first;
-                // the password is still typed on Salling's own page.
+                // Salling's login page needs the e-mail/phone in the address, so ask for it first,
+                // with the password, which is then filled into Salling's own page.
                 EmailPrompt(
                     store = store,
+                    askPassword = viewModel.connector?.fillPasswordScript("") != null,
                     onSubmit = viewModel::setEmailHint,
                     modifier = Modifier.fillMaxSize().padding(padding)
                 )
             } else Column(Modifier.fillMaxSize().padding(padding)) {
                 val connector = viewModel.connector
                 if (connector != null) {
-                    StoreLoginWebView(connector, emailHint = emailHint, onCaptured = viewModel::captured, modifier = Modifier.weight(1f))
+                    val password = remember { viewModel.takePassword() }
+                    StoreLoginWebView(
+                        connector,
+                        emailHint = emailHint,
+                        password = password,
+                        onCaptured = viewModel::captured,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Lock, contentDescription = null, tint = IncomeGreen, modifier = Modifier.size(16.dp))
@@ -628,11 +654,16 @@ private fun Fact(title: String, detail: String) {
     }
 }
 
-/** Just the e-mail/phone, for a store whose own login page needs it in the address before it
- * opens (Salling). The password is then typed on the store's own page. */
+/** The e-mail/phone, for a store whose own login page needs it in the address before it opens
+ * (Salling), and with [askPassword] the password too, which is filled into the store's own page
+ * (its password box doesn't take typing well). Otherwise the password is typed on that page. */
 @Composable
-private fun EmailPrompt(store: Store, onSubmit: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun EmailPrompt(store: Store, askPassword: Boolean, onSubmit: (String, String?) -> Unit, modifier: Modifier = Modifier) {
     var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    val canSubmit = email.isNotBlank() && (!askPassword || password.isNotEmpty())
+    val submit = { if (canSubmit) onSubmit(email, password.takeIf { askPassword }) }
     Column(
         modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -642,7 +673,8 @@ private fun EmailPrompt(store: Store, onSubmit: (String) -> Unit, modifier: Modi
             Text("Sign in to ${store.company}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 12.dp))
         }
         Text(
-            "Enter the e-mail or phone number for your ${store.company} account. You'll type your password on ${store.company}'s own page next.",
+            if (askPassword) "Enter the e-mail or phone number and password for your ${store.company} account. ${store.company}'s own login page opens next and signs you in."
+            else "Enter the e-mail or phone number for your ${store.company} account. You'll type your password on ${store.company}'s own page next.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -651,13 +683,39 @@ private fun EmailPrompt(store: Store, onSubmit: (String) -> Unit, modifier: Modi
             onValueChange = { email = it },
             label = { Text("E-mail or phone") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { if (email.isNotBlank()) onSubmit(email) }),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = if (askPassword) ImeAction.Next else ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { submit() }),
             modifier = Modifier.fillMaxWidth()
         )
-        Button(onClick = { onSubmit(email) }, enabled = email.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+        if (askPassword) {
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                singleLine = true,
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
+                trailingIcon = {
+                    TextButton(onClick = { showPassword = !showPassword }) { Text(if (showPassword) "Hide" else "Show") }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        Button(onClick = submit, enabled = canSubmit, modifier = Modifier.fillMaxWidth()) {
             Text("Continue to ${store.company} login")
             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.padding(start = 8.dp).size(18.dp))
+        }
+        if (askPassword) {
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(Icons.Filled.Lock, contentDescription = null, tint = IncomeGreen, modifier = Modifier.size(16.dp))
+                Text(
+                    "  Your password is put into ${store.company}'s own login page and goes only to ${store.company}. " +
+                        "The app never stores it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -720,10 +778,17 @@ private fun CredentialsLogin(store: Store, error: String?, onSubmit: (String, St
 }
 
 /** The store's own login page. Nothing is read from the page itself: the app only looks at the
- * address the store sends the browser to at the end, or at the store's login cookie. */
+ * address the store sends the browser to at the end, or at the store's login cookie. A [password]
+ * typed in the app is put into the page's password box (see [StoreConnector.fillPasswordScript]). */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun StoreLoginWebView(connector: StoreConnector, emailHint: String? = null, onCaptured: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun StoreLoginWebView(
+    connector: StoreConnector,
+    emailHint: String? = null,
+    password: String? = null,
+    onCaptured: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     // Always call the latest callback without rebuilding the WebView — rebuilding it, or recomposing
     // this composable while typing, is what makes the text cursor jump back to the start.
@@ -771,6 +836,19 @@ private fun StoreLoginWebView(connector: StoreConnector, emailHint: String? = nu
                 }
             }
             loadUrl(connector.loginUrl(emailHint))
+        }
+    }
+
+    // A password typed in the app: put it into the store's page once its login form is showing.
+    // Only for about a minute; after that (or if the page shows something else) it's typed there.
+    LaunchedEffect(Unit) {
+        val script = password?.let { connector.fillPasswordScript(it) } ?: return@LaunchedEffect
+        repeat(120) {
+            delay(500)
+            val result = suspendCancellableCoroutine { cont ->
+                webView.evaluateJavascript(script) { cont.resume(it) }
+            }
+            if (result?.contains("done") == true) return@LaunchedEffect
         }
     }
 

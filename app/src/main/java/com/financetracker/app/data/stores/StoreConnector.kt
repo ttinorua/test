@@ -26,6 +26,12 @@ interface StoreConnector {
      * before opening the window and passes it into [loginUrl]. */
     val needsEmailFirst: Boolean get() = false
 
+    /** JavaScript that puts [password] into the store's own login page and submits it, for a store
+     * whose page doesn't take typing well (Salling: the cursor jumps). The password is then typed
+     * in the app, passed only into that page and never stored. Returns "done" once filled, "wait"
+     * while the page isn't ready. Null when the password is typed on the page itself. */
+    fun fillPasswordScript(password: String): String? = null
+
     /** The store's login page to open ([LoginMode.WEBVIEW] only). [emailHint] prefills the
      * e-mail/phone for stores that require it in the address (see [needsEmailFirst]). */
     fun loginUrl(emailHint: String? = null): String = ""

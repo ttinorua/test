@@ -46,6 +46,24 @@ class Salling private constructor(
             "&code_challenge_method=S256&code_challenge=$challenge"
     }
 
+    /** Salling's page re-checks the password box on every key press, which puts the cursor back at
+     * the start on some phones, so the password is typed in the app and filled in here. The page
+     * fills in the e-mail itself; this waits for that, then presses Salling's own login button. */
+    override fun fillPasswordScript(password: String): String = """
+        (function(p) {
+          var screen = document.getElementById('gigya-login-screen');
+          var box = screen && screen.querySelector('input[name="password"]');
+          if (!box || box.offsetParent === null) return 'wait';
+          var user = screen.querySelector('input[name="username"]');
+          if (user && !user.value) return 'wait';
+          box.value = p;
+          ['input', 'keyup', 'change'].forEach(function(t) { box.dispatchEvent(new Event(t, { bubbles: true })); });
+          var submit = screen.querySelector('input[type="submit"]');
+          if (submit) submit.click();
+          return 'done';
+        })(${JSONObject.quote(password)});
+    """.trimIndent()
+
     /** The login finishes at http://localhost with the one-time code in the query or the fragment. */
     override fun captureFromUrl(url: String): String? {
         if (!url.startsWith(REDIRECT)) return null

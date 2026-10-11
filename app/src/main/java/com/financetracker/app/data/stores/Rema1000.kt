@@ -12,6 +12,7 @@ import org.json.JSONObject
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.UUID
 import kotlin.math.abs
 
 /**
@@ -45,36 +46,23 @@ class Rema1000 : StoreConnector {
         return Uri.parse(url).getQueryParameter("code")
     }
 
-    /** The code is swapped at REMA's login server (a standard OAuth token address, which takes the
-     * Scan Selv client with PKCE and no secret). Scan Selv's own token/new is only a fallback: it
-     * answered every form tried with a bare 500. */
+    /** The code is swapped for Scan Selv's own tokens at token/new, with the same body
+     * (TokensFromCodeRequestAPIModel: code, codeVerifier, redirectUri) and headers as the app. The
+     * receipts backend only takes these tokens, not the login server's. */
     override suspend fun finishLogin(captured: String): String = withContext(Dispatchers.IO) {
-        val oauth = oauthToken(
-            "grant_type" to "authorization_code",
-            "code" to captured,
-            "code_verifier" to verifier,
-            "redirect_uri" to REDIRECT
-        )
-        if (oauth.ok) return@withContext tokens(oauth.body, null, OAUTH).secret()
-        val attempts = listOf(
-            "" to JSONObject().put("code", captured).put("codeVerifier", verifier),
-            "?code=${enc(captured)}" to JSONObject().put("codeVerifier", verifier),
-            "" to JSONObject().put("authorizationCode", captured).put("codeVerifier", verifier)
-        )
-        var first: StoreHttp.Response? = null
-        for ((query, body) in attempts) {
-            val resp = post("token/new$query", body)
-            if (resp.ok) return@withContext tokens(resp.body, null, SCAN).secret()
-            if (first == null) first = resp
-        }
-        throw IllegalStateException(
-            "REMA 1000 sign-in HTTP ${oauth.status}: ${snippet(oauth.body)} (Scan Selv: HTTP ${first!!.status} ${snippet(first.body)})"
-        )
+        val device = UUID.randomUUID().toString()
+        val body = JSONObject().put("code", captured).put("codeVerifier", verifier).put("redirectUri", REDIRECT)
+        val resp = post("token/new", body, device)
+        if (!resp.ok) throw IllegalStateException("REMA 1000 sign-in HTTP ${resp.status}: ${snippet(resp.body)}")
+        tokens(resp.body, null, device).secret()
     }
 
     override suspend fun fetch(secret: String, since: Long): Pair<List<StoreReceipt>, String> = withContext(Dispatchers.IO) {
         val stored = Tokens.from(secret)
-        if (stored.refresh.isEmpty() && !stored.usable()) throw StoreLoginExpired("REMA 1000 wants you to sign in again.")
+        // A sign-in from an earlier version (REMA's login-server tokens) can't fetch receipts.
+        if (stored.device.isEmpty() || (stored.refresh.isEmpty() && !stored.usable())) {
+            throw StoreLoginExpired("REMA 1000 wants you to sign in again.")
+        }
         // Use the access token while it's valid and renew only when needed: a renewal may replace
         // the refresh token, and then the old one stops working.
         var tokens = if (stored.usable()) stored else renew(stored)
@@ -97,33 +85,23 @@ class Rema1000 : StoreConnector {
         }
     }
 
-    /** Renewed where the sign-in came from: REMA's login server, or Scan Selv's token/renew. */
+    /** Scan Selv's token/renew (UseRefreshTokenRequestAPIModel: refreshToken). */
     private fun renew(stored: Tokens): Tokens {
-        val resp = if (stored.via == SCAN) post("token/renew", JSONObject().put("refreshToken", stored.refresh))
-            else oauthToken("grant_type" to "refresh_token", "refresh_token" to stored.refresh)
+        val resp = post("token/renew", JSONObject().put("refreshToken", stored.refresh), stored.device)
         if (resp.status == 400 || resp.status == 401) throw StoreLoginExpired("REMA 1000 wants you to sign in again.")
         if (!resp.ok) throw IllegalStateException("REMA 1000 token HTTP ${resp.status}: ${snippet(resp.body)}")
-        return tokens(resp.body, stored.refresh, stored.via)
+        return tokens(resp.body, stored.refresh, stored.device)
     }
 
-    /** REMA's OAuth token address (form-encoded, the Scan Selv client, no secret). */
-    private fun oauthToken(vararg fields: Pair<String, String>): StoreHttp.Response {
-        val body = (fields.toList() + ("client_id" to CLIENT_ID)).joinToString("&") { (k, v) -> "${enc(k)}=${enc(v)}" }
-        return StoreHttp(AGENT).request(
-            "POST", "$AUTH/oauth/token", mapOf("Accept" to "application/json"), body.toByteArray(), "application/x-www-form-urlencoded"
-        )
-    }
-
-    private fun post(path: String, body: JSONObject): StoreHttp.Response =
+    private fun post(path: String, body: JSONObject, device: String): StoreHttp.Response =
         StoreHttp(AGENT).request(
-            "POST", "$API/$path", mapOf("Accept" to "application/json"),
+            "POST", "$API/$path", appHeaders(device) + ("Accept" to "application/json"),
             body.toString().toByteArray(), "application/json"
         )
 
-    /** The receipt list. Without parameters the backend answers 400 "Malformed request"; the app
-     * keeps the date it last fetched from (ReceiptSinceDateEntity), so the request most likely
-     * takes a "since" date. Its exact name and format aren't confirmed, so the likely forms are
-     * tried once and the one that works is remembered (returned with the response). */
+    /** The receipt list: GET user/receipts with an optional "since" (RemaService). Its format
+     * isn't confirmed, so the likely forms are tried once and the one that works is remembered
+     * (returned with the response). */
     private fun receipts(http: StoreHttp, tokens: Tokens, since: Long, known: Int): Pair<StoreHttp.Response, Int> {
         val forms = queries(since)
         if (known in forms.indices) return http.request("GET", "$API/user/receipts${forms[known]}", headers(tokens)) to known
@@ -137,30 +115,24 @@ class Rema1000 : StoreConnector {
         return StoreHttp.Response(400, "${first!!.body} (tried: $tried)", emptyMap()) to -1
     }
 
-    private fun headers(tokens: Tokens) = mapOf(
-        "Authorization" to "Bearer ${tokens.access}",
-        "Accept" to "application/json",
-        // As REMA's own web login sends them, for the app.
-        "X-Device" to "android",
-        "X-Timezone" to "Copenhagen/Europe",
-        "X-Language" to "da"
-    )
+    private fun headers(tokens: Tokens) =
+        appHeaders(tokens.device) + mapOf("Authorization" to "Bearer ${tokens.access}", "Accept" to "application/json")
 
     /** The sign-in kept (encrypted) on the phone. [expires] is when the access token runs out;
-     * [via] is where it came from ([OAUTH] or [SCAN]), which is where it's renewed. */
-    private class Tokens(val access: String, val refresh: String, val expires: Long, val via: String, val query: Int = -1) {
+     * [device] is the device id sent with every request (the app makes one and keeps it). */
+    private class Tokens(val access: String, val refresh: String, val expires: Long, val device: String, val query: Int = -1) {
         fun usable() = access.isNotEmpty() && expires > System.currentTimeMillis() + 60_000
 
         /** [query]: which form of the receipt request works (see [receipts]), -1 while unknown. */
-        fun withQuery(query: Int) = Tokens(access, refresh, expires, via, query)
+        fun withQuery(query: Int) = Tokens(access, refresh, expires, device, query)
 
         fun secret(): String = JSONObject()
-            .put("access", access).put("refresh", refresh).put("expires", expires).put("via", via).put("query", query)
+            .put("access", access).put("refresh", refresh).put("expires", expires).put("device", device).put("query", query)
             .toString()
 
         companion object {
             fun from(secret: String): Tokens = JSONObject(secret).let {
-                Tokens(it.optString("access"), it.optString("refresh"), it.optLong("expires", 0L), it.optString("via", OAUTH), it.optInt("query", -1))
+                Tokens(it.optString("access"), it.optString("refresh"), it.optLong("expires", 0L), it.optString("device"), it.optInt("query", -1))
             }
         }
     }
@@ -171,16 +143,23 @@ class Rema1000 : StoreConnector {
         private const val API = "https://apim-rema-scan-prod.azure-api.net/v1"
         private const val REDIRECT = "dk.rema1000.app://logincallback"
         private const val AGENT = "okhttp/4.12.0"
-        private const val OAUTH = "oauth"
-        private const val SCAN = "scan"
+        private const val APP_VERSION = "1.8.15"
+
+        /** The headers the Scan Selv app adds to every request (RestClientFactory). */
+        private fun appHeaders(device: String) = mapOf(
+            "X-App-Platform" to "Android",
+            "X-App-Version" to APP_VERSION,
+            "X-App-Language" to "da",
+            "X-App-DeviceId" to device
+        )
 
         private fun enc(v: String) = URLEncoder.encode(v, "UTF-8").replace("+", "%20")
 
         /** A short, one-line piece of a response body, for an error message. */
         private fun snippet(body: String) = body.replace(Regex("\\s+"), " ").trim().take(300)
 
-        /** Access and refresh token from a token response, which may wrap them in "data". */
-        private fun tokens(body: String, oldRefresh: String?, via: String): Tokens {
+        /** Access and refresh token from a token response (TokenData: access_token, refresh_token). */
+        private fun tokens(body: String, oldRefresh: String?, device: String): Tokens {
             val root = JSONObject(body)
             val json = root.optJSONObject("data") ?: root
             val access = StoreJson.text(json, "accessToken") ?: StoreJson.text(json, "access_token")
@@ -189,7 +168,7 @@ class Rema1000 : StoreConnector {
             val lifetime = json.optLong("expiresIn", json.optLong("expires_in", 0L))
             val expires = if (lifetime > 0) System.currentTimeMillis() + lifetime * 1000
                 else jwtExp(access)?.let { it * 1000 } ?: 0L
-            return Tokens(access, refresh, expires, via)
+            return Tokens(access, refresh, expires, device)
         }
 
         private fun jwtExp(jwt: String): Long? = runCatching {

@@ -53,6 +53,7 @@ interface StoreConnector {
         fun forStore(store: Store): StoreConnector? = when (store) {
             Store.LIDL -> LidlPlus()
             Store.NEMLIG -> Nemlig()
+            Store.NETTO -> Salling.netto()
             Store.COOP -> null
         }
     }

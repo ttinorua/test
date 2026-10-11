@@ -117,8 +117,7 @@ class StoreReceiptsTest {
         assertEquals("XYZ==", map[".ASPXAUTH"])
         assertEquals("2", map["b"])
         assertNull(map["flag"])
-        val nemlig = Nemlig()
-        assertNull(nemlig.captureFromCookies("XSRF-TOKEN=1", "ua"))
-        assertNotNull(nemlig.captureFromCookies("XSRF-TOKEN=1; .ASPXAUTH=abc", "ua"))
+        // Nemlig signs in with e-mail and password in the app.
+        assertEquals(com.financetracker.app.data.stores.LoginMode.CREDENTIALS, Nemlig().loginMode)
     }
 }

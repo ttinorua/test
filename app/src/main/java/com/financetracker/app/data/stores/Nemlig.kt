@@ -8,25 +8,60 @@ import org.json.JSONObject
 import java.util.UUID
 
 /**
- * Nemlig.com. Login is nemlig.com's own page; once signed in, the site's login cookie (valid for
- * a year) is what the app keeps, and orders come from the order history the website shows.
- * Unofficial: based on the open-source nemlig_cli notes, and it can stop working if Nemlig
- * changes its website.
+ * Nemlig.com. Its website login is a pop-up behind a waiting room that doesn't work in an in-app
+ * window, so the e-mail and password are typed into the app and used once (as the Nemlig app does)
+ * to make a session; the password is never stored, only the session cookie (valid for a year).
+ * Orders come from the order history the website shows. Unofficial: based on the open-source
+ * nemlig_cli notes, and it can stop working if Nemlig changes its website.
  */
 class Nemlig : StoreConnector {
     override val store = Store.NEMLIG
 
-    override fun loginUrl() = "$BASE/login?returnUrl=%2F"
+    override val loginMode = LoginMode.CREDENTIALS
 
-    override val cookieUrl: String get() = BASE
-
-    override fun captureFromCookies(cookies: String?, userAgent: String): String? {
-        val map = StoreHttp.parseCookies(cookies)
-        if (map[AUTH_COOKIE].isNullOrEmpty()) return null
-        return JSONObject().put("cookies", cookies).put("ua", userAgent).toString()
+    override suspend fun loginWithCredentials(email: String, password: String): String = withContext(Dispatchers.IO) {
+        val http = StoreHttp()
+        val headers = mapOf(
+            "Accept" to "application/json, text/plain, */*",
+            "Device-Size" to "desktop",
+            "Platform" to "web",
+            "Version" to WEB_VERSION
+        )
+        fun corr() = mapOf("X-Correlation-Id" to UUID.randomUUID().toString())
+        // 1. An anti-forgery token, 2. a short-lived bearer token, 3. the login itself — the same
+        // three steps the Nemlig website does. The .ASPXAUTH cookie it sets is what we keep.
+        val af = http.request("GET", "$BASE/webapi/AntiForgery", headers + corr())
+        if (!af.ok) throw IllegalStateException("Nemlig.com didn't respond (${af.status}). Try again later.")
+        val xsrf = runCatching { JSONObject(af.body).optString("Value") }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: http.cookies["XSRF-TOKEN"].orEmpty()
+        val tokenResp = http.request("GET", "$BASE/webapi/Token", headers + corr())
+        if (!tokenResp.ok) throw IllegalStateException("Nemlig.com didn't respond (${tokenResp.status}). Try again later.")
+        val bearer = JSONObject(tokenResp.body).optString("access_token")
+        val body = JSONObject()
+            .put("Username", email.trim())
+            .put("Password", password)
+            .put("CheckForExistingProducts", true)
+            .put("DoMerge", true)
+            .put("AppInstalled", false)
+            .put("SaveExistingBasket", false)
+            .toString().toByteArray(Charsets.UTF_8)
+        val login = http.request(
+            "POST", "$BASE/webapi/login",
+            headers + corr() + mapOf(
+                "X-XSRF-TOKEN" to xsrf,
+                "Authorization" to "Bearer $bearer",
+                "Referer" to "$BASE/login?returnUrl=%2F"
+            ),
+            body, "application/json"
+        )
+        if (login.status == 400 || login.status == 401) throw StoreLoginExpired("Wrong e-mail or password.")
+        if (!login.ok) throw IllegalStateException("Nemlig.com login answered ${login.status}.")
+        if (http.cookies[AUTH_COOKIE].isNullOrEmpty()) throw StoreLoginExpired("Couldn't sign in — check your e-mail and password.")
+        JSONObject()
+            .put("cookies", http.cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
+            .put("ua", StoreHttp.DEFAULT_AGENT)
+            .toString()
     }
-
-    override suspend fun finishLogin(captured: String): String = captured
 
     override suspend fun fetch(secret: String, since: Long): Pair<List<StoreReceipt>, String> = withContext(Dispatchers.IO) {
         val saved = JSONObject(secret)

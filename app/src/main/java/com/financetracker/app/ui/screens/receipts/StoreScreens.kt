@@ -78,8 +78,17 @@ import com.financetracker.app.data.stores.Store
 import com.financetracker.app.data.stores.StoreAccount
 import com.financetracker.app.data.stores.StoreAccounts
 import com.financetracker.app.data.stores.StoreConnector
+import com.financetracker.app.data.stores.LoginMode
 import com.financetracker.app.data.stores.StoreConsents
+import com.financetracker.app.data.stores.StoreLoginExpired
 import com.financetracker.app.data.stores.StoreSync
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import com.financetracker.app.ui.components.GlassCard
 import com.financetracker.app.ui.components.StoreLogo
 import com.financetracker.app.ui.theme.IncomeGreen
@@ -388,26 +397,43 @@ class StoreConnectViewModel(
         _step.value = step
     }
 
-    /** The login window got what the store hands back after signing in. */
+    /** The login window got what the store hands back after signing in ([LoginMode.WEBVIEW]). */
     fun captured(value: String) {
         if (_step.value != ConnectStep.LOGIN) return
         _step.value = ConnectStep.FINISHING
         viewModelScope.launch {
             runCatching { connector!!.finishLogin(value) }
-                .onSuccess { secret ->
-                    // Record the consent (time, store, text version, own/partner) as proof, then
-                    // save the account and start fetching.
-                    StoreConsents.record(context, store, forAnother)
-                    val account = StoreAccounts.add(context, store, secret)
-                    StoreSync.enqueue(context, account.id)
-                    _step.value = ConnectStep.DONE
-                }
+                .onSuccess { finishConnected(it) }
                 .onFailure {
                     _error.value = "Couldn't finish signing in to ${store.label}: ${it.message ?: "no connection"}"
                     _step.value = ConnectStep.CONSENT
                 }
             clearCookies()
         }
+    }
+
+    /** The person typed their e-mail and password ([LoginMode.CREDENTIALS]). */
+    fun submitCredentials(email: String, password: String) {
+        if (_step.value != ConnectStep.LOGIN || email.isBlank() || password.isBlank()) return
+        _step.value = ConnectStep.FINISHING
+        viewModelScope.launch {
+            runCatching { connector!!.loginWithCredentials(email, password) }
+                .onSuccess { finishConnected(it) }
+                .onFailure {
+                    _error.value = (it as? StoreLoginExpired)?.message
+                        ?: "Couldn't sign in to ${store.label}: ${it.message ?: "no connection"}"
+                    // Back to the form so they can try again.
+                    _step.value = ConnectStep.LOGIN
+                }
+        }
+    }
+
+    /** Records the consent as proof, saves the account and starts fetching. */
+    private suspend fun finishConnected(secret: String) {
+        StoreConsents.record(context, store, forAnother)
+        val account = StoreAccounts.add(context, store, secret)
+        StoreSync.enqueue(context, account.id)
+        _step.value = ConnectStep.DONE
     }
 
     companion object {
@@ -493,7 +519,11 @@ fun StoreConnectScreen(viewModel: StoreConnectViewModel, another: Boolean, onClo
                 Fact("What is fetched", "Your receipts: items, amounts, discounts, store and date. Never payment details or your password.")
                 Fact(
                     "How you sign in",
-                    "On ${store.company}'s own login page, in a secure window. The app only receives the sign-in that ${store.company} hands back, not your password."
+                    if (viewModel.connector?.loginMode == LoginMode.CREDENTIALS) {
+                        "You type your ${store.company} e-mail and password in the app. The password is sent once to ${store.company} to sign in and is never stored; the app keeps only the sign-in ${store.company} hands back."
+                    } else {
+                        "On ${store.company}'s own login page, in a secure window. The app only receives the sign-in that ${store.company} hands back, not your password."
+                    }
                 )
                 Fact("When", "The last 12 months now, then new receipts after each bank sync (about every 6 hours).")
                 Fact("Where it's kept", "Only on your phone; the sign-in is encrypted. Disconnect any time in Spending → Shopping → stores.")
@@ -524,7 +554,14 @@ fun StoreConnectScreen(viewModel: StoreConnectViewModel, another: Boolean, onClo
                     Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.padding(start = 8.dp).size(18.dp))
                 }
             }
-            ConnectStep.LOGIN -> Column(Modifier.fillMaxSize().padding(padding)) {
+            ConnectStep.LOGIN -> if (viewModel.connector?.loginMode == LoginMode.CREDENTIALS) {
+                CredentialsLogin(
+                    store = store,
+                    error = error,
+                    onSubmit = viewModel::submitCredentials,
+                    modifier = Modifier.fillMaxSize().padding(padding)
+                )
+            } else Column(Modifier.fillMaxSize().padding(padding)) {
                 val connector = viewModel.connector
                 if (connector != null) {
                     StoreLoginWebView(connector, onCaptured = viewModel::captured, modifier = Modifier.weight(1f))
@@ -569,6 +606,63 @@ private fun Fact(title: String, detail: String) {
             Text(title, style = MaterialTheme.typography.titleSmall)
         }
         Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** E-mail and password for a store whose login page can't be shown in a window (Nemlig.com).
+ * The password is sent once to the store to make a session and then forgotten. */
+@Composable
+private fun CredentialsLogin(store: Store, error: String?, onSubmit: (String, String) -> Unit, modifier: Modifier = Modifier) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    val canSubmit = email.isNotBlank() && password.isNotBlank()
+    Column(
+        modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StoreTile(store)
+            Text(
+                "Sign in with your ${store.company} account",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 12.dp)
+            )
+        }
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("E-mail") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            singleLine = true,
+            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { if (canSubmit) onSubmit(email, password) }),
+            trailingIcon = {
+                TextButton(onClick = { showPassword = !showPassword }) { Text(if (showPassword) "Hide" else "Show") }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        Button(onClick = { onSubmit(email, password) }, enabled = canSubmit, modifier = Modifier.fillMaxWidth()) {
+            Text("Sign in")
+        }
+        Row(verticalAlignment = Alignment.Top) {
+            Icon(Icons.Filled.Lock, contentDescription = null, tint = IncomeGreen, modifier = Modifier.size(16.dp))
+            Text(
+                "  Your password is sent once to ${store.company} to sign in and is never stored. " +
+                    "The app keeps only ${store.company}'s sign-in, encrypted on this phone.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

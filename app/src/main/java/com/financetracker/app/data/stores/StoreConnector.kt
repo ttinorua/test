@@ -5,17 +5,31 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
+/** How a store is signed in to. Most open the store's own login page in a window in the app
+ * ([WEBVIEW]); a few (Nemlig.com) have no usable login page in a window, so the e-mail and
+ * password are typed into the app and used once to make a session ([CREDENTIALS]). */
+enum class LoginMode { WEBVIEW, CREDENTIALS }
+
 /**
- * How the app signs in to a store and fetches its receipts. Signing in always happens on the
- * store's own login page in a window in the app: the person types their e-mail and password
- * there, and the app only picks up what the store hands back afterwards (a sign-in code, or the
- * store's login cookie), never the password.
+ * How the app signs in to a store and fetches its receipts. For a [LoginMode.WEBVIEW] store the
+ * person signs in on the store's own page in a window and the app only keeps what the store hands
+ * back (a sign-in code or cookie). For a [LoginMode.CREDENTIALS] store the person types their
+ * e-mail and password into the app; the password is used once to make a session and never stored.
  */
 interface StoreConnector {
     val store: Store
 
-    /** The store's login page to open. */
-    fun loginUrl(): String
+    /** How this store is signed in to. */
+    val loginMode: LoginMode get() = LoginMode.WEBVIEW
+
+    /** The store's login page to open ([LoginMode.WEBVIEW] only). */
+    fun loginUrl(): String = ""
+
+    /** Signs in with the typed e-mail and password ([LoginMode.CREDENTIALS] only), returning the
+     * account's stored sign-in. The password is not kept. Throws [StoreLoginExpired] on a wrong
+     * e-mail or password. */
+    suspend fun loginWithCredentials(email: String, password: String): String =
+        throw UnsupportedOperationException()
 
     /** Called for every address the login window is about to open. Returns what the store handed
      * back when this is the end of the login (e.g. the sign-in code), else null. */
@@ -28,8 +42,8 @@ interface StoreConnector {
      * Returns them when they show the person is signed in, else null. */
     fun captureFromCookies(cookies: String?, userAgent: String): String? = null
 
-    /** Turns what was captured into the account's stored sign-in. */
-    suspend fun finishLogin(captured: String): String
+    /** Turns what was captured into the account's stored sign-in ([LoginMode.WEBVIEW] only). */
+    suspend fun finishLogin(captured: String): String = throw UnsupportedOperationException()
 
     /** Receipts from [since] on. Returns them and the sign-in to keep (it may have been renewed).
      * Throws [StoreLoginExpired] when the person needs to sign in again. */

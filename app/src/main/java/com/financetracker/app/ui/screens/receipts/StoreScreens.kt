@@ -3,9 +3,11 @@ package com.financetracker.app.ui.screens.receipts
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -105,9 +107,22 @@ import kotlin.coroutines.resume
 
 private fun receiptCountText(count: Int) = if (count == 1) "1 receipt" else "$count receipts"
 
-/** "" while the page shows something, else where it is (host and path, never the query). */
-private const val BLANK_PAGE_SCRIPT =
-    "(function(){var t=(document.body&&document.body.innerText||'').trim();return t.length?'':location.host+location.pathname;})()"
+/** "" while the page has something for the person to fill in or press; otherwise where it is and
+ * what it shows (host and path, never the query; the store's screen name; the first visible
+ * words), so a login that stops after the password can be reported. A loading overlay counts as
+ * nothing to do. */
+private const val PAGE_STATE_SCRIPT = """(function(){
+  function shown(e){ if(!e||e.offsetParent===null) return false; var r=e.getBoundingClientRect(); return r.width>0&&r.height>0; }
+  var busy=Array.prototype.some.call(document.querySelectorAll('.gigya-screen-loader,.gigya-screen-dimmer,.gigya-loader'),shown);
+  var fields=document.querySelectorAll('input:not([type=hidden]),button,select,textarea,a[href]');
+  if(!busy&&!window.__reportAnyway&&Array.prototype.some.call(fields,shown)) return '';
+  var b=document.body, t=(b&&b.innerText||'').replace(/\s+/g,' ').trim();
+  var screen=b&&b.getAttribute('data-page');
+  return location.host+location.pathname+(screen?', screen '+screen:'')+(busy?', loading':'')+(t?', shows \u201c'+t.slice(0,60)+'\u201d':', empty');
+})()"""
+
+/** [PAGE_STATE_SCRIPT], reporting even when the page has something to fill in or press. */
+private const val PAGE_STATE_SCRIPT_ALWAYS = "window.__reportAnyway=true;$PAGE_STATE_SCRIPT"
 
 /** The string a page script returned, from the JSON evaluateJavascript hands back ("\"done\""). */
 private fun jsString(json: String?): String? =
@@ -846,6 +861,8 @@ private fun StoreLoginWebView(
     val captured by rememberUpdatedState(onCaptured)
     val rejected by rememberUpdatedState(onRejected)
     val stuck by rememberUpdatedState(onStuck)
+    // The last address the window started to open (host and path), for a stuck-login report.
+    val lastPage = remember { mutableStateOf("") }
 
     fun checkCookies(agent: String?) {
         val url = connector.cookieUrl ?: return
@@ -887,6 +904,14 @@ private fun StoreLoginWebView(
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     url?.let { connector.captureFromUrl(it) }?.let(captured)
+                    url?.let { lastPage.value = Uri.parse(it).let { u -> "${u.host.orEmpty()}${u.path.orEmpty()}" } }
+                }
+
+                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                    if (request?.isForMainFrame != true) return
+                    if (connector.captureFromUrl(request.url.toString()) != null) return
+                    val where = "${request.url.host.orEmpty()}${request.url.path.orEmpty()}"
+                    stuck("${connector.store.company}'s page couldn't open $where (${error?.description ?: "error"}). Please report this message.")
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -913,15 +938,25 @@ private fun StoreLoginWebView(
         }
         val check = connector.loginErrorScript()
         if (!filled || check == null) return@LaunchedEffect
-        var blank = 0
+        var idle = 0
         for (i in 0 until 240) {
             delay(500)
             run(check)?.takeIf { it.isNotEmpty() }?.let { rejected(it); return@LaunchedEffect }
-            // A page left blank for 10 seconds after signing in: report where it stopped.
-            val at = run(BLANK_PAGE_SCRIPT).orEmpty()
-            blank = if (at.isEmpty()) 0 else blank + 1
-            if (blank >= 20) {
-                stuck("${connector.store.company}'s page went blank after signing in (at $at). Please report this message.")
+            // Nothing to fill in or press for 15 seconds after signing in: report what the page
+            // shows. No answer at all means an error page or a page that never loaded.
+            val state = run(PAGE_STATE_SCRIPT)
+            val at = state ?: "${lastPage.value} (no page loaded)"
+            idle = if (at.isEmpty()) 0 else idle + 1
+            // Still not through a minute after the password went in: report wherever it is,
+            // unless the store is asking the person to finish joining (a form they fill in).
+            val shown = when {
+                idle >= 30 -> at
+                i == 120 -> at.ifEmpty { run(PAGE_STATE_SCRIPT_ALWAYS) ?: lastPage.value }
+                    .takeUnless { it.contains("complete-registration") }
+                else -> null
+            }
+            if (shown != null) {
+                stuck("${connector.store.company}'s page stopped after signing in (at $shown). Please report this message.")
                 return@LaunchedEffect
             }
         }

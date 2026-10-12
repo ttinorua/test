@@ -45,7 +45,14 @@ login form). One class, one tenant per chain:
   headers (`Authorization`, `x-id_token`, `x-idpid`, `X-tenantAlias`, …). Refresh tokens rotate.
 - **Føtex+ open issue:** login page and wrong-password check work (tested in a browser), but after
   a correct password the window went blank. Salling uses the same default return address for all
-  tenants. The window now reports where it stopped; next step is the owner's screenshot.
+  tenants. A first "blank page" check (no text at all) never fired on the owner's phone, so the
+  window now reports when, 15 s after the password, there's nothing to fill in or press (or a
+  minute passes, or a page fails to load): address, Salling's screen name (`body[data-page]`) and
+  the first visible words. Next step is the owner's screenshot of that message.
+  After a correct password Salling's page (`client-flow-gigya.js`) reads the account; with no
+  Føtex+ membership number and no Føtex consent it switches to `gigya-complete-registration-screen`
+  (join Føtex+), otherwise it checks the Gigya JWT at `/signatureCheckGigyaJWT` and posts the form,
+  which ends at `http://localhost/#code=…`. A failed JWT check shows an "ERROR / Trace id" popup.
 
 ## REMA 1000 (`Rema1000.kt`) — works (Scan Selv purchases only)
 Only purchases made with the Scan Selv app have digital receipts; ordinary checkout purchases

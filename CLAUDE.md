@@ -50,7 +50,7 @@ Use the `build-apk` skill (`.claude/skills/build-apk/SKILL.md`). In short:
 
 Details of each connection: `docs/store-connectors.md`.
 - Working: Lidl Plus, Nemlig.com, Netto+, Bilka+, REMA 1000 (Scan Selv purchases only).
-- Open: **Føtex+** shows a blank page after a correct password. The login window now reports
-  where it stopped; waiting for the owner's screenshot of that message.
+- Open: **Føtex+** shows a blank page after a correct password. The first stuck-page check never
+  fired; a wider one now reports what the page shows. Waiting for the owner's screenshot.
 - Last: **Coop** (Lobyco OIDC + MitID via Signicat; MitID may not finish inside an app window).
 - Order the owner chose: Netto+ → Bilka+/Føtex+ → REMA 1000 → Coop last.

@@ -11,3 +11,46 @@ changing anything.
 - If a message mixes a request with a question (e.g. "Add X. Also, why does Y happen?"),
   answer the question, confirm what you're about to change, and wait for the go-ahead before
   coding any of it.
+
+## Talking to the owner
+
+- Plain, everyday language; short answers. Say what changed for them in the app, not internals.
+- Be honest about what was and wasn't verified (tests pass vs. tried on a real account).
+- Never ask the owner to paste keys or passwords into the chat.
+
+## The repository is public
+
+- Never print, log or commit a secret value (API keys, keystore, passwords, tokens). Key
+  *names* and the public signing fingerprint below are fine.
+- Keys reach the app at build time from environment variables (see `app/build.gradle.kts`).
+
+## Building the APK the owner installs ("family build")
+
+Use the `build-apk` skill (`.claude/skills/build-apk/SKILL.md`). In short:
+- Build in a **separate cloud session** started from the pushed branch, so the APK matches GitHub.
+- Run every Gradle command as `env -u ANTHROPIC_API_KEY ./gradlew …` (the platform may set it).
+- Must be **absent**: `FINANCE_APP_ANTHROPIC_API_KEY`, `ENABLE_BANKING_PRIVATE_KEY`,
+  `ENABLE_BANKING_PRIVATE_KEY_B64` (the owner's personal keys).
+- Must be **present**: `GEMINI_API_KEY`, `GROQ_API_KEY`, `FIREBASE_API_KEY`, `FIREBASE_APP_ID`,
+  `FIREBASE_PROJECT_ID`, `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`. Their presence is
+  correct, not a problem.
+- Sign only with the permanent key: signer SHA-256 must be exactly
+  `e40fb71b074a0b8cabe9615e710ad8b84cabcfc82273298bd7f9b4719ce6758b`. Never another key.
+- Send it as `FinanceTracker-family.apk`; it installs as an update and keeps the owner's data.
+
+## How work is done
+
+- Branch: `feature/category-memory` on `ttinorua/finance-tracker` (renamed from `ttinorua/test`).
+- Before pushing: `env -u ANTHROPIC_API_KEY ./gradlew compileDebugKotlin testDebugUnitTest lintDebug`.
+- Commit messages say what changed and why, in plain words.
+- Stay in the app: store connections run on the phone (sign-in kept encrypted on the device).
+  No separate cloud service or backend holding other people's tokens.
+
+## Store receipts: status and open items
+
+Details of each connection: `docs/store-connectors.md`.
+- Working: Lidl Plus, Nemlig.com, Netto+, Bilka+, REMA 1000 (Scan Selv purchases only).
+- Open: **Føtex+** shows a blank page after a correct password. The login window now reports
+  where it stopped; waiting for the owner's screenshot of that message.
+- Last: **Coop** (Lobyco OIDC + MitID via Signicat; MitID may not finish inside an app window).
+- Order the owner chose: Netto+ → Bilka+/Føtex+ → REMA 1000 → Coop last.

@@ -9,6 +9,7 @@ import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -522,6 +523,9 @@ class StoreConnectViewModel(
         fun clearCookies() {
             CookieManager.getInstance().removeAllCookies(null)
             CookieManager.getInstance().flush()
+            // Sign-in pages also keep a session in the page's own storage (Salling's login does);
+            // left over from another store's login it can stop the next one.
+            WebStorage.getInstance().deleteAllData()
         }
     }
 }
@@ -932,9 +936,19 @@ private fun StoreLoginWebView(
         }
         val fill = password?.let { connector.fillPasswordScript(it) } ?: return@LaunchedEffect
         var filled = false
+        var waiting = 0
         for (i in 0 until 120) {
             delay(500)
             if (run(fill) == "done") { filled = true; break }
+            // The store's login form never showing (a blank page, or one that didn't load) is
+            // reported too, not only a stop after the password went in.
+            val at = run(PAGE_STATE_SCRIPT) ?: "${lastPage.value} (no page loaded)"
+            waiting = if (at.isEmpty()) 0 else waiting + 1
+            if (waiting >= 30 || i == 119) {
+                val shown = at.ifEmpty { run(PAGE_STATE_SCRIPT_ALWAYS) ?: lastPage.value }
+                stuck("${connector.store.company}'s login form didn't show (at $shown). Please report this message.")
+                return@LaunchedEffect
+            }
         }
         val check = connector.loginErrorScript()
         if (!filled || check == null) return@LaunchedEffect

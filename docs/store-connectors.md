@@ -48,7 +48,11 @@ login form). One class, one tenant per chain:
   tenants. A first "blank page" check (no text at all) never fired on the owner's phone, so the
   window now reports when, 15 s after the password, there's nothing to fill in or press (or a
   minute passes, or a page fails to load): address, Salling's screen name (`body[data-page]`) and
-  the first visible words. Next step is the owner's screenshot of that message.
+  the first visible words. That check also never fired: the owner's screenshot (12 Oct) shows an
+  almost empty page (a white bar at the top), and the check only started once the password was in
+  Salling's form, so the form most likely never showed. The window now watches from the start
+  ("login form didn't show"), and starting a login clears the pages' stored data (WebStorage) as
+  well as cookies, in case a Netto/Bilka session left there stops Føtex's page.
   After a correct password Salling's page (`client-flow-gigya.js`) reads the account; with no
   Føtex+ membership number and no Føtex consent it switches to `gigya-complete-registration-screen`
   (join Føtex+), otherwise it checks the Gigya JWT at `/signatureCheckGigyaJWT` and posts the form,

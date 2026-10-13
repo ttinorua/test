@@ -66,6 +66,11 @@ login form). One class, one tenant per chain:
   screen but hidden; after the person submits it, the page carries on to the code. Tested only in
   a desktop browser with the step removed by hand. If it stays hidden, the report adds how the
   step looked (display/visibility/opacity/position).
+  The phone's report (13 Oct): step and name field visible and in place, but `#gigya-container`
+  0 px tall. Salling's gigya.css sets `html, body, #gigya-container { height: 100% }` and
+  `#gigya-container { overflow: auto }`; in the app window that resolved to 0, clipping the step.
+  The Salling scripts now add a style (`FIT_FRAME`: height auto, overflow visible) so the box
+  grows with the form. Checked in a desktop browser with the box forced to 0 px.
   After a correct password Salling's page (`client-flow-gigya.js`) reads the account; with no
   Føtex+ membership number and no Føtex consent it switches to `gigya-complete-registration-screen`
   (join Føtex+), otherwise it checks the Gigya JWT at `/signatureCheckGigyaJWT` and posts the form,

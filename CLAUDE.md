@@ -52,6 +52,7 @@ Details of each connection: `docs/store-connectors.md`.
 - Working: Lidl Plus, Nemlig.com, Netto+, Bilka+, REMA 1000 (Scan Selv purchases only).
 - Open: **Føtex+** blank page after a correct password = Salling's "join Føtex+" form (the owner's
   account lacks Føtex+ consent), which comes up hidden in the app window. Joining in the Føtex app
-  didn't help. The window now re-shows that form so it can be filled in (untested on the phone).
+  didn't help. Cause found: the box around the form is 0 px tall in the app window. The app now
+  makes it grow with the form (untested on the phone).
 - Last: **Coop** (Lobyco OIDC + MitID via Signicat; MitID may not finish inside an app window).
 - Order the owner chose: Netto+ → Bilka+/Føtex+ → REMA 1000 → Coop last.

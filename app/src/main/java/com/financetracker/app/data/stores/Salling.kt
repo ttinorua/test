@@ -54,6 +54,7 @@ class Salling private constructor(
      * fills in the e-mail itself; this waits for that, then presses Salling's own login button. */
     override fun fillPasswordScript(password: String): String = """
         (function(p) {
+          $FIT_FRAME
           var screen = document.getElementById('gigya-login-screen');
           var box = screen && screen.querySelector('input[name="password"]');
           if (!box || box.offsetParent === null) return 'wait';
@@ -98,6 +99,7 @@ class Salling private constructor(
           var note = 'step ' + info(s) + ', box ' + info(document.getElementById('gigya-container')) +
             ', name field ' + info(input) + ', scrolled ' + Math.round(window.scrollY);
           try {
+            $FIT_FRAME
             window.scrollTo(0, 0);
             IDP.API.gigya.showScreenSet({ screenSet: 'CP-Login', startScreen: 'gigya-complete-registration-screen' });
             note += ', shown again';
@@ -233,6 +235,14 @@ class Salling private constructor(
         private const val REDIRECT = "http://localhost"
         private const val APP_VERSION = "2.9.5.1090"
         private const val AGENT = "okhttp/4.12.0"
+
+        /** Salling's page makes the box around its forms as tall as the window (height: 100%). In
+         * the app's login window that came out as 0, which cut the "Opret bruger" step off
+         * completely (blank page). This lets the box grow with the form instead. */
+        private const val FIT_FRAME = "if (!document.getElementById('ft-fit-frame') && document.head) {" +
+            " var st = document.createElement('style'); st.id = 'ft-fit-frame';" +
+            " st.textContent = 'html, body, #gigya-container { height: auto !important; min-height: 100%; overflow: visible !important; }';" +
+            " document.head.appendChild(st); }"
 
         /** Netto+, Bilka+ and Føtex+: the same login and backend, each with its own tenant id and
          * alias (the aliases from the stores' apps; Salling's login page names 4 Netto, 2 Bilka and

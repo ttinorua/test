@@ -8,6 +8,11 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// Room exports each schema version's JSON here so migrations can be validated and tested.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) {

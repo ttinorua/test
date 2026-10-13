@@ -8,15 +8,21 @@ import androidx.room.TypeConverters
 import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.dao.AccountDao
 import com.financetracker.app.data.db.dao.CategoryDao
+import com.financetracker.app.data.db.dao.ReceiptDao
 import com.financetracker.app.data.db.dao.TransactionDao
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
+import com.financetracker.app.data.db.entity.Receipt
+import com.financetracker.app.data.db.entity.ReceiptLine
 import com.financetracker.app.data.db.entity.Transaction
 
 @Database(
-    entities = [Account::class, Category::class, Transaction::class],
-    version = 2,
-    exportSchema = false
+    entities = [
+        Account::class, Category::class, Transaction::class,
+        Receipt::class, ReceiptLine::class
+    ],
+    version = 3,
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun accountDao(): AccountDao
     abstract fun categoryDao(): CategoryDao
     abstract fun transactionDao(): TransactionDao
+    abstract fun receiptDao(): ReceiptDao
 
     companion object {
         @Volatile
@@ -37,8 +44,11 @@ abstract class AppDatabase : RoomDatabase() {
                     "finance_tracker.db"
                 )
                     .addCallback(SeedCallback(context))
-                    // Pre-release app, schema is still settling; wipe and reseed on
-                    // version bumps instead of hand-writing migrations for now.
+                    // Real migrations preserve user data across schema bumps (see [ALL_MIGRATIONS]).
+                    // Destructive fallback is kept only as a last resort for an upgrade path that
+                    // predates the migrations (no data loss on any version we actually ship a
+                    // migration for).
+                    .addMigrations(*ALL_MIGRATIONS)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { INSTANCE = it }

@@ -53,6 +53,12 @@ login form). One class, one tenant per chain:
   Salling's form, so the form most likely never showed. The window now watches from the start
   ("login form didn't show"), and starting a login clears the pages' stored data (WebStorage) as
   well as cookies, in case a Netto/Bilka session left there stops Føtex's page.
+  **Found (13 Oct):** the report said `screen gigya-complete-registration-screen`, text "Opret
+  bruger · Navn · Jeg vil gerne være medlem af føtex Plus". The password is accepted, but the
+  owner's Salling account has no Føtex+ membership yet, so Salling asks to join (name, profile and
+  Føtex+ terms checkboxes). In a desktop test browser that form shows normally; in the app window
+  only its white top bar shows and the fields count as not visible. Simplest way past it: join
+  Føtex+ once in the Føtex app (same Salling login), then the login skips this form.
   After a correct password Salling's page (`client-flow-gigya.js`) reads the account; with no
   Føtex+ membership number and no Føtex consent it switches to `gigya-complete-registration-screen`
   (join Føtex+), otherwise it checks the Gigya JWT at `/signatureCheckGigyaJWT` and posts the form,

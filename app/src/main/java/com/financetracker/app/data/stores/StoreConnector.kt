@@ -37,6 +37,11 @@ interface StoreConnector {
      * e-mail or password, else the page's own error text. */
     fun loginErrorScript(): String? = null
 
+    /** JavaScript run once when the login page, after signing in, shows nothing to fill in or
+     * press: the store's chance to bring back a step the window doesn't display. Returns a short
+     * note of what it found, added to the report if the page stays stuck. Null when there's none. */
+    fun stuckPageScript(): String? = null
+
     /** The store's login page to open ([LoginMode.WEBVIEW] only). [emailHint] prefills the
      * e-mail/phone for stores that require it in the address (see [needsEmailFirst]). */
     fun loginUrl(emailHint: String? = null): String = ""

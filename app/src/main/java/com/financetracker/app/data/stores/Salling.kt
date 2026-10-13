@@ -79,6 +79,33 @@ class Salling private constructor(
         })();
     """.trimIndent()
 
+    /** An account that hasn't joined this chain's club (or hasn't accepted its terms) gets Salling's
+     * "Opret bruger" step after the password: name, profile and club checkboxes. In the login
+     * window that step can come up hidden (only its top bar shows). This shows it again with the
+     * page's own screen set, so the person can fill it in and Salling's page carries on as usual.
+     * The note says how the step looked before, for the report if it stays hidden. */
+    override fun stuckPageScript(): String = """
+        (function() {
+          var b = document.body;
+          if (!b || b.getAttribute('data-page') !== 'gigya-complete-registration-screen') return 'screen ' + (b && b.getAttribute('data-page'));
+          function info(e) {
+            if (!e) return 'none';
+            var c = getComputedStyle(e), r = e.getBoundingClientRect();
+            return c.display + '/' + c.visibility + '/' + c.opacity + '/' + Math.round(r.top) + '+' + Math.round(r.height);
+          }
+          var s = document.getElementById('gigya-complete-registration-screen');
+          var input = s && s.querySelector('input[name="profile.firstName"]');
+          var note = 'step ' + info(s) + ', box ' + info(document.getElementById('gigya-container')) +
+            ', name field ' + info(input) + ', scrolled ' + Math.round(window.scrollY);
+          try {
+            window.scrollTo(0, 0);
+            IDP.API.gigya.showScreenSet({ screenSet: 'CP-Login', startScreen: 'gigya-complete-registration-screen' });
+            note += ', shown again';
+          } catch (e) { note += ', ' + e.message; }
+          return note;
+        })();
+    """.trimIndent()
+
     /** The login finishes at http://localhost with the one-time code in the query or the fragment. */
     override fun captureFromUrl(url: String): String? {
         if (!url.startsWith(REDIRECT)) return null

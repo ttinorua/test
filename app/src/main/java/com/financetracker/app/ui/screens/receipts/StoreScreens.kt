@@ -953,14 +953,23 @@ private fun StoreLoginWebView(
         val check = connector.loginErrorScript()
         if (!filled || check == null) return@LaunchedEffect
         var idle = 0
-        for (i in 0 until 240) {
+        val repair = connector.stuckPageScript()
+        var repairNote: String? = null
+        for (i in 0 until 480) {
             delay(500)
             run(check)?.takeIf { it.isNotEmpty() }?.let { rejected(it); return@LaunchedEffect }
             // Nothing to fill in or press for 15 seconds after signing in: report what the page
             // shows. No answer at all means an error page or a page that never loaded.
             val state = run(PAGE_STATE_SCRIPT)
-            val at = state ?: "${lastPage.value} (no page loaded)"
+            val at = state?.let { if (it.isNotEmpty() && repairNote != null) "$it; $repairNote" else it }
+                ?: "${lastPage.value} (no page loaded)"
             idle = if (at.isEmpty()) 0 else idle + 1
+            // After a few seconds with nothing to do, the store may bring back a hidden step once.
+            if (idle == 6 && repair != null && repairNote == null && state != null) {
+                repairNote = run(repair) ?: "no answer"
+                idle = 0
+                continue
+            }
             // Still not through a minute after the password went in: report wherever it is,
             // unless the store is asking the person to finish joining (a form they fill in).
             val shown = when {

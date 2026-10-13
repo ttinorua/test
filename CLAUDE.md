@@ -51,7 +51,7 @@ Use the `build-apk` skill (`.claude/skills/build-apk/SKILL.md`). In short:
 Details of each connection: `docs/store-connectors.md`.
 - Working: Lidl Plus, Nemlig.com, Netto+, Bilka+, REMA 1000 (Scan Selv purchases only).
 - Open: **Føtex+** blank page after a correct password = Salling's "join Føtex+" form (the owner's
-  account isn't a Føtex+ member yet), which doesn't show in the app window. Suggested: join once
-  in the Føtex app; making the app show the form is untested.
+  account lacks Føtex+ consent), which comes up hidden in the app window. Joining in the Føtex app
+  didn't help. The window now re-shows that form so it can be filled in (untested on the phone).
 - Last: **Coop** (Lobyco OIDC + MitID via Signicat; MitID may not finish inside an app window).
 - Order the owner chose: Netto+ → Bilka+/Føtex+ → REMA 1000 → Coop last.

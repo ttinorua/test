@@ -59,6 +59,13 @@ login form). One class, one tenant per chain:
   Føtex+ terms checkboxes). In a desktop test browser that form shows normally; in the app window
   only its white top bar shows and the fields count as not visible. Simplest way past it: join
   Føtex+ once in the Føtex app (same Salling login), then the login skips this form.
+  That didn't help: after joining in the Føtex app the page still asked. Salling's page looks for
+  `data.customerprogram.cpfotMembershipNr` or `preferences.profiling.dk.foetex.customerprogram`
+  consent; the app's sign-up evidently doesn't set them. So the window now re-shows the step once
+  (`Salling.stuckPageScript`, via the page's own `IDP.API.gigya.showScreenSet`) when it's on
+  screen but hidden; after the person submits it, the page carries on to the code. Tested only in
+  a desktop browser with the step removed by hand. If it stays hidden, the report adds how the
+  step looked (display/visibility/opacity/position).
   After a correct password Salling's page (`client-flow-gigya.js`) reads the account; with no
   Føtex+ membership number and no Føtex consent it switches to `gigya-complete-registration-screen`
   (join Føtex+), otherwise it checks the Gigya JWT at `/signatureCheckGigyaJWT` and posts the form,

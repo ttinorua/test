@@ -86,25 +86,36 @@ class Nemlig : StoreConnector {
         val auth = mapOf("Authorization" to "Bearer $bearer", "X-XSRF-TOKEN" to xsrf)
 
         val orders = mutableListOf<JSONObject>()
+        val skipped = mutableListOf<Int>()
         var skip = 0
         while (skip < 400) {
             val json = JSONObject(get("/webapi/order/GetBasicOrderHistory?skip=$skip&take=$PAGE", auth).body)
-            val page = json.optJSONArray("Orders") ?: break
+            // A missing list means the answer isn't the order history (e.g. not signed in), not "no orders".
+            val page = json.optJSONArray("Orders")
+                ?: throw IllegalStateException("Nemlig.com's order history came back in an unknown form")
             var older = false
             for (i in 0 until page.length()) {
                 val o = page.getJSONObject(i)
                 val at = orderTime(o) ?: continue
                 if (at < since) { older = true; continue }
-                // Only delivered orders: those are the ones that were charged.
-                if (o.optInt("Status") == DELIVERED) orders += o
+                if (isCharged(o)) orders += o else skipped += o.optInt("Status")
             }
             if (older || page.length() < PAGE) break
             skip += PAGE
         }
         if (http.cookies[AUTH_COOKIE].isNullOrEmpty()) throw StoreLoginExpired("Nemlig.com wants you to sign in again.")
-        val receipts = orders.mapNotNull { order ->
-            runCatching { parseOrder(order, JSONObject(get("/webapi/v2/order/GetOrderHistory/${order.getLong("Id")}", auth).body)) }.getOrNull()
+        // Orders were there but none counted as delivered, and not because they're still on the
+        // way: say so instead of a silent "0 receipts".
+        if (orders.isEmpty() && skipped.any { it !in PENDING }) {
+            throw IllegalStateException("${skipped.size} orders found, none delivered yet (status ${skipped.distinct().joinToString()})")
         }
+        val results = orders.map { order ->
+            runCatching { parseOrder(order, JSONObject(get("/webapi/v2/order/GetOrderHistory/${order.getLong("Id")}", auth).body)) }
+        }
+        results.firstNotNullOfOrNull { it.exceptionOrNull() as? StoreLoginExpired }?.let { throw it }
+        val receipts = results.mapNotNull { it.getOrNull() }
+        // Every order's lines failed: report why instead of a silent "0 receipts".
+        if (receipts.isEmpty()) results.firstNotNullOfOrNull { it.exceptionOrNull() }?.let { throw it }
         // Keep the cookies as they are now (the site renews them).
         val renewed = JSONObject()
             .put("cookies", http.cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
@@ -119,6 +130,12 @@ class Nemlig : StoreConnector {
         private const val WEB_VERSION = "11.201.0"
         private const val PAGE = 10
         private const val DELIVERED = 4
+        private val PENDING = setOf(1, 2)
+
+        /** Delivered orders are the ones that were charged; one with an invoice was charged too,
+         * whatever its status number says. */
+        internal fun isCharged(order: JSONObject): Boolean =
+            order.optInt("Status") == DELIVERED || order.optBoolean("HasInvoice")
 
         /** The delivery is when the card is charged, so it's the date that matches the bank. */
         internal fun orderTime(order: JSONObject): Long? =

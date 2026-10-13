@@ -69,6 +69,13 @@ class StoreReceiptsTest {
     }
 
     @Test
+    fun `a Nemlig order counts as charged when delivered or invoiced`() {
+        assertEquals(true, Nemlig.isCharged(JSONObject("""{"Status": 4}""")))
+        assertEquals(true, Nemlig.isCharged(JSONObject("""{"Status": 6, "HasInvoice": true}""")))
+        assertEquals(false, Nemlig.isCharged(JSONObject("""{"Status": 1, "HasInvoice": false}""")))
+    }
+
+    @Test
     fun `a Nemlig order is dated by its delivery and leaves the delivery fee out of the lines`() {
         val order = JSONObject(
             """

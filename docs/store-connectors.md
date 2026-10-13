@@ -25,7 +25,7 @@ Its login can't run in an app window, so e-mail and password are typed in the ap
 to get the `.ASPXAUTH` session cookie (kept, valid about a year); the password isn't stored.
 Orders come from the website's order history (delivered orders).
 
-## Netto+, Bilka+, Føtex+ (`Salling.kt`) — Netto+ and Bilka+ work, Føtex+ open
+## Netto+, Bilka+, Føtex+ (`Salling.kt`) — all three work
 Salling Group's login (`p-idp.dsgapps.dk/apps`, client `customer-program`, OAuth + PKCE, Gigya
 login form). One class, one tenant per chain:
 
@@ -43,7 +43,7 @@ login form). One class, one tenant per chain:
 - Return address `http://localhost/#…code=…`; code swapped at `/token` (authorization_code).
 - Receipts: `p-club.dsgapps.dk/api/cp/receipt` and `/api/cp/receipt/details`, with the app's
   headers (`Authorization`, `x-id_token`, `x-idpid`, `X-tenantAlias`, …). Refresh tokens rotate.
-- **Føtex+ open issue:** login page and wrong-password check work (tested in a browser), but after
+- **Føtex+ (solved 13 Oct, kept for the history):** login page and wrong-password check work (tested in a browser), but after
   a correct password the window went blank. Salling uses the same default return address for all
   tenants. A first "blank page" check (no text at all) never fired on the owner's phone, so the
   window now reports when, 15 s after the password, there's nothing to fill in or press (or a
@@ -70,7 +70,8 @@ login form). One class, one tenant per chain:
   0 px tall. Salling's gigya.css sets `html, body, #gigya-container { height: 100% }` and
   `#gigya-container { overflow: auto }`; in the app window that resolved to 0, clipping the step.
   The Salling scripts now add a style (`FIT_FRAME`: height auto, overflow visible) so the box
-  grows with the form. Checked in a desktop browser with the box forced to 0 px.
+  grows with the form. Checked in a desktop browser with the box forced to 0 px, then confirmed
+  on the owner's phone: the form showed, was submitted, and Føtex+ connected.
   After a correct password Salling's page (`client-flow-gigya.js`) reads the account; with no
   Føtex+ membership number and no Føtex consent it switches to `gigya-complete-registration-screen`
   (join Føtex+), otherwise it checks the Gigya JWT at `/signatureCheckGigyaJWT` and posts the form,

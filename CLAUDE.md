@@ -49,10 +49,9 @@ Use the `build-apk` skill (`.claude/skills/build-apk/SKILL.md`). In short:
 ## Store receipts: status and open items
 
 Details of each connection: `docs/store-connectors.md`.
-- Working: Lidl Plus, Nemlig.com, Netto+, Bilka+, REMA 1000 (Scan Selv purchases only).
-- Open: **Føtex+** blank page after a correct password = Salling's "join Føtex+" form (the owner's
-  account lacks Føtex+ consent), which comes up hidden in the app window. Joining in the Føtex app
-  didn't help. Cause found: the box around the form is 0 px tall in the app window. The app now
-  makes it grow with the form (untested on the phone).
+- Working: Lidl Plus, Nemlig.com, Netto+, Bilka+, Føtex+, REMA 1000 (Scan Selv purchases only).
+- Føtex+ note: an account without Føtex+ consent gets Salling's "Opret bruger" form after the
+  password; the app makes it visible (its box was 0 px tall in the app window). Confirmed working
+  on the owner's phone (13 Oct): fill in the name, tick all three boxes, press "Opret bruger".
 - Last: **Coop** (Lobyco OIDC + MitID via Signicat; MitID may not finish inside an app window).
 - Order the owner chose: Netto+ → Bilka+/Føtex+ → REMA 1000 → Coop last.

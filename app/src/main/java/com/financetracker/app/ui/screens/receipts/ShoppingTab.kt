@@ -22,8 +22,6 @@ import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Storefront
@@ -60,23 +58,25 @@ import com.financetracker.app.ui.components.CategoryIconTile
 import com.financetracker.app.ui.components.EmptyState
 import com.financetracker.app.ui.components.GlassCard
 import com.financetracker.app.ui.components.IconTile
+import com.financetracker.app.ui.components.PeriodSelectorChip
 import com.financetracker.app.ui.components.StoreLogo
 import com.financetracker.app.ui.theme.ExpenseRed
 import com.financetracker.app.util.Formatters
+import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.ShoppingStats
+import com.financetracker.app.util.periodRange
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 enum class ShoppingView(val label: String) { STORE("By store"), CATEGORY("By category"), ITEM("Items") }
 
 data class ShoppingState(
-    val monthStart: Long = 0L,
-    val isCurrentMonth: Boolean = true,
+    val periodOption: PeriodOption = PeriodOption.THIS_MONTH,
+    val customRange: Pair<Long, Long>? = null,
     val view: ShoppingView = ShoppingView.STORE,
     val total: Double = 0.0,
     val receiptCount: Int = 0,
@@ -87,22 +87,24 @@ data class ShoppingState(
     val hasAnyReceipts: Boolean = false
 )
 
+/** Uses the app-wide [periodRange] (UTC calendar days, like every other screen) so the period
+ * label and the receipts it covers always agree. */
 class ShoppingViewModel(repository: FinanceRepository) : ViewModel() {
-    private val monthsBack = MutableStateFlow(0)
+    private val period = MutableStateFlow<Pair<PeriodOption, Pair<Long, Long>?>>(PeriodOption.THIS_MONTH to null)
     private val view = MutableStateFlow(ShoppingView.STORE)
 
     val state: StateFlow<ShoppingState> = combine(
         repository.observeReceipts(),
         repository.observeReceiptItemDetails(),
-        monthsBack,
+        period,
         view
-    ) { receipts, items, back, view ->
-        val range = monthRange(back)
+    ) { receipts, items, (option, custom), view ->
+        val range = periodRange(option, custom)
         val inMonth = receipts.filter { ShoppingStats.inRange(it.purchasedAt, range) }
         val byCategory = ShoppingStats.byCategory(items, range)
         ShoppingState(
-            monthStart = range.first,
-            isCurrentMonth = back == 0,
+            periodOption = option,
+            customRange = custom,
             view = view,
             total = inMonth.sumOf { it.total },
             receiptCount = inMonth.size,
@@ -116,25 +118,14 @@ class ShoppingViewModel(repository: FinanceRepository) : ViewModel() {
             receipts = inMonth,
             hasAnyReceipts = receipts.isNotEmpty()
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShoppingState(monthStart = monthRange(0).first))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShoppingState())
 
-    fun previousMonth() { monthsBack.value += 1 }
-    fun nextMonth() { if (monthsBack.value > 0) monthsBack.value -= 1 }
+    fun selectPeriod(option: PeriodOption) { period.value = option to null }
+    fun selectCustomRange(start: Long, endExclusive: Long) { period.value = PeriodOption.CUSTOM to (start to endExclusive) }
     fun selectView(v: ShoppingView) { view.value = v }
-
-    private fun monthRange(back: Int): Pair<Long, Long> {
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.DAY_OF_MONTH, 1); set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-            add(Calendar.MONTH, -back)
-        }
-        val from = cal.timeInMillis
-        cal.add(Calendar.MONTH, 1)
-        return from to cal.timeInMillis
-    }
 }
 
-/** The Shopping tab of Spending: this month's shopping from receipts — by store, by category or
+/** The Shopping tab of Spending: shopping in the chosen period from receipts — by store, by category or
  * by item — what got more expensive, and the receipts themselves. + adds a receipt. */
 @Composable
 fun ShoppingTab(viewModel: ShoppingViewModel, onOpenReceipt: (Long) -> Unit, modifier: Modifier = Modifier, onOpenStores: () -> Unit = {}) {
@@ -160,16 +151,13 @@ fun ShoppingTab(viewModel: ShoppingViewModel, onOpenReceipt: (Long) -> Unit, mod
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = viewModel::previousMonth) { Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous month") }
-                Text(
-                    Formatters.month(state.monthStart),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1
+                PeriodSelectorChip(
+                    option = state.periodOption,
+                    customRange = state.customRange,
+                    onOptionSelected = viewModel::selectPeriod,
+                    onCustomRangeSelected = viewModel::selectCustomRange,
+                    modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = viewModel::nextMonth, enabled = !state.isCurrentMonth) {
-                    Icon(Icons.Filled.ChevronRight, contentDescription = "Next month")
-                }
                 IconButton(onClick = onOpenStores) { Icon(Icons.Filled.Storefront, contentDescription = "Store connections") }
                 Box {
                     FilledIconButton(onClick = { addMenu = true }) { Icon(Icons.Filled.Add, contentDescription = "Add receipt") }
@@ -240,7 +228,7 @@ fun ShoppingTab(viewModel: ShoppingViewModel, onOpenReceipt: (Long) -> Unit, mod
             }
         }
         if (state.lines.isEmpty()) {
-            item { Text("No receipts this month.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            item { Text("No receipts in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
             item { LinesCard(state.lines, state.view, currency) }
         }

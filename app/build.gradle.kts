@@ -61,6 +61,11 @@ val enableBankingPrivateKeyB64: String =
         ?: ""
 
 android {
+    lint {
+        // The release build's own quick lint pass ("lintVital", ~2 minutes on the cloud build machine)
+        // repeats what `lintDebug` already checks before every push, so it's skipped.
+        checkReleaseBuilds = false
+    }
     namespace = "com.financetracker.app"
     compileSdk = 34
 

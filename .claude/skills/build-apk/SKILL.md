@@ -31,6 +31,10 @@ If you are the build session, do this:
 4. `env -u ANTHROPIC_API_KEY ./gradlew testDebugUnitTest` (all must pass; one Robolectric test
    downloads a runtime jar the first time), then `env -u ANTHROPIC_API_KEY ./gradlew assembleRelease`.
    On HTTP 429 from a dependency download, just run the same command again.
+   `assembleRelease` is slow: its code-shrinking step (`minifyReleaseWithR8`) alone takes 40+
+   minutes on a 4-core cloud machine and can't resume if stopped. Run each Gradle command in the
+   background with the **maximum** time limit (2 hours), never a shorter one, so it isn't killed
+   midway and has to start over.
 5. Verify with `apksigner` (`/opt/android-sdk/build-tools/34.0.0`): signer certificate SHA-256 must
    be exactly `e40fb71b074a0b8cabe9615e710ad8b84cabcfc82273298bd7f9b4719ce6758b`. If not, do
    **not** send the APK; tell the owner. Never sign with another key.

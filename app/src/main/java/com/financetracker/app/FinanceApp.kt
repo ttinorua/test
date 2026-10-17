@@ -10,6 +10,7 @@ import com.financetracker.app.data.db.AppDatabase
 import com.financetracker.app.data.advisor.AttentionMonitor
 import com.financetracker.app.data.ai.AiSettings
 import com.financetracker.app.data.ai.LearnedCategoryRules
+import com.financetracker.app.data.ai.MerchantLogoLookup
 import com.financetracker.app.data.backup.AutoBackupSettings
 import com.financetracker.app.data.enablebanking.EnableBankingCredentials
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
@@ -52,6 +53,7 @@ class FinanceApp : Application() {
         EnableBankingCredentials.init(this)
         AutoBackupSettings.init(this)
         LoansAndGoals.init(this)
+        MerchantLogoLookup.init(this)
         repository = FinanceRepository(AppDatabase.getInstance(this))
         AttentionMonitor.init(this)
 

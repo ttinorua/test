@@ -10,11 +10,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.financetracker.app.data.ai.MerchantLogoLookup
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.util.Formatters
@@ -45,10 +49,18 @@ fun TransactionRow(
                 .padding(end = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CategoryColorDot(
-                colorHex = transaction.categoryColorHex ?: "#9E9E9E",
-                modifier = Modifier.size(10.dp)
-            )
+            // Company logo when one is known; otherwise the category dot as before.
+            val cachedDomains by MerchantLogoLookup.domains.collectAsState()
+            LaunchedEffect(transaction.note) { MerchantLogoLookup.request(transaction.note) }
+            CompanyLogo(
+                domain = MerchantLogoLookup.domainFor(transaction.note, cachedDomains),
+                contentDescription = null
+            ) {
+                CategoryColorDot(
+                    colorHex = transaction.categoryColorHex ?: "#9E9E9E",
+                    modifier = Modifier.size(10.dp)
+                )
+            }
             Column(modifier = Modifier.padding(start = 12.dp)) {
                 Text(
                     text = transaction.note.ifBlank { transaction.categoryName ?: "Transaction" },

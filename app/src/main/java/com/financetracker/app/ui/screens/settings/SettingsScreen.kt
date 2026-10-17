@@ -27,6 +27,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -92,6 +93,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.bank.Bank
+import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.TransactionType
@@ -107,6 +109,7 @@ import com.financetracker.app.ui.components.AccountSelectorChip
 import com.financetracker.app.ui.components.CategoryColorDot
 import com.financetracker.app.ui.components.CategoryGroupHeader
 import com.financetracker.app.ui.components.CategoryPickerDialog
+import com.financetracker.app.ui.components.CompanyLogo
 import com.financetracker.app.ui.components.accordionShape
 import com.financetracker.app.ui.screens.importexport.ImportExportScreen
 import com.financetracker.app.ui.screens.importexport.ImportExportViewModel
@@ -917,6 +920,11 @@ private fun BankDropdown(
             banks.forEach { bank ->
                 DropdownMenuItem(
                     text = { Text(bank.displayName) },
+                    leadingIcon = {
+                        CompanyLogo(domain = bank.logoDomain, contentDescription = null) {
+                            Icon(Icons.Filled.AccountBalance, contentDescription = null, modifier = Modifier.size(20.dp))
+                        }
+                    },
                     onClick = {
                         onSelected(bank)
                         expanded = false
@@ -1317,14 +1325,22 @@ private fun BankConnectionSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(connection.bankDisplayName, style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "${connection.linkedAccounts.count { it.uid in connection.selectedAccountUids }} of " +
-                            "${connection.linkedAccounts.size} synced",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    CompanyLogo(
+                        domain = SupportedBanks.byId(connection.bankId).logoDomain,
+                        contentDescription = null
+                    ) {
+                        Icon(Icons.Filled.AccountBalance, contentDescription = null, modifier = Modifier.size(20.dp))
+                    }
+                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                        Text(connection.bankDisplayName, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "${connection.linkedAccounts.count { it.uid in connection.selectedAccountUids }} of " +
+                                "${connection.linkedAccounts.size} synced",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = onRefresh, enabled = !isStartingAuth) {

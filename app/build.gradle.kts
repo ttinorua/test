@@ -162,6 +162,9 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.8.0")
 
+    // Company/bank logos on transactions and bank connections
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

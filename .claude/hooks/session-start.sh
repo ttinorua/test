@@ -37,6 +37,20 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   echo "export ANDROID_HOME=$SDK_ROOT" >> "$CLAUDE_ENV_FILE"
 fi
 
-# Download Gradle and the project's plugins/dependencies now, so the cached container starts warm.
+# Download Gradle and the project's plugins now.
 cd "$CLAUDE_PROJECT_DIR"
 ./gradlew --quiet help >/dev/null
+
+# Early fetch: each cloud session starts on a fresh machine, so the app's libraries still have to
+# be downloaded and prepared (about 20 minutes of a build). Start that in the background now, so
+# it's done or well underway by the time a build or test is asked for. Gradle reuses the result;
+# a build started meanwhile waits for it and picks up where it got to. Maven Central sometimes
+# answers HTTP 429 (too many requests), so retry a few times. Log: /tmp/gradle-warmup.log.
+# No secrets are needed or printed: it only compiles, and converts the libraries for the release APK.
+WARMUP_TASKS="compileDebugUnitTestKotlin mergeExtDexRelease"
+nohup setsid bash -c "
+  for i in 1 2 3 4 5; do
+    env -u ANTHROPIC_API_KEY ./gradlew --console=plain $WARMUP_TASKS && { echo 'warm-up done'; exit 0; }
+    echo \"warm-up attempt \$i failed; retrying in 30 s\"; sleep 30
+  done
+" >/tmp/gradle-warmup.log 2>&1 < /dev/null &

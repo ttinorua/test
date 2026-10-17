@@ -306,10 +306,11 @@ private fun TransactionLine(tx: TransactionWithDetails) {
     val cachedNames by MerchantLogoLookup.names.collectAsState()
     val overrides by MerchantOverrides.rules.collectAsState()
     val domain = MerchantLogoLookup.domainFor(tx.note, cachedDomains, overrides)
+    val photo = MerchantOverrides.photoFor(tx.note, overrides)
     val name = MerchantLogoLookup.nameFor(tx.note, cachedNames, overrides)
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        if (domain != null) {
-            CompanyLogo(domain = domain, contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(20.dp)) {}
+        if (domain != null || photo != null) {
+            CompanyLogo(domain = domain, contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(20.dp), photo = photo) {}
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(name ?: tx.note.ifBlank { "(no text)" }, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

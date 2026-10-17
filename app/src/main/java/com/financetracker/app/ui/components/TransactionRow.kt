@@ -63,7 +63,8 @@ fun TransactionRow(
             CompanyLogo(
                 domain = MerchantLogoLookup.domainFor(transaction.note, cachedDomains, overrides),
                 contentDescription = null,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(36.dp),
+                photo = MerchantOverrides.photoFor(transaction.note, overrides)
             ) {
                 CategoryIconTile(
                     categoryId = transaction.categoryId,

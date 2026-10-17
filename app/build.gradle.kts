@@ -168,6 +168,8 @@ dependencies {
 
     // Company/bank logos on transactions and bank connections
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Reads which way up a chosen photo is, for logos from the phone's pictures.
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")

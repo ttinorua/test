@@ -21,7 +21,9 @@ data class MerchantOverride(
     val name: String?,
     /** Website whose logo is shown; null = automatic, "" = no logo (category icon). */
     val domain: String?,
-    val updatedAt: Long
+    val updatedAt: Long,
+    /** The person's own picture as the logo (a small square image, Base64); wins over [domain]. */
+    val photo: String? = null
 )
 
 object MerchantOverrides {
@@ -38,11 +40,14 @@ object MerchantOverrides {
     }
 
     /** Saves the name and logo for every transaction containing [keyword], replacing an earlier
-     * choice for the same word. Blank [name] = automatic; [domain] null = automatic, "" = no logo. */
-    fun set(keyword: String, name: String?, domain: String?) {
+     * choice for the same word. Blank [name] = automatic; [domain] null = automatic, "" = no logo;
+     * [photo] = the person's own picture (then [domain] is ignored). */
+    fun set(keyword: String, name: String?, domain: String?, photo: String? = null) {
         val key = MerchantLogos.normalize(keyword)
         if (key.isEmpty()) return
-        val rule = MerchantOverride(key, name?.trim()?.ifEmpty { null }, domain, System.currentTimeMillis())
+        val rule = MerchantOverride(
+            key, name?.trim()?.ifEmpty { null }, if (photo != null) null else domain, System.currentTimeMillis(), photo
+        )
         save(_rules.value.filter { it.keyword != key } + rule)
     }
 
@@ -66,9 +71,17 @@ object MerchantOverrides {
     fun nameFor(description: String, rules: List<MerchantOverride> = _rules.value): String? =
         best(description, rules) { it.name != null }?.name
 
-    /** The person's logo choice for [description]: a domain, "" for no logo, or null (automatic). */
+    /** The person's logo choice for [description]: a domain, "" for no website logo (no logo, or
+     * their own photo — see [photoFor]), or null (automatic). */
     fun domainFor(description: String, rules: List<MerchantOverride> = _rules.value): String? =
-        best(description, rules) { it.domain != null }?.domain
+        logoRule(description, rules)?.let { if (it.photo != null) "" else it.domain }
+
+    /** The person's own picture for [description] (Base64), or null. */
+    fun photoFor(description: String, rules: List<MerchantOverride> = _rules.value): String? =
+        logoRule(description, rules)?.photo
+
+    private fun logoRule(description: String, rules: List<MerchantOverride>): MerchantOverride? =
+        best(description, rules) { it.domain != null || it.photo != null }
 
     /** Rule keywords are stored normalised, so the description is normalised once here rather
      * than once per rule (this runs for every row and every search). */
@@ -87,6 +100,7 @@ object MerchantOverrides {
                     .put("name", r.name ?: JSONObject.NULL)
                     .put("domain", r.domain ?: JSONObject.NULL)
                     .put("updatedAt", r.updatedAt)
+                    .apply { r.photo?.let { put("photo", it) } }
             )
         }
     }.toString()
@@ -100,7 +114,8 @@ object MerchantOverrides {
                 keyword = MerchantLogos.normalize(o.getString("keyword")),
                 name = if (o.isNull("name")) null else o.getString("name"),
                 domain = if (o.isNull("domain")) null else o.getString("domain"),
-                updatedAt = o.optLong("updatedAt")
+                updatedAt = o.optLong("updatedAt"),
+                photo = if (o.isNull("photo")) null else o.optString("photo").ifEmpty { null }
             )
         }.filter { it.keyword.isNotEmpty() }
     }.getOrDefault(emptyList())

@@ -53,6 +53,23 @@ class MerchantOverridesTest {
     }
 
     @Test
+    fun `an own picture replaces the website logo and is kept when saved and read back`() {
+        val withPhoto = rules + MerchantOverride("netto", "Netto", null, updatedAt = 4, photo = "AAAA")
+        assertEquals("AAAA", MerchantOverrides.photoFor("Dankort NETTO 123", withPhoto))
+        // No website logo on top of the picture.
+        assertNull(MerchantLogoLookup.domainFor("Dankort NETTO 123", emptyMap(), withPhoto))
+        assertNull(MerchantOverrides.photoFor("MCD 4471 HBO NORDIC", withPhoto))
+        assertEquals(withPhoto, MerchantOverrides.deserialize(MerchantOverrides.serialize(withPhoto)))
+        // A longer word with a website logo wins over a shorter word's picture.
+        val both = listOf(
+            MerchantOverride("hbo", null, null, updatedAt = 1, photo = "AAAA"),
+            MerchantOverride("hbo max", null, "max.com", updatedAt = 2)
+        )
+        assertNull(MerchantOverrides.photoFor("HBO MAX NORDIC", both))
+        assertEquals("max.com", MerchantOverrides.domainFor("HBO MAX NORDIC", both))
+    }
+
+    @Test
     fun `suggested word is the company keyword`() {
         assertEquals("hbo", MerchantLogos.suggestedKeyword("MCD 4471 HBO NORDIC"))
         assertEquals("spiri", MerchantLogos.suggestedKeyword("Dankort-køb SPIRI APS 1234"))

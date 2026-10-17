@@ -128,7 +128,8 @@ fun AddEditTransactionSheet(
                     CompanyLogo(
                         domain = MerchantLogoLookup.domainFor(existing.note, cachedDomains, overrides),
                         contentDescription = null,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(36.dp),
+                        photo = MerchantOverrides.photoFor(existing.note, overrides)
                     ) {
                         CategoryIconTile(
                             categoryId = existing.categoryId,

@@ -32,8 +32,11 @@ If you are the build session, do this:
    downloads a runtime jar the first time), then `env -u ANTHROPIC_API_KEY ./gradlew assembleRelease`.
    On HTTP 429 from a dependency download, just run the same command again.
    The session-start hook already began fetching and preparing the libraries in the background
-   (log: `/tmp/gradle-warmup.log`); just start the commands, and Gradle waits for and reuses that
-   work. Tell the owner how long the build took in total.
+   (log: `/tmp/gradle-warmup.log`). **Wait for it to end before the first Gradle command**: run
+   `until [ -s /tmp/gradle-warmup.status ]; do sleep 10; done; cat /tmp/gradle-warmup.status` in
+   the background (2-hour limit). Running a build alongside it makes both fail. If it says
+   `failed` (usually Maven's 429), just run the commands above anyway (rerun on 429).
+   Tell the owner how long the build took in total.
    Run each Gradle command in the background with the **maximum** time limit (2 hours), never a
    shorter one, so it isn't killed midway and has to start over. (Code shrinking is off for
    release since Oct 2026: it took over an hour per build. If it's ever turned back on, expect

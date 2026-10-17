@@ -48,7 +48,7 @@ in other apps, with per-app weekly caps in ChatGPT → Settings → Usage.
 Sources: help.openai.com/en/articles/20001542, flaviocopes.com/sign-in-with-chatgpt,
 code.claude.com/docs/en/legal-and-compliance.
 
-## Next update: Robolectric test download via Google's mirror (agreed 17 Oct 2026)
+## Robolectric test download via Google's mirror (done 17 Oct 2026)
 
 The build now fetches libraries from Google's copy of Maven Central (`settings.gradle.kts`), but
 `DatabaseUpgradeTest` (Robolectric) still downloads its `android-all` jar straight from Maven

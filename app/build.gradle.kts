@@ -220,3 +220,10 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+// Robolectric downloads its Android runtime jar itself (not through the repositories in
+// settings.gradle.kts); point it at Google's copy of Maven Central too, which doesn't turn fresh
+// cloud build machines away with HTTP 429 the way Maven Central does.
+tasks.withType<Test>().configureEach {
+    systemProperty("robolectric.dependency.repo.url", "https://maven-central.storage-download.googleapis.com/maven2/")
+}

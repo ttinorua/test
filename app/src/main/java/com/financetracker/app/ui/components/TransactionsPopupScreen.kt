@@ -31,6 +31,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
+import com.financetracker.app.data.prefs.MerchantOverrides
+import com.financetracker.app.data.ai.MerchantLogoLookup
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -221,7 +225,7 @@ fun TransactionsPopupScreen(
             title = { Text("Remove from Upcoming expenses?") },
             text = {
                 Text(
-                    "\"${target.label}\" won't count toward this month's Expenses total anymore. " +
+                    "\"${MerchantLogoLookup.nameFor(target.label) ?: target.label}\" won't count toward this month's Expenses total anymore. " +
                         "It comes back automatically once it actually posts, or again next month."
                 )
             },
@@ -280,10 +284,23 @@ private fun AnticipatedExpenseRow(item: AnticipatedExpense, onLongClick: () -> U
                 .padding(end = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CategoryIconTile(categoryId = null, name = item.category, mainCategory = item.mainCategory, colorHex = item.colorHex, size = 36.dp)
+            // Same short company name and logo as posted transactions (TransactionRow), so the
+            // person's own "Change logo & name" choices apply here too.
+            val cachedDomains by MerchantLogoLookup.domains.collectAsState()
+            val cachedNames by MerchantLogoLookup.names.collectAsState()
+            val overrides by MerchantOverrides.rules.collectAsState()
+            LaunchedEffect(item.label) { MerchantLogoLookup.request(item.label) }
+            CompanyLogo(
+                domain = MerchantLogoLookup.domainFor(item.label, cachedDomains, overrides),
+                contentDescription = null,
+                modifier = Modifier.size(36.dp),
+                photo = MerchantOverrides.photoFor(item.label, overrides)
+            ) {
+                CategoryIconTile(categoryId = null, name = item.category, mainCategory = item.mainCategory, colorHex = item.colorHex, size = 36.dp)
+            }
             Column(modifier = Modifier.padding(start = 12.dp)) {
                 Text(
-                    text = item.label,
+                    text = MerchantLogoLookup.nameFor(item.label, cachedNames, overrides) ?: item.label,
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

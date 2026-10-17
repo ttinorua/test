@@ -62,6 +62,7 @@ import com.financetracker.app.ui.theme.gradientBrush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.ai.MerchantLogoLookup
+import com.financetracker.app.data.prefs.MerchantOverrides
 import com.financetracker.app.data.ai.advisor.AdvisorCard
 import com.financetracker.app.data.ai.advisor.CardStatus
 import com.financetracker.app.data.db.entity.TransactionType
@@ -302,13 +303,16 @@ private fun TransactionLine(tx: TransactionWithDetails) {
     val cachedDomains by MerchantLogoLookup.domains.collectAsState()
     LaunchedEffect(tx.note) { MerchantLogoLookup.request(tx.note) }
     // These lines had no icon before, so only a found logo is shown — never an empty gap.
-    val domain = MerchantLogoLookup.domainFor(tx.note, cachedDomains)
+    val cachedNames by MerchantLogoLookup.names.collectAsState()
+    val overrides by MerchantOverrides.rules.collectAsState()
+    val domain = MerchantLogoLookup.domainFor(tx.note, cachedDomains, overrides)
+    val name = MerchantLogoLookup.nameFor(tx.note, cachedNames, overrides)
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         if (domain != null) {
             CompanyLogo(domain = domain, contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(20.dp)) {}
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(tx.note.ifBlank { "(no text)" }, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(name ?: tx.note.ifBlank { "(no text)" }, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 "${Formatters.date(tx.date)} · ${tx.categoryName ?: "Uncategorized"} · ${tx.accountName}",
                 style = MaterialTheme.typography.labelSmall,

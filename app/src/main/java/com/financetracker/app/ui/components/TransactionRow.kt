@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.financetracker.app.data.ai.MerchantLogoLookup
+import com.financetracker.app.data.prefs.MerchantOverrides
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.ui.screens.receipts.ReceiptNav
@@ -56,9 +57,11 @@ fun TransactionRow(
         ) {
             // Company logo when one is known; otherwise the category icon as before.
             val cachedDomains by MerchantLogoLookup.domains.collectAsState()
+            val cachedNames by MerchantLogoLookup.names.collectAsState()
+            val overrides by MerchantOverrides.rules.collectAsState()
             LaunchedEffect(transaction.note) { MerchantLogoLookup.request(transaction.note) }
             CompanyLogo(
-                domain = MerchantLogoLookup.domainFor(transaction.note, cachedDomains),
+                domain = MerchantLogoLookup.domainFor(transaction.note, cachedDomains, overrides),
                 contentDescription = null,
                 modifier = Modifier.size(36.dp)
             ) {
@@ -72,7 +75,10 @@ fun TransactionRow(
             }
             Column(modifier = Modifier.padding(start = 12.dp)) {
                 Text(
-                    text = transaction.note.ifBlank { transaction.categoryName ?: "Transaction" },
+                    // The short company name ("HBO Max") when known; the bank's full text stays in
+                    // the transaction itself and shows when editing.
+                    text = MerchantLogoLookup.nameFor(transaction.note, cachedNames, overrides)
+                        ?: transaction.note.ifBlank { transaction.categoryName ?: "Transaction" },
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

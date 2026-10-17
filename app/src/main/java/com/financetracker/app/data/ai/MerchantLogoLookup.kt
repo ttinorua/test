@@ -2,6 +2,8 @@ package com.financetracker.app.data.ai
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.financetracker.app.data.prefs.MerchantOverride
+import com.financetracker.app.data.prefs.MerchantOverrides
 import com.financetracker.app.util.MerchantLogos
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +27,7 @@ import org.json.JSONObject
 object MerchantLogoLookup {
     private const val PREFS_NAME = "merchant_logos"
     private const val KEY_DOMAINS = "domains"
+    private const val KEY_NAMES = "names"
     private const val BATCH_SIZE = 40
 
     private lateinit var prefs: SharedPreferences
@@ -38,25 +41,52 @@ object MerchantLogoLookup {
     private val _domains = MutableStateFlow<Map<String, String>>(emptyMap())
     val domains: StateFlow<Map<String, String>> get() = _domains
 
+    /** Merchant key → short company name ("McDonald's"); "" means none (the bank's text is shown). */
+    private val _names = MutableStateFlow<Map<String, String>>(emptyMap())
+    val names: StateFlow<Map<String, String>> get() = _names
+
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        _domains.value = runCatching {
-            val json = JSONObject(prefs.getString(KEY_DOMAINS, null) ?: "{}")
-            json.keys().asSequence().associateWith { json.getString(it) }
-        }.getOrDefault(emptyMap())
+        _domains.value = readMap(KEY_DOMAINS)
+        _names.value = readMap(KEY_NAMES)
     }
 
-    /** The company domain for a transaction description, or null when there's no logo (yet). */
-    fun domainFor(description: String, cache: Map<String, String> = _domains.value): String? =
-        MerchantLogos.knownDomain(description)
+    private fun readMap(key: String): Map<String, String> = runCatching {
+        val json = JSONObject(prefs.getString(key, null) ?: "{}")
+        json.keys().asSequence().associateWith { json.getString(it) }
+    }.getOrDefault(emptyMap())
+
+    /** The company domain for a transaction description, or null when there's no logo (yet).
+     * The person's own choice ([MerchantOverrides]) comes first. */
+    fun domainFor(
+        description: String,
+        cache: Map<String, String> = _domains.value,
+        overrides: List<MerchantOverride> = MerchantOverrides.rules.value
+    ): String? {
+        MerchantOverrides.domainFor(description, overrides)?.let { return it.ifBlank { null } }
+        return MerchantLogos.knownDomain(description)
+            ?: MerchantLogos.merchantKey(description)?.let { cache[it] }?.ifBlank { null }
+    }
+
+    /** The short company name to show for a transaction description, or null to show the bank's
+     * text: the person's own name first, then the built-in list, then the AI's answer. */
+    fun nameFor(
+        description: String,
+        cache: Map<String, String> = _names.value,
+        overrides: List<MerchantOverride> = MerchantOverrides.rules.value
+    ): String? =
+        MerchantOverrides.nameFor(description, overrides)
+            ?: MerchantLogos.knownName(description)
             ?: MerchantLogos.merchantKey(description)?.let { cache[it] }?.ifBlank { null }
 
     /** Queues an AI lookup for [description] unless it's already known, cached or in flight. */
     fun request(description: String) {
-        if (!AiService.isConfigured || MerchantLogos.knownDomain(description) != null) return
+        if (!AiService.isConfigured) return
+        if (MerchantLogos.knownDomain(description) != null && MerchantLogos.knownName(description) != null) return
         val key = MerchantLogos.merchantKey(description) ?: return
         synchronized(lock) {
-            if (key in _domains.value || !askedThisSession.add(key)) return
+            // Merchants looked up before names were added only have a domain; ask once more.
+            if ((key in _domains.value && key in _names.value) || !askedThisSession.add(key)) return
             pending += key
             if (batchJob == null) {
                 batchJob = scope.launch {
@@ -79,23 +109,29 @@ object MerchantLogoLookup {
             }
             if (batch.isEmpty()) return
             val reply = AiService.ask(SYSTEM_PROMPT, JSONArray(batch).toString(), maxTokens = 2048L, quick = true)
-            val found = reply.getOrNull()?.let { MerchantLogos.parseDomainReply(it, batch) } ?: continue
-            save(found)
+            val (domains, names) = reply.getOrNull()?.let { MerchantLogos.parseLookupReply(it, batch) } ?: continue
+            save(domains, names)
         }
     }
 
-    private fun save(found: Map<String, String>) {
-        val updated = _domains.value + found
-        _domains.value = updated
+    private fun save(domains: Map<String, String>, names: Map<String, String>) {
+        val updatedDomains = _domains.value + domains
+        val updatedNames = _names.value + names
+        _domains.value = updatedDomains
+        _names.value = updatedNames
         if (::prefs.isInitialized) {
-            prefs.edit().putString(KEY_DOMAINS, JSONObject(updated).toString()).apply()
+            prefs.edit()
+                .putString(KEY_DOMAINS, JSONObject(updatedDomains).toString())
+                .putString(KEY_NAMES, JSONObject(updatedNames).toString())
+                .apply()
         }
     }
 
     private const val SYSTEM_PROMPT =
         "You identify companies from bank transaction descriptions (mostly Danish). You get a JSON " +
-            "array of descriptions. For each, give the company's main website domain, e.g. \"netto.dk\". " +
-            "Use null for private persons, transfers between accounts, or when you are not sure. " +
-            "Reply with only a JSON object mapping each description, exactly as given, to a domain " +
-            "string or null."
+            "array of descriptions. For each, give the company's main website domain, e.g. \"netto.dk\", " +
+            "and its short everyday name as people write it, e.g. \"McDonald's\", \"HBO Max\", \"Netto\". " +
+            "Use null for both for private persons, transfers between accounts, or when you are not sure. " +
+            "Reply with only a JSON object mapping each description, exactly as given, to an object " +
+            "{\"domain\": string or null, \"name\": string or null}."
 }

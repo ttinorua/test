@@ -3,6 +3,7 @@ package com.financetracker.app.ui.screens.transactions
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.ai.LearnedCategoryRules
+import com.financetracker.app.data.ai.MerchantLogoLookup
 import com.financetracker.app.data.db.entity.Account
 import com.financetracker.app.data.db.entity.Category
 import com.financetracker.app.data.db.entity.Transaction
@@ -105,6 +106,8 @@ class TransactionsViewModel(private val repository: FinanceRepository) : ViewMod
         fun matchesSearch(tx: TransactionWithDetails): Boolean {
             if (query.isBlank()) return true
             if (tx.note.contains(query, ignoreCase = true)) return true
+            // The short name shown in the list ("McDonald's") finds it too.
+            if (MerchantLogoLookup.nameFor(tx.note)?.contains(query, ignoreCase = true) == true) return true
             if (tx.categoryName?.contains(query, ignoreCase = true) == true) return true
             if (tx.mainCategoryName?.contains(query, ignoreCase = true) == true) return true
             val signedAmount = (if (tx.type == TransactionType.EXPENSE) "-" else "") + Formatters.amount(tx.amount)

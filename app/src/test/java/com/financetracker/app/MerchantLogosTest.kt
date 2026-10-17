@@ -2,6 +2,8 @@ package com.financetracker.app
 
 import com.financetracker.app.util.MerchantLogos
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -49,10 +51,29 @@ class MerchantLogosTest {
     }
 
     @Test
-    fun parseDomainReply_mapsEveryKeyAndMarksMissesEmpty() {
-        val reply = "```json\n{\"café rosa\": \"caferosa.dk\", \"jens hansen\": null}\n```"
-        val result = MerchantLogos.parseDomainReply(reply, listOf("café rosa", "jens hansen", "other"))
-        assertEquals(mapOf("café rosa" to "caferosa.dk", "jens hansen" to "", "other" to ""), result)
-        assertNull(MerchantLogos.parseDomainReply("Sorry, I can't help", listOf("x")))
+    fun parseLookupReply_readsDomainsAndNamesAndMarksMissesEmpty() {
+        val reply = "```json\n{\"café rosa\": {\"domain\": \"caferosa.dk\", \"name\": \"Café Rosa\"}, " +
+            "\"jens hansen\": {\"domain\": null, \"name\": null}, \"old style\": \"old.dk\"}\n```"
+        val (domains, names) = MerchantLogos.parseLookupReply(reply, listOf("café rosa", "jens hansen", "old style", "other"))!!
+        assertEquals(mapOf("café rosa" to "caferosa.dk", "jens hansen" to "", "old style" to "old.dk", "other" to ""), domains)
+        assertEquals(mapOf("café rosa" to "Café Rosa", "jens hansen" to "", "old style" to "", "other" to ""), names)
+        assertNull(MerchantLogos.parseLookupReply("Sorry, I can't help", listOf("x")))
+    }
+
+    @Test
+    fun knownMerchantsGetAShortName() {
+        assertEquals("McDonald's", MerchantLogos.knownName("MCDONALDS 4471 AARHUS"))
+        assertEquals("HBO Max", MerchantLogos.knownName("Visa HBO NORDIC 12345"))
+        assertEquals("Netto", MerchantLogos.knownName("MobilePay Netto 1234"))
+        // MobilePay to a person keeps the bank's text, which names the person.
+        assertNull(MerchantLogos.knownName("MobilePay Jens Hansen"))
+    }
+
+    @Test
+    fun containsWordsMatchesWholeWordsOnly() {
+        assertTrue(MerchantLogos.containsWords("MCD 4471 HBO NORDIC", "hbo"))
+        assertTrue(MerchantLogos.containsWords("Dankort-køb HBO-Max", "HBO max"))
+        assertFalse(MerchantLogos.containsWords("SHBOX 22", "hbo"))
+        assertFalse(MerchantLogos.containsWords("anything", " "))
     }
 }

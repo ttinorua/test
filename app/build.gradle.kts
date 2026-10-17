@@ -106,7 +106,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
+            // Code shrinking (R8) is off: on the 4-core cloud build machine it took over an
+            // hour for this app (mostly the big Apache POI spreadsheet library), and it has caused
+            // several bugs that only showed up in the installed app. The cost is a bigger APK.
+            // The rules in proguard-rules.pro stay in case shrinking is turned back on.
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

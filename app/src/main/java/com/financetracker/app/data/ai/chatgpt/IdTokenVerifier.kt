@@ -89,7 +89,8 @@ internal object IdTokenVerifier {
     internal fun rawToDer(raw: ByteArray): ByteArray {
         if (raw.size != 64) fail("malformed signature")
         fun integer(bytes: ByteArray): ByteArray {
-            val trimmed = bytes.dropWhile { it == 0.toByte() }.toByteArray().ifEmpty { byteArrayOf(0) }
+            val start = bytes.indexOfFirst { it != 0.toByte() }
+            val trimmed = if (start < 0) byteArrayOf(0) else bytes.copyOfRange(start, bytes.size)
             val value = if (trimmed[0] < 0) byteArrayOf(0) + trimmed else trimmed
             return byteArrayOf(0x02, value.size.toByte()) + value
         }

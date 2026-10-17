@@ -149,7 +149,7 @@ fun MerchantStyleDialog(note: String, onDismiss: () -> Unit) {
                         LogoChoice.NONE -> ""
                     }
                     // A different word than before replaces the old choice instead of leaving it behind.
-                    existing?.let { if (it.keyword != MerchantLogos.normalize(keyword)) MerchantOverrides.remove(it.keyword) }
+                    existing?.let { if (MerchantLogos.normalize(it.keyword) != MerchantLogos.normalize(keyword)) MerchantOverrides.remove(it.keyword) }
                     if (name.isBlank() && chosenDomain == null) {
                         MerchantOverrides.remove(keyword)
                     } else {

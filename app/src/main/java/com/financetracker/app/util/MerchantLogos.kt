@@ -65,6 +65,8 @@ object MerchantLogos {
         Known("rejsekort", "rejsekort.dk", "Rejsekort"),
         Known("mcdonald", "mcdonalds.com", "McDonald's"),
         Known("mcdonalds", "mcdonalds.com", "McDonald's"),
+        Known("mc donald", "mcdonalds.com", "McDonald's"),
+        Known("mc donalds", "mcdonalds.com", "McDonald's"),
         Known("burger king", "burgerking.dk", "Burger King"),
         Known("starbucks", "starbucks.com", "Starbucks"),
         Known("wolt", "wolt.com", "Wolt"),
@@ -74,6 +76,7 @@ object MerchantLogos {
         Known("booking com", "booking.com", "Booking.com"),
         Known("steam", "steampowered.com", "Steam"),
         Known("playstation", "playstation.com", "PlayStation"),
+        Known("revolut", "revolut.com", "Revolut"),
         Known("paypal", "paypal.com", null),
         Known("mobilepay", "mobilepay.dk", null),
     ).map { it.copy(keyword = normalize(it.keyword)) }
@@ -82,14 +85,21 @@ object MerchantLogos {
      * so "Dankort-køb Café Rosa" and "Visa Café Rosa" share one cached AI answer. */
     private val NOISE = setOf(
         "dankort", "visa", "mastercard", "køb", "kortkøb", "betaling", "nota", "dk", "bs",
-        "betalingsservice", "overførsel", "indbetaling", "udbetaling", "fra", "til", "c", "v", "n", "s", "k"
+        "betalingsservice", "overførsel", "indbetaling", "udbetaling", "fra", "til", "c", "v", "n", "s", "k",
+        // Card-type codes banks put first, e.g. Sydbank's "MCD 01914 Revolut" (Mastercard debit).
+        "mcd", "mc", "vd", "debit"
     )
 
     private val DOMAIN = Regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 
-    /** Lowercase, punctuation → spaces, single-spaced. Digits stay (for "rema 1000", "7-eleven"). */
+    /** Lowercase, punctuation → spaces, letters and digits split apart ("LIDL254S" → "lidl 254 s",
+     * so a store number glued to the name doesn't hide it), single-spaced. Digits stay (for
+     * "rema 1000", "7-eleven"). */
     fun normalize(text: String): String =
-        text.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+        text.lowercase()
+            .replace(Regex("(?<=\\p{L})(?=\\p{N})|(?<=\\p{N})(?=\\p{L})"), " ")
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .trim()
 
     private fun known(description: String): Known? {
         val padded = " ${normalize(description)} "

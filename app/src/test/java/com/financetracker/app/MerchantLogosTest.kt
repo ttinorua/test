@@ -76,4 +76,26 @@ class MerchantLogosTest {
         assertFalse(MerchantLogos.containsWords("SHBOX 22", "hbo"))
         assertFalse(MerchantLogos.containsWords("anything", " "))
     }
+
+    @Test
+    fun cardCodesAreNotCompanies() {
+        // Sydbank writes "MCD" (Mastercard debit) first; it isn't McDonald's.
+        assertNull(MerchantLogos.knownName("MCD 01920 Café Rosa"))
+        assertEquals("café rosa", MerchantLogos.merchantKey("MCD 01920 Café Rosa"))
+        assertEquals("Revolut", MerchantLogos.knownName("MCD 01914 Revolut**9301*"))
+        assertEquals("revolut.com", MerchantLogos.knownDomain("MCD 01914 Revolut**9301*"))
+        assertEquals("revolut", MerchantLogos.suggestedKeyword("MCD 01914 Revolut**9301*"))
+        // McDonald's itself is still found.
+        assertEquals("McDonald's", MerchantLogos.knownName("MCD 01915 MCDONALDS 4471"))
+        assertEquals("McDonald's", MerchantLogos.knownName("MC DONALDS AARHUS"))
+    }
+
+    @Test
+    fun aStoreNumberGluedToTheNameDoesNotHideIt() {
+        assertEquals("lidl.dk", MerchantLogos.knownDomain("MCD 01934 LIDL254S AARHUS"))
+        assertEquals("Lidl", MerchantLogos.knownName("MCD 01934 LIDL254S AARHUS"))
+        assertEquals("rema1000.dk", MerchantLogos.knownDomain("REMA1000 VIBY"))
+        assertEquals("q8.dk", MerchantLogos.knownDomain("Q8 HORSENS"))
+        assertTrue(MerchantLogos.containsWords("NETTO1234 AARHUS", "netto"))
+    }
 }

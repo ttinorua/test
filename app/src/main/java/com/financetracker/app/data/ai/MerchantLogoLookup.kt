@@ -47,9 +47,14 @@ object MerchantLogoLookup {
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        _domains.value = readMap(KEY_DOMAINS)
-        _names.value = readMap(KEY_NAMES)
+        // Answers saved before card codes like "MCD" were ignored were looked up with the code in
+        // the key (and often came back as McDonald's); drop them so they're asked again cleanly.
+        val stale = { key: String -> key.split(' ').any { it in STALE_WORDS } }
+        _domains.value = readMap(KEY_DOMAINS).filterKeys { !stale(it) }
+        _names.value = readMap(KEY_NAMES).filterKeys { !stale(it) }
     }
+
+    private val STALE_WORDS = setOf("mcd", "mc", "vd", "debit")
 
     private fun readMap(key: String): Map<String, String> = runCatching {
         val json = JSONObject(prefs.getString(key, null) ?: "{}")
@@ -131,6 +136,7 @@ object MerchantLogoLookup {
         "You identify companies from bank transaction descriptions (mostly Danish). You get a JSON " +
             "array of descriptions. For each, give the company's main website domain, e.g. \"netto.dk\", " +
             "and its short everyday name as people write it, e.g. \"McDonald's\", \"HBO Max\", \"Netto\". " +
+            "Codes at the start like MCD, MC, VD, Visa or Dankort are the card type, not the company. " +
             "Use null for both for private persons, transfers between accounts, or when you are not sure. " +
             "Reply with only a JSON object mapping each description, exactly as given, to an object " +
             "{\"domain\": string or null, \"name\": string or null}."

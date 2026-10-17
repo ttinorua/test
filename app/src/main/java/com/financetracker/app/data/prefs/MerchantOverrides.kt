@@ -43,12 +43,13 @@ object MerchantOverrides {
         val key = MerchantLogos.normalize(keyword)
         if (key.isEmpty()) return
         val rule = MerchantOverride(key, name?.trim()?.ifEmpty { null }, domain, System.currentTimeMillis())
-        save(_rules.value.filter { it.keyword != key } + rule)
+        save(_rules.value.filter { MerchantLogos.normalize(it.keyword) != key } + rule)
     }
 
     /** Back to automatic for [keyword]. */
     fun remove(keyword: String) {
-        save(_rules.value.filter { it.keyword != MerchantLogos.normalize(keyword) })
+        val key = MerchantLogos.normalize(keyword)
+        save(_rules.value.filter { MerchantLogos.normalize(it.keyword) != key })
     }
 
     private fun save(list: List<MerchantOverride>) {

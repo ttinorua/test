@@ -456,8 +456,8 @@ object ChatGptAuth {
 
     /** The page the browser shows after the sign-in, with a button back to the app. */
     private fun page(title: String, message: String): String {
-        val back = "intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;" +
-            "package=com.financetracker.app;end"
+        // A link the app declares it opens (see AndroidManifest.xml); Chrome sends other app links to Google Play.
+        val back = "financetracker://chatgpt-done"
         return """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>$title</title>
 <style>body{font-family:sans-serif;margin:32px 20px;text-align:center;color:#222}

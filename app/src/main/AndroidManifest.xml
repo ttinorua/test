@@ -51,6 +51,14 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="financetracker" android:host="onedrive-auth" />
             </intent-filter>
+            <!-- "Back to Finance Tracker" on the page shown after the ChatGPT sign-in: just brings the
+                 app to the front (Chrome only opens apps from a page through a link like this). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="financetracker" android:host="chatgpt-done" />
+            </intent-filter>
             <!-- A receipt shared from a store app (Netto+, Coop, Lidl Plus, REMA 1000…), a
                  screenshot or a PDF: the AI reads it and files it with its bank transaction. -->
             <intent-filter android:label="Add receipt">

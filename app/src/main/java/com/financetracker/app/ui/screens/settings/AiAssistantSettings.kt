@@ -237,6 +237,10 @@ private fun ChatGptRow(state: AiSettingsState) {
                 ok = false,
                 text = "Waiting for you to sign in to ChatGPT in the browser…"
             )
+            signIn is ChatGptAuth.SignIn.Finishing -> StatusLine(
+                ok = false,
+                text = "Finishing the ChatGPT sign-in…"
+            )
             email != null -> StatusLine(ok = true, text = "✓ Connected as $email — uses your ChatGPT plan")
             else -> StatusLine(
                 ok = false,
@@ -250,7 +254,7 @@ private fun ChatGptRow(state: AiSettingsState) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             when {
-                signIn is ChatGptAuth.SignIn.Waiting ->
+                signIn is ChatGptAuth.SignIn.Waiting || signIn is ChatGptAuth.SignIn.Finishing ->
                     TextButton(onClick = { ChatGptAuth.cancelSignIn() }) { Text("Cancel") }
                 email != null -> {
                     TextButton(onClick = { openUsage() }) { Text("Manage usage") }

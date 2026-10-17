@@ -49,6 +49,7 @@ object ChatGptAuth {
     private const val APP_NAME = "Finance Tracker"
     private const val PREFERRED_PORT = 1455
     private const val SIGN_IN_TIMEOUT_MS = 10 * 60 * 1000
+    private const val NETWORK_RETRY_MS = 3 * 60 * 1000L
 
     /** Where the person sees and caps what each app uses of their ChatGPT plan. */
     const val USAGE_URL = "https://chatgpt.com/settings/usage"
@@ -68,6 +69,8 @@ object ChatGptAuth {
     sealed interface SignIn {
         data object Idle : SignIn
         data object Waiting : SignIn
+        /** The browser came back; the app is finishing the sign-in with OpenAI. */
+        data object Finishing : SignIn
         /** [firstTime]: show the one-time "You're using your ChatGPT plan" message. */
         data class Done(val email: String, val firstTime: Boolean) : SignIn
         data class Failed(val message: String) : SignIn
@@ -87,7 +90,9 @@ object ChatGptAuth {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private var signInJob: Job? = null
-    private var receiver: LoopbackReceiver? = null
+    @Volatile private var receiver: LoopbackReceiver? = null
+    /** Counts sign-in attempts, so an old (cancelled) one never overwrites a newer one's state. */
+    @Volatile private var attempt = 0
 
     private val _status = MutableStateFlow(Status())
     val status: StateFlow<Status> = _status.asStateFlow()
@@ -111,33 +116,51 @@ object ChatGptAuth {
     fun startSignIn(context: Context) {
         cancelSignIn()
         val app = context.applicationContext
+        val mine = ++attempt
         _signIn.value = SignIn.Waiting
         signInJob = scope.launch {
-            _signIn.value = try {
-                runSignIn(app)
+            val result = try {
+                runSignIn(app, mine)
             } catch (e: Exception) {
                 SignIn.Failed(friendly(e))
-            } finally {
-                receiver?.close()
-                receiver = null
             }
+            if (mine == attempt) _signIn.value = result
         }
     }
 
     /** Stops waiting for the browser (the person closed it or changed their mind). */
     fun cancelSignIn() {
+        attempt++
         receiver?.close()
         receiver = null
         signInJob?.cancel()
         signInJob = null
-        if (_signIn.value is SignIn.Waiting) _signIn.value = SignIn.Idle
+        if (_signIn.value is SignIn.Waiting || _signIn.value is SignIn.Finishing) _signIn.value = SignIn.Idle
     }
 
     fun clearSignInMessage() {
-        if (_signIn.value !is SignIn.Waiting) _signIn.value = SignIn.Idle
+        if (_signIn.value !is SignIn.Waiting && _signIn.value !is SignIn.Finishing) _signIn.value = SignIn.Idle
     }
 
-    private fun runSignIn(context: Context): SignIn {
+    /**
+     * Runs [block] (a request to OpenAI), retrying while the phone can't reach it. Right after the
+     * sign-in the browser is in front and this app is in the background, and some phones (Samsung's
+     * battery saving, for one) cut a background app's internet. Trying again for a few minutes lets
+     * it finish as soon as the person is back in the app.
+     */
+    private fun <T> whenReachable(mine: Int, block: () -> T): T {
+        val deadline = System.currentTimeMillis() + NETWORK_RETRY_MS
+        while (true) {
+            try {
+                return block()
+            } catch (e: java.io.IOException) {
+                if (System.currentTimeMillis() > deadline || mine != attempt) throw e
+                Thread.sleep(3_000)
+            }
+        }
+    }
+
+    private fun runSignIn(context: Context, mine: Int): SignIn {
         val registration = registration()
         val previous = session()
         val hostId = hostId()
@@ -146,8 +169,8 @@ object ChatGptAuth {
         val verifier = random()
         val challenge = b64(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)))
 
-        val receiver = LoopbackReceiver.open(PREFERRED_PORT).also { receiver = it }
-        val redirectUri = "http://127.0.0.1:${receiver.port}${LoopbackReceiver.CALLBACK_PATH}"
+        val callbackReceiver = LoopbackReceiver.open(PREFERRED_PORT).also { receiver = it }
+        val redirectUri = "http://127.0.0.1:${callbackReceiver.port}${LoopbackReceiver.CALLBACK_PATH}"
         val params = linkedMapOf(
             "client_id" to (registration?.clientId ?: "dynamic_agent_client"),
             "ext_agent_host_id" to hostId,
@@ -171,13 +194,15 @@ object ChatGptAuth {
         val url = AUTHORIZE_URL + "?" + params.entries.joinToString("&") { (k, v) -> "$k=${enc(v)}" }
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
-        val callback = receiver.awaitCallback(SIGN_IN_TIMEOUT_MS) { result ->
+        val callback = callbackReceiver.use { it.awaitCallback(SIGN_IN_TIMEOUT_MS) { result ->
             if (result["state"] == state && result["code"] != null) {
                 page("Signed in", "Go back to Finance Tracker to finish connecting ChatGPT.")
             } else {
                 page("Not connected", "Nothing was changed. You can go back to Finance Tracker.")
             }
-        }
+        } }
+        if (receiver === callbackReceiver) receiver = null
+        if (mine == attempt) _signIn.value = SignIn.Finishing
         if (callback["state"] != state) return SignIn.Failed("The sign-in answer didn't match. Please try again.")
         callback["error"]?.let { error ->
             return SignIn.Failed(
@@ -193,23 +218,29 @@ object ChatGptAuth {
             else -> registration.clientId
         }
 
-        val tokens = postForm(
-            TOKEN_URL,
-            mapOf(
-                "grant_type" to "authorization_code",
-                "client_id" to clientId,
-                "code" to code,
-                "code_verifier" to verifier,
-                "redirect_uri" to redirectUri,
-                "resource" to RESOURCE
+        val tokens = whenReachable(mine) {
+            postForm(
+                TOKEN_URL,
+                mapOf(
+                    "grant_type" to "authorization_code",
+                    "client_id" to clientId,
+                    "code" to code,
+                    "code_verifier" to verifier,
+                    "redirect_uri" to redirectUri,
+                    "resource" to RESOURCE
+                )
             )
-        ).let { (status, body) ->
-            if (status !in 200..299) return SignIn.Failed("ChatGPT sign-in failed ($status). Please try again.")
+        }.let { (status, body) ->
+            if (status !in 200..299) {
+                val reason = runCatching { JSONObject(body).optString("error_description").ifBlank { JSONObject(body).optString("error") } }
+                    .getOrNull().orEmpty().ifBlank { body.take(120) }
+                return SignIn.Failed("ChatGPT sign-in failed ($status${if (reason.isNotBlank()) ": $reason" else ""}). Please try again.")
+            }
             JSONObject(body)
         }
         val idToken = tokens.optString("id_token").ifBlank { return SignIn.Failed("ChatGPT didn't confirm the account.") }
         val claims = IdTokenVerifier.verify(
-            idToken, JSONObject(get(JWKS_URL)), ISSUER, clientId, nonce, System.currentTimeMillis() / 1000
+            idToken, JSONObject(whenReachable(mine) { get(JWKS_URL) }), ISSUER, clientId, nonce, System.currentTimeMillis() / 1000
         )
         if (registration != null && registration.subject != claims.subject) {
             return SignIn.Failed(
@@ -409,11 +440,12 @@ object ChatGptAuth {
     )
 
     private fun friendly(e: Exception): String = when (e) {
-        is java.net.SocketTimeoutException -> "The ChatGPT sign-in took too long. Please try again."
-        is java.net.SocketException -> "The ChatGPT sign-in was stopped."
+        is java.net.SocketTimeoutException -> "The ChatGPT sign-in took too long (${e.message ?: "timeout"}). Please try again."
         is IdTokenVerifier.InvalidIdTokenException -> e.message ?: "ChatGPT's sign-in answer was rejected."
         is AiRequestException -> e.message ?: "ChatGPT sign-in failed."
-        is java.io.IOException -> "Couldn't reach ChatGPT. Check the internet connection and try again."
+        is java.io.IOException ->
+            "Couldn't reach ChatGPT to finish the sign-in (${e.javaClass.simpleName}: ${e.message ?: "no details"}). " +
+                "Please try again, and come back to Finance Tracker right after signing in."
         else -> "ChatGPT sign-in failed: ${e.message}"
     }
 

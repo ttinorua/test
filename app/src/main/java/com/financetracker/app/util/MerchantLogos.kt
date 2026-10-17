@@ -9,6 +9,9 @@ import org.json.JSONObject
  * normalised [merchantKey] that the AI lookup can cache its answer under for everything else.
  */
 object MerchantLogos {
+    // Compiled once, and declared first: KNOWN below already uses normalize while it's being
+    // built, and this runs for every transaction row and on every search keystroke.
+    private val DIGITS = Regex("\\p{N}+")
 
     /** A merchant in the built-in list. [name] is how it's shown in the transaction list; null
      * keeps the bank's text (MobilePay and PayPal: the text names the person or shop paid). */
@@ -95,11 +98,30 @@ object MerchantLogos {
     /** Lowercase, punctuation → spaces, letters and digits split apart ("LIDL254S" → "lidl 254 s",
      * so a store number glued to the name doesn't hide it), single-spaced. Digits stay (for
      * "rema 1000", "7-eleven"). */
-    fun normalize(text: String): String =
-        text.lowercase()
-            .replace(Regex("(?<=\\p{L})(?=\\p{N})|(?<=\\p{N})(?=\\p{L})"), " ")
-            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
-            .trim()
+    fun normalize(text: String): String {
+        // One pass by hand: this runs for every row and on every search keystroke, and the
+        // regex version was the slowest part of searching.
+        val out = StringBuilder(text.length + 8)
+        var pendingSpace = false
+        var last = 0 // 0 = nothing yet, 1 = letter, 2 = digit
+        for (c in text) {
+            val kind = when {
+                Character.isLetter(c) -> 1
+                Character.isDigit(c) -> 2
+                else -> 0
+            }
+            if (kind == 0) {
+                pendingSpace = true
+                continue
+            }
+            if (last != 0 && (pendingSpace || kind != last)) out.append(' ')
+            out.append(c.lowercaseChar())
+            pendingSpace = false
+            last = kind
+        }
+        return out.toString()
+    }
+
 
     private fun known(description: String): Known? {
         val padded = " ${normalize(description)} "
@@ -128,7 +150,7 @@ object MerchantLogos {
     /** Stable cache key for a merchant: no digits (store numbers, dates), no payment-method words,
      * at most four words. Null when nothing name-like is left. */
     fun merchantKey(description: String): String? =
-        normalize(description).replace(Regex("\\p{N}+"), " ")
+        normalize(description).replace(DIGITS, " ")
             .split(' ')
             .filter { it.isNotBlank() && it !in NOISE }
             .take(4)

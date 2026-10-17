@@ -51,6 +51,9 @@ import com.financetracker.app.ui.components.TransactionRow
 @Composable
 fun TransactionsScreen(viewModel: TransactionsViewModel) {
     val state by viewModel.uiState.collectAsState()
+    // The search text comes straight from the filter, not from the (background-built) list,
+    // so typing never lags or jumps.
+    val filter by viewModel.filter.collectAsState()
     val similarPrompt by viewModel.similarPrompt.collectAsState()
 
     var editingTransaction by remember { mutableStateOf<TransactionWithDetails?>(null) }
@@ -66,7 +69,7 @@ fun TransactionsScreen(viewModel: TransactionsViewModel) {
                         title = {
                             if (searchActive) {
                                 OutlinedTextField(
-                                    value = state.filter.searchQuery,
+                                    value = filter.searchQuery,
                                     onValueChange = viewModel::setSearchQuery,
                                     placeholder = { Text("Search note, category, amount") },
                                     singleLine = true,
@@ -75,7 +78,7 @@ fun TransactionsScreen(viewModel: TransactionsViewModel) {
                             } else {
                                 AccountFilterButton(
                                     accounts = state.allAccounts,
-                                    selectedId = state.filter.selectedAccountId,
+                                    selectedId = filter.selectedAccountId,
                                     onSelected = viewModel::selectAccount
                                 )
                             }
@@ -97,8 +100,8 @@ fun TransactionsScreen(viewModel: TransactionsViewModel) {
                     )
                     Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         PeriodSelectorChip(
-                            option = state.filter.periodOption,
-                            customRange = state.filter.customRange,
+                            option = filter.periodOption,
+                            customRange = filter.customRange,
                             onOptionSelected = viewModel::selectPeriod,
                             onCustomRangeSelected = viewModel::selectCustomRange
                         )

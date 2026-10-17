@@ -8,26 +8,35 @@ import java.util.Locale
 import java.util.TimeZone
 
 object Formatters {
+    /** One formatter per thread: SimpleDateFormat and DecimalFormat break (wrong text or a crash)
+     * when two threads use the same one, and the transaction list is now built in the background
+     * while the screen also formats. */
+    private class ThreadLocalFormat<T>(private val create: () -> T) : ThreadLocal<T>() {
+        override fun initialValue(): T = create()
+        operator fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>): T = get()!!
+    }
+    private fun <T> threadLocal(create: () -> T) = ThreadLocalFormat(create)
+
     // Plain grouped-decimal style (comma thousands, dot decimal) regardless of the
     // selected currency, matching the reference bank app's transaction list.
-    private val numberFormat = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.US))
+    private val numberFormat by threadLocal { DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.US)) }
 
-    private val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US).apply {
-        timeZone = TimeZone.getTimeZone("UTC")
+    private val dateFormat by threadLocal {
+        SimpleDateFormat("MMM d, yyyy", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
     }
-    private val fullDateFormat = SimpleDateFormat("EEEE d. MMMM yyyy", Locale.US).apply {
-        timeZone = TimeZone.getTimeZone("UTC")
+    private val fullDateFormat by threadLocal {
+        SimpleDateFormat("EEEE d. MMMM yyyy", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
     }
-    private val monthOnlyFormat = SimpleDateFormat("MMMM", Locale.US).apply {
-        timeZone = TimeZone.getTimeZone("UTC")
+    private val monthOnlyFormat by threadLocal {
+        SimpleDateFormat("MMMM", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
     }
     // Deliberately no explicit UTC timezone (unlike the calendar-day formats above) — this
     // formats a real wall-clock instant (when a bank sync finished), so it should read in
     // whatever timezone the device itself is set to.
-    private val syncTimestampFormat = SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.US)
-    private val timeOnlyFormat = SimpleDateFormat("HH:mm", Locale.US)
-    private val shortDayFormat = SimpleDateFormat("MMM d", Locale.US)
-    private val wholeFormat = DecimalFormat("#,##0", DecimalFormatSymbols(Locale.US))
+    private val syncTimestampFormat by threadLocal { SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.US) }
+    private val timeOnlyFormat by threadLocal { SimpleDateFormat("HH:mm", Locale.US) }
+    private val shortDayFormat by threadLocal { SimpleDateFormat("MMM d", Locale.US) }
+    private val wholeFormat by threadLocal { DecimalFormat("#,##0", DecimalFormatSymbols(Locale.US)) }
 
     private val CURRENCY_SYMBOLS = mapOf(
         "DKK" to "kr.",

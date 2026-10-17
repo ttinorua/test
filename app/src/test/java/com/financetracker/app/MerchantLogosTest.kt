@@ -98,4 +98,13 @@ class MerchantLogosTest {
         assertEquals("q8.dk", MerchantLogos.knownDomain("Q8 HORSENS"))
         assertTrue(MerchantLogos.containsWords("NETTO1234 AARHUS", "netto"))
     }
+
+    @Test
+    fun normalizeSplitsWordsNumbersAndPunctuation() {
+        assertEquals("mcd 01934 lidl 254 s aarhus", MerchantLogos.normalize("MCD 01934 LIDL254S, Aarhus"))
+        assertEquals("revolut 9301", MerchantLogos.normalize("  Revolut**9301*  "))
+        assertEquals("7 eleven", MerchantLogos.normalize("7-Eleven"))
+        assertEquals("føtex café", MerchantLogos.normalize("FØTEX/Café"))
+        assertEquals("", MerchantLogos.normalize(" *** "))
+    }
 }

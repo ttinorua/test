@@ -10,19 +10,24 @@ import com.financetracker.app.data.db.entity.Transaction
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.MainAccountSettings
+import com.financetracker.app.data.prefs.MerchantOverrides
 import com.financetracker.app.data.repository.FinanceRepository
 import com.financetracker.app.util.Formatters
 import com.financetracker.app.util.PeriodOption
 import com.financetracker.app.util.SimilarTransactionsPrompt
 import com.financetracker.app.util.findSimilarTransactions
 import com.financetracker.app.util.periodRange
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -65,19 +70,37 @@ class TransactionsViewModel(private val repository: FinanceRepository) : ViewMod
     private val _similarPrompt = MutableStateFlow<SimilarTransactionsPrompt?>(null)
     val similarPrompt: StateFlow<SimilarTransactionsPrompt?> = _similarPrompt.asStateFlow()
 
+    // Built in the background, and only for the latest input: with thousands of transactions,
+    // building the list on the main thread on every typed letter froze the app until Android
+    // closed it. The search box reads [filter] directly, so typing stays instant.
     val uiState: StateFlow<TransactionsUiState> = combine(
         repository.observeTransactions(),
         repository.observeAccounts(),
         repository.observeCategories(),
         _filter
     ) { transactions, accounts, categories, filter ->
+        Inputs(transactions, accounts, categories, filter)
+    }.conflate().map { (transactions, accounts, categories, filter) ->
         TransactionsUiState(
             allAccounts = accounts,
             categories = categories,
             filter = filter,
             displayItems = buildDisplayItems(transactions, accounts, filter)
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TransactionsUiState())
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TransactionsUiState())
+
+    /** Short name per bank text, and the name data it was worked out from. Only touched while
+     * building the list, which runs one build at a time. */
+    private val shortNames = HashMap<String, String?>()
+    private var shortNamesFrom: Pair<Map<String, String>?, List<*>?> = null to null
+
+    private data class Inputs(
+        val transactions: List<TransactionWithDetails>,
+        val accounts: List<Account>,
+        val categories: List<Category>,
+        val filter: TransactionFilterState
+    )
 
     fun selectAccount(accountId: Long?) {
         _filter.update { it.copy(selectedAccountId = accountId) }
@@ -102,12 +125,24 @@ class TransactionsViewModel(private val repository: FinanceRepository) : ViewMod
     ): List<TransactionListItem> {
         val (from, to) = periodRange(filter.periodOption, filter.customRange)
         val query = filter.searchQuery.trim()
+        // Short names ("McDonald's") worked out once per distinct bank text, not once per
+        // transaction: most transactions share their text with others.
+        // Kept between typed letters too, until a name changes (AI answer or the person's choice).
+        val cachedNames = MerchantLogoLookup.names.value
+        val overrides = MerchantOverrides.rules.value
+        if (cachedNames !== shortNamesFrom.first || overrides !== shortNamesFrom.second) {
+            shortNames.clear()
+            shortNamesFrom = cachedNames to overrides
+        }
+        fun shortName(note: String): String? =
+            if (shortNames.containsKey(note)) shortNames[note]
+            else MerchantLogoLookup.nameFor(note, cachedNames, overrides).also { shortNames[note] = it }
 
         fun matchesSearch(tx: TransactionWithDetails): Boolean {
             if (query.isBlank()) return true
             if (tx.note.contains(query, ignoreCase = true)) return true
             // The short name shown in the list ("McDonald's") finds it too.
-            if (MerchantLogoLookup.nameFor(tx.note)?.contains(query, ignoreCase = true) == true) return true
+            if (shortName(tx.note)?.contains(query, ignoreCase = true) == true) return true
             if (tx.categoryName?.contains(query, ignoreCase = true) == true) return true
             if (tx.mainCategoryName?.contains(query, ignoreCase = true) == true) return true
             val signedAmount = (if (tx.type == TransactionType.EXPENSE) "-" else "") + Formatters.amount(tx.amount)

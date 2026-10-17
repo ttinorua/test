@@ -43,13 +43,13 @@ object MerchantOverrides {
         val key = MerchantLogos.normalize(keyword)
         if (key.isEmpty()) return
         val rule = MerchantOverride(key, name?.trim()?.ifEmpty { null }, domain, System.currentTimeMillis())
-        save(_rules.value.filter { MerchantLogos.normalize(it.keyword) != key } + rule)
+        save(_rules.value.filter { it.keyword != key } + rule)
     }
 
     /** Back to automatic for [keyword]. */
     fun remove(keyword: String) {
         val key = MerchantLogos.normalize(keyword)
-        save(_rules.value.filter { MerchantLogos.normalize(it.keyword) != key })
+        save(_rules.value.filter { it.keyword != key })
     }
 
     private fun save(list: List<MerchantOverride>) {
@@ -60,20 +60,24 @@ object MerchantOverrides {
     /** The rule [description] falls under: the longest matching word wins (so "hbo max" beats
      * "hbo"), then the newest. */
     fun ruleFor(description: String, rules: List<MerchantOverride> = _rules.value): MerchantOverride? =
-        rules.filter { MerchantLogos.containsWords(description, it.keyword) }
-            .maxWithOrNull(compareBy<MerchantOverride> { it.keyword.length }.thenBy { it.updatedAt })
+        best(description, rules) { true }
 
     /** The person's name for [description], or null to fall back to the automatic one. */
     fun nameFor(description: String, rules: List<MerchantOverride> = _rules.value): String? =
-        rules.filter { it.name != null && MerchantLogos.containsWords(description, it.keyword) }
-            .maxWithOrNull(compareBy<MerchantOverride> { it.keyword.length }.thenBy { it.updatedAt })
-            ?.name
+        best(description, rules) { it.name != null }?.name
 
     /** The person's logo choice for [description]: a domain, "" for no logo, or null (automatic). */
     fun domainFor(description: String, rules: List<MerchantOverride> = _rules.value): String? =
-        rules.filter { it.domain != null && MerchantLogos.containsWords(description, it.keyword) }
+        best(description, rules) { it.domain != null }?.domain
+
+    /** Rule keywords are stored normalised, so the description is normalised once here rather
+     * than once per rule (this runs for every row and every search). */
+    private inline fun best(description: String, rules: List<MerchantOverride>, use: (MerchantOverride) -> Boolean): MerchantOverride? {
+        if (rules.isEmpty()) return null
+        val padded = " ${MerchantLogos.normalize(description)} "
+        return rules.filter { use(it) && " ${it.keyword} " in padded }
             .maxWithOrNull(compareBy<MerchantOverride> { it.keyword.length }.thenBy { it.updatedAt })
-            ?.domain
+    }
 
     internal fun serialize(list: List<MerchantOverride>): String = JSONArray().apply {
         list.forEach { r ->
@@ -92,7 +96,8 @@ object MerchantOverrides {
         (0 until array.length()).map { i ->
             val o = array.getJSONObject(i)
             MerchantOverride(
-                keyword = o.getString("keyword"),
+                // Normalised again on reading, in case the normalisation changed since it was saved.
+                keyword = MerchantLogos.normalize(o.getString("keyword")),
                 name = if (o.isNull("name")) null else o.getString("name"),
                 domain = if (o.isNull("domain")) null else o.getString("domain"),
                 updatedAt = o.optLong("updatedAt")

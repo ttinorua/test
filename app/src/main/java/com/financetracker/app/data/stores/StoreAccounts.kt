@@ -49,6 +49,16 @@ object StoreAccounts {
         save(context, load(context).map { if (it.id == id) change(it) else it })
     }
 
+    /** Makes every account fetch its last 12 months again on the next fetch. Used after a backup
+     * restore: the restore replaces the receipts but not the store connections, so without this
+     * the accounts would only look back from their last fetch and miss older receipts. */
+    fun resetFetchDates(context: Context) {
+        save(context, withFetchDatesReset(load(context)))
+    }
+
+    internal fun withFetchDatesReset(list: List<StoreAccount>): List<StoreAccount> =
+        list.map { it.copy(lastSyncAt = 0L, lastFetchAdded = 0) }
+
     fun remove(context: Context, id: String) {
         save(context, load(context).filter { it.id != id })
     }
@@ -67,6 +77,7 @@ object StoreAccounts {
                     .put("lastSyncAt", a.lastSyncAt)
                     .put("lastReceiptAt", a.lastReceiptAt)
                     .put("receiptCount", a.receiptCount)
+                    .put("lastFetchAdded", a.lastFetchAdded)
                     .put("problem", a.problem ?: JSONObject.NULL)
             )
         }
@@ -93,6 +104,7 @@ object StoreAccounts {
                     lastSyncAt = o.optLong("lastSyncAt"),
                     lastReceiptAt = o.optLong("lastReceiptAt"),
                     receiptCount = o.optInt("receiptCount"),
+                    lastFetchAdded = o.optInt("lastFetchAdded"),
                     problem = if (secret == null) "Sign in again" else o.optString("problem").takeUnless { o.isNull("problem") || it.isEmpty() }
                 )
             }

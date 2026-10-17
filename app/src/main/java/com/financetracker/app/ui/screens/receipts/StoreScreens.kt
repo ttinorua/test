@@ -12,6 +12,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -174,6 +175,15 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
     var managing by remember { mutableStateOf<StoreAccount?>(null) }
     var disconnecting by remember { mutableStateOf<StoreAccount?>(null) }
     var clearConsents by remember { mutableStateOf(false) }
+    // Accounts the person pressed "Fetch now" for, so the result can be shown when it's done.
+    val fetchRequested = remember { mutableSetOf<String>() }
+    LaunchedEffect(Unit) {
+        StoreSync.finished.collect { result ->
+            if (fetchRequested.remove(result.accountId)) {
+                Toast.makeText(context, StoreSync.resultText(result), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -222,7 +232,12 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
                                         account.problem != null -> account.problem
                                         account.lastSyncAt == 0L -> "Waiting to fetch"
                                         else -> (if (account.lastReceiptAt > 0) "Latest ${Formatters.date(account.lastReceiptAt)} · " else "") +
-                                            "synced ${Formatters.shortWhen(account.lastSyncAt)}"
+                                            "synced ${Formatters.shortWhen(account.lastSyncAt)} · " +
+                                            when (account.lastFetchAdded) {
+                                                0 -> "no new receipts"
+                                                1 -> "1 new receipt"
+                                                else -> "${account.lastFetchAdded} new receipts"
+                                            }
                                     }
                                     Text(
                                         status,
@@ -335,7 +350,9 @@ fun StoreConnectionsScreen(repository: FinanceRepository, onBack: () -> Unit, on
                 } else {
                     TextButton(onClick = {
                         managing = null
+                        fetchRequested += account.id
                         StoreSync.enqueue(context, account.id)
+                        Toast.makeText(context, "Fetching receipts from ${account.store.label}…", Toast.LENGTH_SHORT).show()
                     }) { Text("Fetch now") }
                 }
             },

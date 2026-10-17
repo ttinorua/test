@@ -52,6 +52,8 @@ data class StoreAccount(
     val lastSyncAt: Long = 0L,
     val lastReceiptAt: Long = 0L,
     val receiptCount: Int = 0,
+    /** How many receipts the last successful fetch added. */
+    val lastFetchAdded: Int = 0,
     /** Set when the last fetch failed, e.g. the store wants you to sign in again. */
     val problem: String? = null
 )

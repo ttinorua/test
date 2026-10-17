@@ -19,7 +19,9 @@ import com.financetracker.app.util.ReceiptMatcher
 import com.financetracker.app.util.ReceiptSplits
 import com.financetracker.app.util.ShoppingStats
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -40,6 +42,21 @@ object StoreSync {
     /** One fetch at a time: two at once would both renew the same sign-in, and a store that allows
      * each renewal only once then rejects the second and signs the account out. */
     private val lock = Mutex()
+
+    /** What a finished fetch did: how many receipts were new, or what went wrong. */
+    data class FetchResult(val accountId: String, val store: Store, val added: Int, val problem: String?)
+
+    private val _finished = MutableSharedFlow<FetchResult>(extraBufferCapacity = 16)
+    /** Each fetch as it finishes, so the screen can say what happened. */
+    val finished: SharedFlow<FetchResult> = _finished
+
+    /** A short line saying what a fetch did, e.g. "No new receipts from Netto+". */
+    fun resultText(result: FetchResult): String = when {
+        result.problem != null -> "${result.store.label}: ${result.problem}"
+        result.added == 0 -> "No new receipts from ${result.store.label}"
+        result.added == 1 -> "1 new receipt from ${result.store.label}"
+        else -> "${result.added} new receipts from ${result.store.label}"
+    }
 
     /** Fetches every connected account (or just [accountId]); returns how many receipts were new. */
     suspend fun syncAll(context: Context, repository: FinanceRepository, accountId: String? = null): Int = lock.withLock {
@@ -65,10 +82,12 @@ object StoreSync {
                     secret = secret,
                     lastSyncAt = now,
                     receiptCount = it.receiptCount + saved,
+                    lastFetchAdded = saved,
                     lastReceiptAt = maxOf(it.lastReceiptAt, fetched.maxOfOrNull { r -> r.receipt.purchasedAt } ?: 0L),
                     problem = null
                 )
             }
+            _finished.tryEmit(FetchResult(account.id, account.store, saved, null))
             return saved
         } catch (e: CancellationException) {
             throw e
@@ -77,6 +96,7 @@ object StoreSync {
             val failure = (e as? StoreFetchFailed)?.cause ?: e
             val problem = if (failure is StoreLoginExpired) "Sign in again" else "Couldn't fetch receipts (${failure.message ?: "no connection"})"
             StoreAccounts.update(context, account.id) { it.copy(secret = renewed ?: it.secret, problem = problem) }
+            _finished.tryEmit(FetchResult(account.id, account.store, 0, problem))
         } finally {
             _running.value = _running.value - account.id
         }

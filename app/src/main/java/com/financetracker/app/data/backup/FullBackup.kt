@@ -10,6 +10,8 @@ import com.financetracker.app.data.ai.AiSettings
 import com.financetracker.app.data.db.AppDatabase
 import com.financetracker.app.data.enablebanking.EnableBankingCredentials
 import com.financetracker.app.data.enablebanking.EnableBankingSyncWorker
+import com.financetracker.app.data.stores.StoreAccounts
+import com.financetracker.app.data.stores.StoreSync
 import kotlin.system.exitProcess
 
 /**
@@ -101,6 +103,12 @@ object FullBackup {
             }
         }
         editor.commit()
+
+        // Store connections aren't part of a backup, so they still remember their last fetch and
+        // would only look back from there. Fetch the last 12 months again instead; receipts
+        // already in the app are skipped.
+        StoreAccounts.resetFetchDates(context)
+        StoreSync.enqueue(context)
     }
 
     /** Writes a fresh full backup to [uri], encrypted with [password] (which also includes the

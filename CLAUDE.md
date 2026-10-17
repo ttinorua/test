@@ -48,7 +48,7 @@ Use the `build-apk` skill (`.claude/skills/build-apk/SKILL.md`). In short:
 
 ## Store receipts: status and open items
 
-Details of each connection: `docs/store-connectors.md`.
+Details of each connection: `docs/store-connectors.md` (full handover, incl. Coop findings: `docs/store-connectors-handover.md`).
 - Working: Lidl Plus, Nemlig.com, Netto+, Bilka+, Føtex+, REMA 1000 (Scan Selv purchases only).
 - Føtex+ note: an account without Føtex+ consent gets Salling's "Opret bruger" form after the
   password; the app makes it visible (its box was 0 px tall in the app window). Confirmed working

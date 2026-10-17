@@ -10,6 +10,7 @@ import com.financetracker.app.data.bank.SupportedBanks
 import com.financetracker.app.data.db.AppDatabase
 import com.financetracker.app.data.advisor.AttentionMonitor
 import com.financetracker.app.data.ai.AiSettings
+import com.financetracker.app.data.ai.chatgpt.ChatGptAuth
 import com.financetracker.app.data.ai.LearnedCategoryRules
 import com.financetracker.app.data.ai.MerchantLogoLookup
 import com.financetracker.app.data.prefs.MerchantOverrides
@@ -44,6 +45,7 @@ class FinanceApp : Application() {
         super.onCreate()
         CurrencySettings.init(this)
         LearnedCategoryRules.init(this)
+        ChatGptAuth.init(this)
         AiSettings.init(this)
         ThemeSettings.init(this)
         MainAccountSettings.init(this)

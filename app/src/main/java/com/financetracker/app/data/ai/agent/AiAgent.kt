@@ -59,6 +59,7 @@ object AiAgent {
                     when (provider) {
                         AiProvider.GEMINI -> GeminiAgentSession(key, systemPrompt, history, userMessage, tools)
                         AiProvider.GROQ -> GroqAgentSession(key, systemPrompt, history, userMessage, tools)
+                        AiProvider.CHATGPT -> ChatGptAgentSession(systemPrompt, history, userMessage, tools)
                         AiProvider.CLAUDE -> ClaudeAgentSession(systemPrompt, history, userMessage, tools)
                     }
                 }

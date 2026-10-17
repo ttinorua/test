@@ -1,5 +1,9 @@
 package com.financetracker.app.ui.screens.ai
 
+import com.financetracker.app.data.ai.chatgpt.ChatGptAuth
+import androidx.compose.ui.platform.LocalContext
+import android.net.Uri
+import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -246,6 +250,7 @@ private fun ChatBubble(message: AiChatMessage, onApply: (Int) -> Unit, onDismiss
             message.cards.forEach { card ->
                 AdvisorCardView(card, onApply = { onApply(card.id) }, onDismiss = { onDismiss(card.id) }, onUndo = { onUndo(card.id) })
             }
+            if (message.usedChatGptPlan) ChatGptPlanNote()
         }
     }
 }
@@ -328,5 +333,25 @@ private fun TransactionLine(tx: TransactionWithDetails) {
             color = if (tx.type == TransactionType.INCOME) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(start = 8.dp)
         )
+    }
+}
+
+/** OpenAI asks apps to say when an answer used the person's ChatGPT plan, with a way to manage it. */
+@Composable
+private fun ChatGptPlanNote() {
+    val context = LocalContext.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "Using ChatGPT plan",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        TextButton(onClick = {
+            runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(ChatGptAuth.USAGE_URL))
+                )
+            }
+        }) { Text("Manage usage", style = MaterialTheme.typography.labelSmall) }
     }
 }

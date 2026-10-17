@@ -2,7 +2,7 @@
 
 Ideas the owner asked to keep, with what was agreed so far.
 
-## AI advisor: show whether each AI has a key (agreed wording, not built yet)
+## AI advisor: show whether each AI has a key (built Oct 2026)
 
 Settings → AI advisor → AI assistant. Replace the grey line under each AI's name with:
 
@@ -40,8 +40,10 @@ in other apps, with per-app weekly caps in ChatGPT → Settings → Usage.
   `store: false` + streaming required, no hosted tools (own function tools work). Errors to
   handle: `subscription_sharing_usage_limit_exceeded` (429), `subscription_sharing_user_not_eligible` (403).
 - On Plus, the 5-hour limit is shared with ChatGPT Work/Codex and every other connected app.
-- The app has no OpenAI/ChatGPT provider today; this would be a fourth AI next to Gemini, Groq
-  and Claude.
+- Built Oct 2026 as "ChatGPT (your plan)": `data/ai/chatgpt/` (sign-in, receiver, requests) and
+  `data/ai/agent/ChatGptAgentSession.kt`. Default order Gemini → Groq → ChatGPT → Claude.
+  Not used for reading documents (receipts, loan papers). Free accounts: not confirmed by OpenAI;
+  an ineligible account gets a clear message and the next AI takes over.
 
 Sources: help.openai.com/en/articles/20001542, flaviocopes.com/sign-in-with-chatgpt,
 code.claude.com/docs/en/legal-and-compliance.

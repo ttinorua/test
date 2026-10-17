@@ -1,5 +1,6 @@
 package com.financetracker.app.ui.screens.ai
 
+import com.financetracker.app.data.ai.AiProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financetracker.app.data.ai.AiService
@@ -29,7 +30,9 @@ data class AiChatMessage(
     val isUser: Boolean,
     val text: String,
     val isError: Boolean = false,
-    val cards: List<AdvisorCard> = emptyList()
+    val cards: List<AdvisorCard> = emptyList(),
+    /** Answered on the person's ChatGPT plan (shows "Using ChatGPT plan"). */
+    val usedChatGptPlan: Boolean = false
 )
 
 data class AskAiUiState(
@@ -76,7 +79,12 @@ class AskAiViewModel(private val repository: FinanceRepository) : ViewModel() {
                     if (cards.isNotEmpty()) "Here's what I prepared — review it below." else
                         "I couldn't put together an answer for that. Try rephrasing it."
                 }
-                _messages.update { it + AiChatMessage(nextId++, isUser = false, text = reply, cards = cards) }
+                _messages.update {
+                    it + AiChatMessage(
+                        nextId++, isUser = false, text = reply, cards = cards,
+                        usedChatGptPlan = run.provider == AiProvider.CHATGPT
+                    )
+                }
             }.onFailure { error ->
                 _messages.update {
                     it + AiChatMessage(nextId++, isUser = false, text = error.message ?: "Something went wrong.", isError = true)

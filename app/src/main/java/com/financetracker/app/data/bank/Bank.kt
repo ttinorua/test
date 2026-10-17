@@ -52,7 +52,7 @@ object SupportedBanks {
         displayName = "SJF Bank",
         aspspName = "Sparekassen Sjælland-Fyn",
         aspspCountry = "DK",
-        logoDomain = "sjf.dk",
+        logoDomain = "sjfbank.dk",
         defaultCategories = BankdataDefaultCategories.ALL
     )
 

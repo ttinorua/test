@@ -48,11 +48,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.financetracker.app.data.ai.MerchantLogoLookup
 import com.financetracker.app.data.ai.advisor.AdvisorCard
 import com.financetracker.app.data.ai.advisor.CardStatus
 import com.financetracker.app.data.db.entity.TransactionType
 import com.financetracker.app.data.db.entity.TransactionWithDetails
 import com.financetracker.app.data.prefs.CurrencySettings
+import com.financetracker.app.ui.components.CompanyLogo
 import com.financetracker.app.ui.components.EmptyState
 import com.financetracker.app.util.Formatters
 
@@ -263,7 +265,14 @@ private fun AdvisorCardView(card: AdvisorCard, onApply: () -> Unit, onDismiss: (
 @Composable
 private fun TransactionLine(tx: TransactionWithDetails) {
     val currencyCode by CurrencySettings.currencyCode.collectAsState()
+    val cachedDomains by MerchantLogoLookup.domains.collectAsState()
+    LaunchedEffect(tx.note) { MerchantLogoLookup.request(tx.note) }
+    // These lines had no icon before, so only a found logo is shown — never an empty gap.
+    val domain = MerchantLogoLookup.domainFor(tx.note, cachedDomains)
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (domain != null) {
+            CompanyLogo(domain = domain, contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(20.dp)) {}
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(tx.note.ifBlank { "(no text)" }, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
